@@ -1,3 +1,65 @@
+export const CATEGORY = {
+  REVIEW_REQUEST: 'review_request',
+  MENTION: 'mention',
+  ON_MY_PR: 'on_my_pr',
+  THREAD_REPLY: 'thread_reply',
+};
+
+const ALLOWED_REASONS = new Set([
+  'review_requested', 'mention', 'team_mention',
+  'author', 'comment', 'subscribed', 'manual',
+]);
+
+function prNumber(thread) {
+  return Number(thread.subject.url.split('/').pop());
+}
+
+export function prHtmlUrl(thread) {
+  return `https://github.com/${thread.repository.full_name}/pull/${prNumber(thread)}`;
+}
+
+function baseItem(thread, extra) {
+  return {
+    repo: thread.repository.full_name,
+    number: prNumber(thread),
+    title: thread.subject.title,
+    threadId: thread.id,
+    updatedAt: thread.updated_at,
+    ...extra,
+  };
+}
+
+export function classify(thread, me, inspection) {
+  if (thread.subject?.type !== 'PullRequest') return null;
+  const reason = thread.reason;
+  if (!ALLOWED_REASONS.has(reason)) return null;
+
+  if (reason === 'review_requested') {
+    return baseItem(thread, { category: CATEGORY.REVIEW_REQUEST, actor: null, url: prHtmlUrl(thread) });
+  }
+
+  if (reason === 'mention' || reason === 'team_mention') {
+    const c = inspection?.latestComment;
+    return baseItem(thread, {
+      category: CATEGORY.MENTION,
+      actor: c?.user?.login ?? null,
+      url: c?.html_url ?? prHtmlUrl(thread),
+    });
+  }
+
+  if (reason === 'author') {
+    const c = inspection?.latestComment;
+    if (!c) return null;                       // pas de nouveau commentaire => mise à jour de PR
+    if (c.user?.login === me) return null;     // ma propre action
+    return baseItem(thread, { category: CATEGORY.ON_MY_PR, actor: c.user.login, url: c.html_url });
+  }
+
+  // comment / subscribed / manual
+  const reply = findReplyToMe(inspection?.reviewComments ?? [], me);
+  if (!reply) return null;
+  return baseItem(thread, { category: CATEGORY.THREAD_REPLY, actor: reply.user.login, url: reply.html_url });
+}
+
 // Regroupe les review-comments par fil (racine = remontée des in_reply_to_id).
 // Dans un fil où `me` a participé, renvoie le commentaire le plus récent d'un
 // autre auteur POSTÉRIEUR à mon dernier commentaire de ce fil (= une vraie
