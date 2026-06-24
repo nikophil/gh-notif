@@ -77,6 +77,13 @@ notif desktop : seuls les items de `data.notifications` le font.
    regroupe par racine, puis renvoie le commentaire d'un autre auteur **postérieur à mon dernier
    commentaire** du fil (pas juste « dans un fil où je suis »).
 
+   **Filtre `since` = `last_read_at` (⚠️ sinon faux positif sur notif rebumpée).** `findReplyToMe`
+   ignore aussi les réponses **antérieures ou égales à `last_read_at`** de la notification (passé par
+   `classify`). Sans ça : une activité tierce qui ne me concerne pas (ex. un échange entre deux
+   autres dans les commentaires principaux) rebumpe la notif, et on re-signale une **vieille réponse
+   déjà lue** comme « t'a répondu » (régression réelle #6993). Une réponse n'est une nouveauté que si
+   elle est postérieure à ma dernière lecture. `last_read_at` nul (jamais lue) ⇒ pas de filtre.
+
 3. **Dédup du `--watch` par URL d'évènement, jamais par `updated_at`.** GitHub bump l'`updated_at`
    du thread à chaque activité ; déduper dessus re-notifie en boucle (re-« review demandée » dès
    qu'un autre commente, double-notif du même commentaire). On déduplique sur l'URL précise

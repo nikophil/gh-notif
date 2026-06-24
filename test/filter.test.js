@@ -56,6 +56,19 @@ test('commentaire d\'un autre ANTÉRIEUR à ma participation → ignoré', () =>
   assert.equal(findReplyToMe(comments, ME), null);
 });
 
+test('findReplyToMe : réponse antérieure à `since` (déjà lue) → ignorée', () => {
+  const comments = [
+    { id: 1, user: { login: ME }, created_at: '2026-06-20T10:00:00Z', html_url: 'mine' },
+    { id: 2, in_reply_to_id: 1, user: { login: 'alice' }, created_at: '2026-06-20T11:00:00Z', html_url: 'u2' },
+  ];
+  // lue le 24/06 → la réponse du 20/06 n'est plus une nouveauté
+  assert.equal(findReplyToMe(comments, ME, '2026-06-24T00:00:00Z'), null);
+  // since avant la réponse → bien renvoyée
+  assert.equal(findReplyToMe(comments, ME, '2026-06-20T10:30:00Z')?.id, 2);
+  // sans since (défaut) → comportement inchangé
+  assert.equal(findReplyToMe(comments, ME)?.id, 2);
+});
+
 // ajouter
 const prThread = (over = {}) => ({
   id: 't1',
@@ -151,6 +164,31 @@ test('reason=mention collante mais vraie réponse dans mon fil → THREAD_REPLY 
   assert.equal(item.category, CATEGORY.THREAD_REPLY);
   assert.equal(item.actor, 'lnahiro');
   assert.equal(item.url, 'https://github.com/o/r/pull/42#discussion_r3');
+});
+
+test('régression #6993 : notif rebumpée, vieille réponse déjà lue (< last_read_at) → pas THREAD_REPLY', () => {
+  // Une activité tierce (échange entre deux autres en commentaires principaux)
+  // rebumpe une notif review_requested. La seule « réponse à moi » est ancienne
+  // (20/06) et déjà lue (last_read_at = 24/06) → ne doit pas re-déclencher.
+  const insp = { latestComment: { user: { login: 'lnahiro' }, html_url: 'x' }, reviewComments: [
+    { id: 1, user: { login: ME }, created_at: '2026-06-19T13:50:00Z', html_url: 'mine' },
+    { id: 2, in_reply_to_id: 1, user: { login: 'Nickinthebox' }, created_at: '2026-06-20T06:57:00Z', html_url: 'old-reply' },
+  ] };
+  const t = prThread({ reason: 'review_requested', last_read_at: '2026-06-24T14:44:49Z' });
+  const item = classify(t, ME, insp);
+  assert.notEqual(item?.category, CATEGORY.THREAD_REPLY);
+  assert.equal(item.category, CATEGORY.REVIEW_REQUEST); // retombe sur le fallback
+});
+
+test('réponse postérieure à last_read_at → THREAD_REPLY', () => {
+  const insp = { latestComment: null, reviewComments: [
+    { id: 1, user: { login: ME }, created_at: '2026-06-24T10:00:00Z', html_url: 'mine' },
+    { id: 2, in_reply_to_id: 1, user: { login: 'alice' }, created_at: '2026-06-24T15:00:00Z', html_url: 'fresh' },
+  ] };
+  const t = prThread({ reason: 'mention', last_read_at: '2026-06-24T12:00:00Z' });
+  const item = classify(t, ME, insp);
+  assert.equal(item.category, CATEGORY.THREAD_REPLY);
+  assert.equal(item.url, 'fresh');
 });
 
 test('comment sur PR où je suis juste reviewer (pas de fil à moi) → null', () => {

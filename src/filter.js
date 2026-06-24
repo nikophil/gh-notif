@@ -37,7 +37,7 @@ export function classify(thread, me, inspection) {
   // Une vraie réponse dans un fil où j'ai participé est le signal le plus précis :
   // elle prime sur la `reason` (qui reste « collante » sur review_requested/mention/
   // author/subscribed même quand l'évènement réel est une réponse de quelqu'un d'autre).
-  const reply = findReplyToMe(inspection?.reviewComments ?? [], me);
+  const reply = findReplyToMe(inspection?.reviewComments ?? [], me, thread.last_read_at);
   if (reply) {
     return baseItem(thread, { category: CATEGORY.THREAD_REPLY, actor: reply.user.login, url: reply.html_url });
   }
@@ -74,7 +74,10 @@ export function classify(thread, me, inspection) {
 // Dans un fil où `me` a participé, renvoie le commentaire le plus récent d'un
 // autre auteur POSTÉRIEUR à mon dernier commentaire de ce fil (= une vraie
 // réponse arrivée après ma participation). null si aucun.
-export function findReplyToMe(reviewComments, me) {
+// `since` (optionnel, = last_read_at de la notif) : on ignore les réponses
+// antérieures ou égales, déjà lues — sinon une activité tierce qui rebumpe la
+// notif re-signalerait une vieille réponse comme une nouveauté.
+export function findReplyToMe(reviewComments, me, since = null) {
   const byId = new Map(reviewComments.map((c) => [c.id, c]));
   const rootId = (c) => {
     let cur = c;
@@ -95,6 +98,7 @@ export function findReplyToMe(reviewComments, me) {
     for (const c of comments) {
       if (c.user?.login === me) continue;
       if (c.created_at <= myLatest) continue;
+      if (since && c.created_at <= since) continue; // réponse déjà lue → pas une nouveauté
       if (!best || c.created_at > best.created_at) best = c;
     }
   }
