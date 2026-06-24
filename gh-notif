@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync } from 'node:fs';
 import { makeGh } from './src/github.js';
-import { collectNotifications, collectPRs } from './src/collect.js';
+import { collectPRs } from './src/collect.js';
 import { renderList } from './src/render.js';
 import { sendNotification, watchEventLine } from './src/notify.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './src/state.js';
@@ -23,31 +23,47 @@ async function countdown(seconds) {
   process.stdout.write('\r\x1b[K'); // efface la ligne du compteur avant le poll
 }
 
+const RECENT_MAX = 8; // évènements de session affichés sous les tableaux
+
+// Redessine l'écran : en-tête + les deux tableaux (comme `gh notif`) + journal
+// des évènements détectés depuis le démarrage. Efface l'écran en TTY.
+function drawWatch(data, recent) {
+  if (process.stdout.isTTY) process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
+  process.stdout.write(`\x1b[2m🔄 gh notif --watch · maj ${now()} · toutes les ${POLL_SECONDS}s · Ctrl-C pour arrêter\x1b[0m\n\n`);
+  process.stdout.write(renderList(data));
+  if (recent.length > 0) {
+    process.stdout.write(`\n\x1b[1m🔔 Évènements détectés (session)\x1b[0m\n`);
+    for (const line of recent) process.stdout.write(`${line}\n`);
+  }
+}
+
 async function runWatch(gh, { scope }) {
   const me = await gh.getCurrentUser();
   const path = statePath();
   let primed = existsSync(path); // un état existe déjà : on notifie normalement
   const state = loadState(path);
-  process.stdout.write(`gh notif --watch : surveillance toutes les ${POLL_SECONDS}s (Ctrl-C pour arrêter)\n`);
+  const recent = []; // lignes d'évènements (plus récent en tête)
   for (;;) {
     try {
-      const items = await collectNotifications(gh, me, { all: false, scope });
+      const data = await collectPRs(gh, me, { all: false, scope });
+      const items = data.notifications ?? [];
       if (!primed) {
         // Premier run : on enregistre le backlog existant sans alerter,
         // pour ne notifier que les évènements survenant après le démarrage.
         for (const item of items) markSeen(state, item);
         saveState(path, state);
         primed = true;
-        process.stdout.write(`(premier run : ${items.length} notification(s) existante(s) marquée(s) comme vues, sans alerte)\n`);
       } else {
         const fresh = items.filter((i) => isNew(state, i));
         for (const item of fresh) {
           sendNotification(item);
-          process.stdout.write(`${watchEventLine(item, now())}\n`);
+          recent.unshift(watchEventLine(item, now()));
           markSeen(state, item);
         }
         if (fresh.length > 0) saveState(path, state);
       }
+      while (recent.length > RECENT_MAX) recent.pop();
+      drawWatch(data, recent);
     } catch (err) {
       process.stderr.write(`gh notif --watch: ${err.message}\n`);
     }
@@ -60,7 +76,7 @@ const HELP = `gh notif — notifications GitHub filtrées
 Usage:
   gh notif                   Deux tableaux : tes PR / les PR des autres
   gh notif --all             Inclut les notifications déjà lues
-  gh notif --watch           Poll en continu (compte à rebours) + notifs desktop
+  gh notif --watch           Tableaux rafraîchis en continu + notifs desktop
   gh notif --org <org>       Limite à une organisation
   gh notif --repo [o/r]      Limite à un dépôt (sans valeur = dépôt courant)
   gh notif --help            Affiche cette aide

@@ -162,5 +162,7 @@ export async function collectPRs(gh, me, { all = false, scope = null } = {}) {
     if (d && d.author?.login === me) mine.push(row);
     else others.push(row);
   });
-  return { mine, others };
+  // `notifications` = items de notification déjà classifiés (avec url d'évènement),
+  // exposés pour que `--watch` détecte les nouveautés sans refaire le travail.
+  return { mine, others, notifications: items };
 }

@@ -118,7 +118,11 @@ test('collectPRs: agrège les triggers d’une même PR et sépare mine/others',
       return null;
     },
   });
-  const { mine, others } = await collectPRs(gh, ME, {});
+  const { mine, others, notifications } = await collectPRs(gh, ME, {});
+
+  // notifications : items de notification classifiés, exposés pour --watch.
+  assert.ok(Array.isArray(notifications));
+  assert.equal(notifications.length, 3); // review_request + mention (o/r#42) + author (o/x#7)
 
   assert.equal(others.length, 1);
   assert.equal(others[0].repo, 'o/r');

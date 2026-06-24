@@ -39,8 +39,13 @@ gh-notif (parse args → scope)
   └─ renderList({mine, others}) → deux tableaux
 ```
 
-`--watch` : `runWatch` boucle sur `collectNotifications` (pas les recherches), diff via `state.js`,
-`sendNotification` + `watchEventLine` par nouvel item, puis `countdown` jusqu'au prochain poll.
+`--watch` : `runWatch` appelle `collectPRs` à chaque poll (mêmes données que `gh notif`) et
+**redessine les deux tableaux** (`drawWatch` : efface l'écran en TTY puis `renderList`). La détection
+des nouveautés se fait sur `data.notifications` (les items de notification, exposés par `collectPRs`)
+via `state.js` ; chaque nouvel item déclenche `sendNotification` + une ligne `watchEventLine`
+empilée dans un journal de session (max 8) affiché sous les tableaux. Puis `countdown` jusqu'au
+prochain poll. Les reviews en attente / PR authored (issues de recherche) n'émettent **pas** de
+notif desktop : seuls les items de `data.notifications` le font.
 
 ## Formes de données
 

@@ -57,17 +57,26 @@ sens. Une même PR peut cumuler plusieurs triggers.
 
 ## `--watch`
 
-`gh notif --watch` surveille en continu (~60 s), avec un compte à rebours, et **pousse une
-notification desktop** (`notify-send`) pour chaque nouvel évènement, en loggant son déclencheur :
+`gh notif --watch` affiche **les mêmes deux tableaux que `gh notif`**, mais **rafraîchis
+automatiquement** (~60 s, avec un compte à rebours), et **pousse en plus une notification desktop**
+(`notify-send`) pour chaque nouvel évènement. Les évènements détectés pendant la session sont aussi
+journalisés sous les tableaux :
 
 ```
-gh notif --watch : surveillance toutes les 60s (Ctrl-C pour arrêter)
+🔄 gh notif --watch · maj 14:36:50 · toutes les 60s · Ctrl-C pour arrêter
+
+📥 Tes PR ouvertes (5)
+┌────…
+👥 Activité sur les PR des autres (18)
+┌────…
+
+🔔 Évènements détectés (session)
 🔔 14:36:50  @lnahiro t'a répondu  ·  mapado/ticketing #7020 [WaitingList] Export…
 ⏳ prochain check dans 42s…
 ```
 
-Au tout premier lancement, le backlog existant est marqué « vu » **sans alerter** : tu n'es notifié
-que des évènements survenant **après** le démarrage.
+Au tout premier lancement, le backlog existant est marqué « vu » **sans alerter** : les tableaux
+s'affichent, mais tu n'es notifié (desktop) que des évènements survenant **après** le démarrage.
 
 ## Prérequis
 
