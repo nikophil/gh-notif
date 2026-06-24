@@ -63,7 +63,7 @@ test('getPullDetailsBatch : une requête GraphQL, alias par PR, forme normalisé
     p0: { pullRequest: {
       number: 42, title: 'A', author: { login: 'alice' }, createdAt: 'd1', additions: 10, deletions: 2,
       isDraft: false, state: 'OPEN',
-      latestReviews: { nodes: [{ author: { login: 'bob' }, state: 'APPROVED', submittedAt: 's1' }] },
+      latestOpinionatedReviews: { nodes: [{ author: { login: 'bob' }, state: 'APPROVED', submittedAt: 's1' }] },
       commits: { nodes: [{ commit: { statusCheckRollup: { state: 'SUCCESS' } } }] },
     } },
     p1: { pullRequest: null }, // PR introuvable → null
