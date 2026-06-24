@@ -34,16 +34,20 @@ export function classify(thread, me, inspection) {
   const reason = thread.reason;
   if (!ALLOWED_REASONS.has(reason)) return null;
 
-  if (reason === 'review_requested') {
-    return baseItem(thread, { category: CATEGORY.REVIEW_REQUEST, actor: null, url: prHtmlUrl(thread) });
-  }
-
   // Une vraie réponse dans un fil où j'ai participé est le signal le plus précis :
-  // elle prime sur la `reason` (qui reste « collante » sur mention/author/subscribed
-  // même quand l'évènement réel est une réponse de quelqu'un d'autre).
+  // elle prime sur la `reason` (qui reste « collante » sur review_requested/mention/
+  // author/subscribed même quand l'évènement réel est une réponse de quelqu'un d'autre).
   const reply = findReplyToMe(inspection?.reviewComments ?? [], me);
   if (reply) {
     return baseItem(thread, { category: CATEGORY.THREAD_REPLY, actor: reply.user.login, url: reply.html_url });
+  }
+
+  // Fallback review_requested : sert UNIQUEMENT au `--watch` (notification desktop
+  // d'une nouvelle demande de review). En mode liste, la `reason` est collante et peu
+  // fiable (reste après ta review) ; le trigger « review » y vient exclusivement de la
+  // recherche `review-requested:@me` (collectPending), pas de cet item. Voir collect.js.
+  if (reason === 'review_requested') {
+    return baseItem(thread, { category: CATEGORY.REVIEW_REQUEST, actor: null, url: prHtmlUrl(thread) });
   }
 
   if (reason === 'mention' || reason === 'team_mention') {

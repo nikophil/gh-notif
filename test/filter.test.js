@@ -90,6 +90,19 @@ test('review_requested → REVIEW_REQUEST avec URL PR', () => {
   assert.equal(item.updatedAt, '2026-06-24T12:00:00Z');
 });
 
+test('reason=review_requested collante mais réponse dans mon fil → THREAD_REPLY (prime sur review)', () => {
+  // J'ai été ajouté comme reviewer (reason reste « review_requested »), mais
+  // l'évènement réel est une réponse d'alice dans un fil où j'ai participé.
+  const insp = { latestComment: null, reviewComments: [
+    { id: 1, user: { login: ME }, created_at: '2026-06-24T10:00:00Z', html_url: 'mine' },
+    { id: 2, in_reply_to_id: 1, user: { login: 'alice' }, created_at: '2026-06-24T11:00:00Z', html_url: 'https://github.com/o/r/pull/42#discussion_r2' },
+  ] };
+  const item = classify(prThread({ reason: 'review_requested' }), ME, insp);
+  assert.equal(item.category, CATEGORY.THREAD_REPLY);
+  assert.equal(item.actor, 'alice');
+  assert.equal(item.url, 'https://github.com/o/r/pull/42#discussion_r2');
+});
+
 test('mention → MENTION avec auteur + URL du commentaire', () => {
   const insp = { latestComment: { user: { login: 'alice' }, html_url: 'https://github.com/o/r/pull/42#discussion_r9' }, reviewComments: [] };
   const item = classify(prThread({ reason: 'mention' }), ME, insp);

@@ -101,6 +101,9 @@ test('collectPRs: agrège les triggers d’une même PR et sépare mine/others',
   const gh = fakeGh({
     notifications: [reviewReqThread, reviewReqThread2, myThread],
     comment: { user: { login: 'bob' }, html_url: 'h' }, // pour le thread author
+    // o/r#42 est aussi en attente de review → le trigger « review » vient de la
+    // recherche (source fiable), pas de la notif review_requested collante.
+    search: [{ number: 42, title: 'PR A', html_url: 'https://github.com/o/r/pull/42', updated_at: '2026-06-24T12:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
     details: (repo, number) => {
       if (repo === 'o/r' && number === 42) return { number: 42, title: 'PR A', author: { login: 'alice' }, createdAt: '2026-06-21T12:00:00Z', additions: 10, deletions: 2, statusCheckRollup: [{ conclusion: 'SUCCESS', status: 'COMPLETED' }] };
       if (repo === 'o/x' && number === 7) return { number: 7, title: 'Ma PR', author: { login: ME }, createdAt: '2026-06-23T12:00:00Z', additions: 1, deletions: 0, statusCheckRollup: [] };
@@ -134,6 +137,36 @@ test('collectPRs: une PR ouverte que j’ai écrite (sans activité) apparaît d
   assert.equal(mine[0].repo, 'o/x');
   assert.deepEqual(mine[0].triggers, []);
   assert.equal(mine[0].ci, 'pass');
+});
+
+test('collectPRs: notif review_requested collante mais déjà review (absente du search, sans réponse) → ignorée', async () => {
+  // Régression #7036 : la notif garde reason=review_requested à vie. Comme la PR
+  // n'est plus dans review-requested:@me (déjà review) et qu'aucune réponse ne vise
+  // mon fil, elle ne doit produire AUCUNE ligne (ni « review », ni autre).
+  const gh = fakeGh({
+    notifications: [reviewReqThread], // o/r#42, reason review_requested
+    search: [],                        // plus en attente
+    reviewComments: [],                // aucune réponse à mon fil
+    details: () => ({ number: 42, title: 'PR A', author: { login: 'alice' }, createdAt: '2026-06-21T12:00:00Z', additions: 1, deletions: 0, statusCheckRollup: [] }),
+  });
+  const { mine, others } = await collectPRs(gh, ME, {});
+  assert.equal(mine.length, 0);
+  assert.equal(others.length, 0);
+});
+
+test('collectPRs: notif review_requested collante AVEC réponse à mon fil → ligne « reply » (pas « review »)', async () => {
+  const gh = fakeGh({
+    notifications: [reviewReqThread], // o/r#42, reason review_requested
+    search: [],                        // plus en attente
+    reviewComments: [
+      { id: 1, user: { login: ME }, created_at: '2026-06-24T10:00:00Z', html_url: 'mine' },
+      { id: 2, in_reply_to_id: 1, user: { login: 'alice' }, created_at: '2026-06-24T11:00:00Z', html_url: 'https://github.com/o/r/pull/42#discussion_r2' },
+    ],
+    details: () => ({ number: 42, title: 'PR A', author: { login: 'alice' }, createdAt: '2026-06-21T12:00:00Z', additions: 1, deletions: 0, statusCheckRollup: [] }),
+  });
+  const { others } = await collectPRs(gh, ME, {});
+  assert.equal(others.length, 1);
+  assert.deepEqual(others[0].triggers, ['reply']);
 });
 
 test('collectPRs: une review en attente non vue ajoute une PR « autres » avec trigger review', async () => {

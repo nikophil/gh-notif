@@ -51,11 +51,21 @@ gh-notif (parse args → scope)
 
 ## Décisions non-évidentes (⚠️ pièges)
 
-1. **La `reason` GitHub est « collante ».** Une PR où tu as été mentionné garde `reason: mention`
-   même quand l'évènement réel suivant est une réponse de quelqu'un d'autre. Donc `classify` ne fait
-   **pas** confiance à la `reason` seule : il teste `findReplyToMe` **en premier** (signal le plus
-   précis → `THREAD_REPLY`), et ne retombe sur mention/author qu'ensuite. `inspectThread` récupère
-   **toujours** les review-comments, pas seulement pour `reason: comment`.
+1. **La `reason` GitHub est « collante ».** Une PR où tu as été mentionné garde `reason: mention`,
+   et une PR où tu as été ajouté comme reviewer garde `reason: review_requested` **à vie** — même
+   après ta review, même quand l'évènement réel suivant est une réponse de quelqu'un d'autre ou une
+   activité tierce (push/CI/review d'un autre). Donc `classify` ne fait **pas** confiance à la
+   `reason` seule : il teste `findReplyToMe` **en premier** (signal le plus précis → `THREAD_REPLY`,
+   prime sur review_requested ET mention), et ne retombe sur review_requested/mention/author
+   qu'ensuite. `inspectThread` récupère **toujours** les review-comments (y compris pour
+   `review_requested`), pas seulement pour `reason: comment`.
+
+   **Corollaire (source d'autorité des reviews en attente).** Le trigger « review » du mode liste
+   ne vient **jamais** d'une notification (collante, non fiable) : il vient exclusivement de
+   `collectPending` → recherche `review-requested:@me`, que GitHub vide dès que tu reviews. En
+   pratique `classify` peut émettre `REVIEW_REQUEST`, mais `collectPRs` l'**ignore** (absent de
+   `TRIGGER_FOR`) ; cet item ne sert qu'au `--watch` (notifier une *nouvelle* demande de review).
+   C'est ce qui évite qu'une PR déjà review (ex. réel : #7036) ré-apparaisse avec un trigger « review ».
 
 2. **GitHub aplatit les fils de review.** Toutes les réponses d'un fil pointent vers le commentaire
    **racine** (`in_reply_to_id` = racine), pas vers le commentaire précédent. `findReplyToMe`

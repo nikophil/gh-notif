@@ -1,7 +1,10 @@
 import { classify, CATEGORY } from './filter.js';
 
+// Triggers dérivés des notifications. Volontairement SANS review_request : en mode
+// liste, le trigger « review » provient exclusivement de collectPending (recherche
+// `review-requested:@me`, fiable car GitHub t'en retire dès que tu reviews). La
+// `reason: review_requested` d'une notif est collante et resterait après ta review.
 const TRIGGER_FOR = {
-  [CATEGORY.REVIEW_REQUEST]: 'review',
   [CATEGORY.MENTION]: 'mention',
   [CATEGORY.THREAD_REPLY]: 'reply',
   [CATEGORY.ON_MY_PR]: 'comment',
@@ -21,11 +24,10 @@ export function scopeQualifier(scope) {
 }
 
 export async function inspectThread(gh, thread, me) {
-  if (thread.reason === 'review_requested') return null;
-
   // On récupère le dernier commentaire (acteur des mention/author) ET les
   // review-comments (détection de réponse à mon fil), car la `reason` est
-  // « collante » : une réponse réelle peut arriver sous une reason=mention.
+  // « collante » : une réponse réelle peut arriver sous une reason=mention OU
+  // review_requested (d'où la récupération même pour les demandes de review).
   const number = Number(thread.subject.url.split('/').pop());
   const url = thread.subject?.latest_comment_url;
   const [latestComment, reviewComments] = await Promise.all([
@@ -119,7 +121,11 @@ export async function collectPRs(gh, me, { all = false, scope = null } = {}) {
     }
     return byKey.get(key);
   };
-  for (const it of items) ensure(it.repo, it.number, it.title).triggers.add(TRIGGER_FOR[it.category]);
+  for (const it of items) {
+    const trig = TRIGGER_FOR[it.category];
+    if (!trig) continue; // review_request : ignoré ici (cf. TRIGGER_FOR / collectPending)
+    ensure(it.repo, it.number, it.title).triggers.add(trig);
+  }
   for (const p of pending) ensure(p.repo, p.number, p.title).triggers.add('review');
   for (const a of authored) ensure(a.repo, a.number, a.title); // dashboard : pas de trigger
 
