@@ -131,6 +131,12 @@ Fichier `~/.local/state/gh-notif/seen.json` (respecte `XDG_STATE_HOME`).
 Map `thread_id → dernier updated_at notifié`. Un item est « nouveau » si son `updated_at` est
 strictement postérieur à la valeur stockée (ou absente). Évite de re-notifier au poll suivant.
 
+**Premier run (seed silencieux).** Si le fichier d'état n'existe pas encore, le tout premier
+poll de `--watch` marque tout le backlog existant comme « vu » **sans envoyer aucune notif
+desktop**, puis bascule en mode normal. On ne notifie ainsi que les évènements survenant *après*
+le démarrage du watch — le backlog reste consultable via `gh notif`. Sans ça, le premier
+lancement enverrait une notif desktop par non-lue existante (un flot).
+
 ## Affichage
 
 ```
