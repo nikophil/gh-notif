@@ -20,10 +20,14 @@ gh extension install .
 
 ## Usage
 ```bash
-gh notif            # liste filtrée + reviews en attente
-gh notif --all      # inclut les notifications déjà lues
-gh notif --watch    # surveille et pousse des notifs desktop (toutes les 60s)
+gh notif                      # deux tableaux : tes PR / les PR des autres
+gh notif --all                # inclut les notifications déjà lues
+gh notif --watch              # surveille et pousse des notifs desktop (~60s)
+gh notif --org mapado         # limite à une organisation
+gh notif --repo mapado/web    # limite à un dépôt
+gh notif --repo               # limite au dépôt courant (gh repo view)
 ```
+`--org` et `--repo` sont mutuellement exclusifs et fonctionnent aussi avec `--watch`.
 
 ## Tests
 ```bash

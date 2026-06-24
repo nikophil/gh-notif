@@ -42,6 +42,12 @@ Node donne le JSON natif sans build, et `gh api` apporte la robustesse.
 - `gh notif --watch` — boucle de poll (intervalle = header `X-Poll-Interval`, ~60s), diff contre
   l'état, `notify-send` pour chaque **nouvel** item, met à jour l'état. (Le `--watch` ne traite
   que les événements du flux `/notifications`, pas la pile « reviews en attente ».)
+- `gh notif --org <org>` — limite la sortie à une organisation.
+- `gh notif --repo [owner/repo]` — limite à un dépôt ; **sans valeur**, utilise le dépôt courant
+  (`gh repo view`). `--org` et `--repo` sont **mutuellement exclusifs** et s'appliquent aussi à
+  `--watch`. Filtrage appliqué tôt : qualifiers `org:`/`repo:` sur les recherches, et filtre des
+  notifications par `repository.full_name` **avant** les `gh pr view` (pour ne pas payer les
+  appels détaillés hors scope).
 
 ## Structure du repo
 

@@ -7,6 +7,19 @@ const TRIGGER_FOR = {
   [CATEGORY.ON_MY_PR]: 'comment',
 };
 
+// scope : null (tout) | { type:'org', value } | { type:'repo', value:'owner/name' }
+export function scopeMatches(scope, fullName) {
+  if (!scope) return true;
+  if (scope.type === 'org') return (fullName || '').startsWith(`${scope.value}/`);
+  return fullName === scope.value;
+}
+
+// Qualifier de recherche GitHub correspondant au scope (chaîne préfixée d'un espace).
+export function scopeQualifier(scope) {
+  if (!scope) return '';
+  return scope.type === 'org' ? ` org:${scope.value}` : ` repo:${scope.value}`;
+}
+
 export async function inspectThread(gh, thread, me) {
   const reason = thread.reason;
   if (reason === 'review_requested') return null;
@@ -23,11 +36,12 @@ export async function inspectThread(gh, thread, me) {
   return { latestComment: null, reviewComments };
 }
 
-export async function collectNotifications(gh, me, { all = false } = {}) {
+export async function collectNotifications(gh, me, { all = false, scope = null } = {}) {
   const threads = await gh.listNotifications({ all });
   const items = [];
   for (const thread of threads) {
     if (thread.subject?.type !== 'PullRequest') continue; // évite tout fetch inutile
+    if (!scopeMatches(scope, thread.repository?.full_name)) continue; // hors org/repo demandé
     const inspection = await inspectThread(gh, thread, me);
     const item = classify(thread, me, inspection);
     if (item) items.push(item);
@@ -35,8 +49,8 @@ export async function collectNotifications(gh, me, { all = false } = {}) {
   return items;
 }
 
-export async function collectPending(gh) {
-  const items = await gh.searchReviewRequested();
+export async function collectPending(gh, scope = null) {
+  const items = await gh.searchReviewRequested(scopeQualifier(scope));
   return items.map((it) => ({
     repo: it.repository_url.replace('https://api.github.com/repos/', ''),
     number: it.number,
@@ -46,8 +60,8 @@ export async function collectPending(gh) {
   }));
 }
 
-export async function collectAuthored(gh) {
-  const items = await gh.searchAuthored();
+export async function collectAuthored(gh, scope = null) {
+  const items = await gh.searchAuthored(scopeQualifier(scope));
   return items.map((it) => ({
     repo: it.repository_url.replace('https://api.github.com/repos/', ''),
     number: it.number,
@@ -91,11 +105,11 @@ export function ciRollup(rollup) {
 // Regroupe notifications + reviews en attente par PR, agrège les triggers,
 // récupère les détails de chaque PR (auteur / date / diff / CI) en parallèle,
 // puis sépare selon que la PR est de moi ou d'un autre.
-export async function collectPRs(gh, me, { all = false } = {}) {
+export async function collectPRs(gh, me, { all = false, scope = null } = {}) {
   const [items, pending, authored] = await Promise.all([
-    collectNotifications(gh, me, { all }),
-    collectPending(gh),
-    collectAuthored(gh),
+    collectNotifications(gh, me, { all, scope }),
+    collectPending(gh, scope),
+    collectAuthored(gh, scope),
   ]);
 
   const byKey = new Map();

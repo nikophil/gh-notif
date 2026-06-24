@@ -23,7 +23,7 @@ async function countdown(seconds) {
   process.stdout.write('\r\x1b[K'); // efface la ligne du compteur avant le poll
 }
 
-async function runWatch(gh) {
+async function runWatch(gh, { scope }) {
   const me = await gh.getCurrentUser();
   const path = statePath();
   let primed = existsSync(path); // un état existe déjà : on notifie normalement
@@ -31,7 +31,7 @@ async function runWatch(gh) {
   process.stdout.write(`gh notif --watch : surveillance toutes les ${POLL_SECONDS}s (Ctrl-C pour arrêter)\n`);
   for (;;) {
     try {
-      const items = await collectNotifications(gh, me, { all: false });
+      const items = await collectNotifications(gh, me, { all: false, scope });
       if (!primed) {
         // Premier run : on enregistre le backlog existant sans alerter,
         // pour ne notifier que les évènements survenant après le démarrage.
@@ -58,28 +58,72 @@ async function runWatch(gh) {
 const HELP = `gh notif — notifications GitHub filtrées
 
 Usage:
-  gh notif            Deux tableaux : activité sur tes PR / sur les PR des autres
-  gh notif --all      Inclut les notifications déjà lues
-  gh notif --watch    Poll en continu (compte à rebours) et pousse des notifs
-                      desktop, en loggant chaque notif + son déclencheur
-  gh notif --help     Affiche cette aide
+  gh notif                   Deux tableaux : tes PR / les PR des autres
+  gh notif --all             Inclut les notifications déjà lues
+  gh notif --watch           Poll en continu (compte à rebours) + notifs desktop
+  gh notif --org <org>       Limite à une organisation
+  gh notif --repo [o/r]      Limite à un dépôt (sans valeur = dépôt courant)
+  gh notif --help            Affiche cette aide
+
+--org et --repo sont mutuellement exclusifs. Ils s'appliquent aussi à --watch.
 `;
 
-async function runList(gh, { all }) {
+// Parse les arguments. repo: undefined=absent, null=donné sans valeur (dépôt
+// courant), string=valeur. org: undefined=absent, null=donné sans valeur
+// (erreur, valeur requise), string=valeur.
+function parseArgs(argv) {
+  const args = argv.slice(2);
+  const flags = { all: false, watch: false, help: false, org: undefined, repo: undefined };
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    const takeValue = () => {
+      const next = args[i + 1];
+      if (next && !next.startsWith('-')) { i += 1; return next; }
+      return null;
+    };
+    if (a === '--help' || a === '-h') flags.help = true;
+    else if (a === '--all') flags.all = true;
+    else if (a === '--watch') flags.watch = true;
+    else if (a.startsWith('--org=')) flags.org = a.slice(6);
+    else if (a === '--org') flags.org = takeValue();
+    else if (a.startsWith('--repo=')) flags.repo = a.slice(7);
+    else if (a === '--repo') flags.repo = takeValue();
+  }
+  return flags;
+}
+
+async function resolveScope(gh, flags) {
+  if (flags.org !== undefined && flags.repo !== undefined) {
+    throw new Error('--org et --repo sont mutuellement exclusifs');
+  }
+  if (flags.org !== undefined) {
+    if (!flags.org) throw new Error('--org requiert une valeur (ex. --org mapado)');
+    return { type: 'org', value: flags.org };
+  }
+  if (flags.repo !== undefined) {
+    const value = flags.repo ?? (await gh.currentRepo());
+    if (!value) throw new Error('--repo sans valeur : impossible de déterminer le dépôt courant (pas dans un dépôt git ?)');
+    return { type: 'repo', value };
+  }
+  return null;
+}
+
+async function runList(gh, { all, scope }) {
   const me = await gh.getCurrentUser();
-  const data = await collectPRs(gh, me, { all });
+  const data = await collectPRs(gh, me, { all, scope });
   process.stdout.write(renderList(data));
 }
 
 async function main(argv) {
-  const args = new Set(argv.slice(2));
-  if (args.has('--help') || args.has('-h')) { process.stdout.write(HELP); return; }
+  const flags = parseArgs(argv);
+  if (flags.help) { process.stdout.write(HELP); return; }
   const gh = makeGh();
   try {
-    if (args.has('--watch')) {
-      await runWatch(gh);
+    const scope = await resolveScope(gh, flags);
+    if (flags.watch) {
+      await runWatch(gh, { scope });
     } else {
-      await runList(gh, { all: args.has('--all') });
+      await runList(gh, { all: flags.all, scope });
     }
   } catch (err) {
     process.stderr.write(`gh notif: ${err.message}\n`);

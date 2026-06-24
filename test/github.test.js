@@ -41,12 +41,21 @@ test('getReviewComments construit le bon chemin', async () => {
   assert.ok(runner.calls[0].join(' ').includes('repos/o/r/pulls/42/comments'));
 });
 
-test('searchAuthored interroge author:@me', async () => {
+test('searchAuthored interroge author:@me et accepte un qualifier', async () => {
   const runner = fakeRunner([['search/issues', JSON.stringify({ items: [{ number: 7 }] })]]);
   const gh = makeGh(runner);
-  const out = await gh.searchAuthored();
+  const out = await gh.searchAuthored(' org:mapado');
   assert.equal(out[0].number, 7);
-  assert.ok(runner.calls[0].join(' ').includes('author:@me'));
+  const q = runner.calls[0].join(' ');
+  assert.ok(q.includes('author:@me'));
+  assert.ok(q.includes('org:mapado'));
+});
+
+test('currentRepo renvoie nameWithOwner, null si hors dépôt', async () => {
+  const gh = makeGh(fakeRunner([['repo view', JSON.stringify({ nameWithOwner: 'mapado/ticketing' })]]));
+  assert.equal(await gh.currentRepo(), 'mapado/ticketing');
+  const ghErr = makeGh(async () => { throw new Error('not a git repo'); });
+  assert.equal(await ghErr.currentRepo(), null);
 });
 
 test('getPullDetails appelle `gh pr view` avec les bons champs', async () => {

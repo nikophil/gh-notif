@@ -38,13 +38,20 @@ export function makeGh(runner = defaultRunner) {
         '--json', 'number,title,author,createdAt,additions,deletions,statusCheckRollup',
       ]));
     },
-    async searchReviewRequested() {
-      const out = parseJson(await runner(['api', '-X', 'GET', 'search/issues', '-f', 'q=is:open is:pr review-requested:@me']));
+    async searchReviewRequested(qualifier = '') {
+      const out = parseJson(await runner(['api', '-X', 'GET', 'search/issues', '-f', `q=is:open is:pr review-requested:@me${qualifier}`]));
       return out?.items ?? [];
     },
-    async searchAuthored() {
-      const out = parseJson(await runner(['api', '-X', 'GET', 'search/issues', '-f', 'q=is:open is:pr author:@me']));
+    async searchAuthored(qualifier = '') {
+      const out = parseJson(await runner(['api', '-X', 'GET', 'search/issues', '-f', `q=is:open is:pr author:@me${qualifier}`]));
       return out?.items ?? [];
+    },
+    async currentRepo() {
+      try {
+        return parseJson(await runner(['repo', 'view', '--json', 'nameWithOwner']))?.nameWithOwner ?? null;
+      } catch {
+        return null;
+      }
     },
   };
 }

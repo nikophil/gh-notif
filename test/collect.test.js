@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { collectNotifications, collectPending, collectPRs, ciRollup } from '../src/collect.js';
+import { collectNotifications, collectPending, collectPRs, ciRollup, scopeMatches, scopeQualifier } from '../src/collect.js';
 
 const ME = 'nikophil';
 
@@ -46,6 +46,30 @@ test('collectPending mappe les items de recherche', async () => {
     repo: 'o/r', number: 98, title: 'PR à review',
     url: 'https://github.com/o/r/pull/98', updatedAt: '2026-06-20T09:00:00Z',
   });
+});
+
+// ── scope ──────────────────────────────────────────────────────────────────
+test('scopeMatches: null=tout, org=préfixe, repo=exact', () => {
+  assert.equal(scopeMatches(null, 'mapado/ticketing'), true);
+  assert.equal(scopeMatches({ type: 'org', value: 'mapado' }, 'mapado/ticketing'), true);
+  assert.equal(scopeMatches({ type: 'org', value: 'mapado' }, 'other/repo'), false);
+  assert.equal(scopeMatches({ type: 'org', value: 'map' }, 'mapado/x'), false); // pas un simple startsWith de chaîne
+  assert.equal(scopeMatches({ type: 'repo', value: 'mapado/ticketing' }, 'mapado/ticketing'), true);
+  assert.equal(scopeMatches({ type: 'repo', value: 'mapado/ticketing' }, 'mapado/web'), false);
+});
+
+test('scopeQualifier', () => {
+  assert.equal(scopeQualifier(null), '');
+  assert.equal(scopeQualifier({ type: 'org', value: 'mapado' }), ' org:mapado');
+  assert.equal(scopeQualifier({ type: 'repo', value: 'mapado/web' }), ' repo:mapado/web');
+});
+
+test('collectNotifications filtre par scope avant inspection', async () => {
+  const inScope = reviewReqThread; // o/r
+  const outScope = { ...reviewReqThread, id: 't9', repository: { full_name: 'x/y' }, subject: { ...reviewReqThread.subject, url: 'https://api.github.com/repos/x/y/pulls/1' } };
+  const items = await collectNotifications(fakeGh({ notifications: [inScope, outScope] }), ME, { scope: { type: 'org', value: 'o' } });
+  assert.equal(items.length, 1);
+  assert.equal(items[0].repo, 'o/r');
 });
 
 // ── ciRollup ─────────────────────────────────────────────────────────────
