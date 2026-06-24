@@ -127,9 +127,18 @@ Source distincte du flux notifications. Requête :
 
 ## État & dédup (`watch`)
 
-Fichier `~/.local/state/gh-notif/seen.json` (respecte `XDG_STATE_HOME`).
-Map `thread_id → dernier updated_at notifié`. Un item est « nouveau » si son `updated_at` est
-strictement postérieur à la valeur stockée (ou absente). Évite de re-notifier au poll suivant.
+Fichier `~/.local/state/gh-notif/seen-v2.json` (respecte `XDG_STATE_HOME`).
+Map `URL d'évènement → updated_at` (URL du commentaire concerné, ou URL de la PR pour une demande
+de review). Un item est « nouveau » si son **URL** n'est pas déjà dans l'état.
+
+**Dédup par URL, pas par `updated_at`.** GitHub bump l'`updated_at` d'un thread à chaque activité
+(approbation, commentaire d'un autre…) en conservant la même `reason`. Dédupliquer sur `updated_at`
+re-notifiait donc à chaque bump : une PR `review_requested` re-déclenchait « Nouvelle PR à review »
+dès que quelqu'un d'autre bougeait dessus, et un même commentaire pouvait notifier deux fois.
+Dédupliquer sur l'URL de l'évènement précis corrige les deux : une demande de review notifie une
+seule fois (URL de la PR stable), une activité ultérieure sur la même PR est ignorée, et deux
+commentaires distincts (URLs distinctes) notifient bien deux fois. (Fichier renommé `…-v2.json`
+pour qu'une base au format précédent ne provoque pas de flot au passage.)
 
 **Premier run (seed silencieux).** Si le fichier d'état n'existe pas encore, le tout premier
 poll de `--watch` marque tout le backlog existant comme « vu » **sans envoyer aucune notif

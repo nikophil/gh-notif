@@ -4,7 +4,9 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 
 export function statePath() {
   const base = process.env.XDG_STATE_HOME || join(homedir(), '.local', 'state');
-  return join(base, 'gh-notif', 'seen.json');
+  // v2 : dédup par URL d'évènement (et non plus par thread/updated_at). Nouveau
+  // nom de fichier pour qu'une ancienne base ne provoque pas un flot au passage v2.
+  return join(base, 'gh-notif', 'seen-v2.json');
 }
 
 export function loadState(path) {
@@ -20,11 +22,13 @@ export function saveState(path, state) {
   writeFileSync(path, JSON.stringify(state, null, 2));
 }
 
+// Dédup par URL de l'évènement précis (URL du commentaire, ou URL de la PR pour
+// une demande de review). Insensible aux bumps d'`updated_at` du thread dus à
+// l'activité d'autrui → on ne re-notifie pas pour le même évènement.
 export function isNew(state, item) {
-  const seen = state[item.threadId];
-  return !seen || item.updatedAt > seen;
+  return !(item.url in state);
 }
 
 export function markSeen(state, item) {
-  state[item.threadId] = item.updatedAt;
+  state[item.url] = item.updatedAt;
 }

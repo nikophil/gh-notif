@@ -8,7 +8,7 @@ import { loadState, saveState, isNew, markSeen, statePath } from '../src/state.j
 test('statePath respecte XDG_STATE_HOME', () => {
   const prev = process.env.XDG_STATE_HOME;
   process.env.XDG_STATE_HOME = '/xdg';
-  assert.equal(statePath(), '/xdg/gh-notif/seen.json');
+  assert.equal(statePath(), '/xdg/gh-notif/seen-v2.json');
   if (prev === undefined) delete process.env.XDG_STATE_HOME; else process.env.XDG_STATE_HOME = prev;
 });
 
@@ -24,18 +24,24 @@ test('save puis load round-trip', () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-test('isNew: clé absente → true', () => {
-  assert.equal(isNew({}, { threadId: 't1', updatedAt: '2026-06-24T10:00:00Z' }), true);
+test('isNew: URL absente → true, URL déjà vue → false', () => {
+  const url = 'https://github.com/o/r/pull/1#issuecomment_5';
+  assert.equal(isNew({}, { url, updatedAt: '2026-06-24T10:00:00Z' }), true);
+  assert.equal(isNew({ [url]: '2026-06-24T10:00:00Z' }, { url, updatedAt: '2026-06-24T11:00:00Z' }), false);
 });
 
-test('isNew: updatedAt plus récent → true, identique → false', () => {
-  const state = { t1: '2026-06-24T10:00:00Z' };
-  assert.equal(isNew(state, { threadId: 't1', updatedAt: '2026-06-24T11:00:00Z' }), true);
-  assert.equal(isNew(state, { threadId: 't1', updatedAt: '2026-06-24T10:00:00Z' }), false);
-});
-
-test('markSeen écrit la valeur', () => {
+test('isNew: insensible au bump d’updated_at pour la même URL', () => {
+  // Une activité d'autrui bumpe updated_at mais l'URL de l'évènement est la même
+  // → on ne re-notifie pas.
+  const url = 'https://github.com/o/r/pull/9';
   const state = {};
-  markSeen(state, { threadId: 't1', updatedAt: '2026-06-24T10:00:00Z' });
-  assert.equal(state.t1, '2026-06-24T10:00:00Z');
+  markSeen(state, { url, updatedAt: '2026-06-24T10:00:00Z' });
+  assert.equal(isNew(state, { url, updatedAt: '2026-06-24T18:00:00Z' }), false);
+});
+
+test('markSeen indexe par URL', () => {
+  const state = {};
+  const url = 'https://github.com/o/r/pull/1#discussion_r2';
+  markSeen(state, { url, updatedAt: '2026-06-24T10:00:00Z' });
+  assert.equal(state[url], '2026-06-24T10:00:00Z');
 });
