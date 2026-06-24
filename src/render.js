@@ -159,7 +159,7 @@ function mineTable(rows, opts) {
     { header: 'PR' },
     { header: 'Titre', max: TITLE_MAX },
     { header: 'État' },
-    { header: 'Rev' },
+    { header: '✅' },
     { header: 'Triggers' },
     { header: 'CI' },
   ];
@@ -168,7 +168,7 @@ function mineTable(rows, opts) {
     { text: `#${r.number}`, color: C.yellow, url: r.url },
     { text: r.title, url: r.url },
     { text: stateIcon(r.state) },
-    { text: r.reviews ? String(r.reviews) : '·', color: C.dim },
+    { text: r.approvals ? String(r.approvals) : '·', color: C.green },
     { text: triggersLabel(r.triggers) },
     { text: ciIcon(r.ci) },
   ]);
@@ -184,7 +184,7 @@ function othersTable(rows, opts) {
     { header: 'Ouverte' },
     { header: 'Diff' },
     { header: 'État' },
-    { header: 'Rev' },
+    { header: '✅' },
     { header: 'Triggers' },
     { header: 'CI' },
   ];
@@ -198,7 +198,7 @@ function othersTable(rows, opts) {
       { text: relativeDate(r.createdAt, opts.now), color: C.dim },
       { text: diff.text, render: diff.render },
       { text: stateIcon(r.state) },
-      { text: r.reviews ? String(r.reviews) : '·', color: C.dim },
+      { text: r.approvals ? String(r.approvals) : '·', color: C.green },
       { text: triggersLabel(r.triggers) },
       { text: ciIcon(r.ci) },
     ];

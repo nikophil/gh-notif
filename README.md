@@ -5,19 +5,19 @@ et un affichage en tableaux, là où l'inbox GitHub native est trop bruyante.
 
 ```
 📥 Tes PR ouvertes (6)
-┌──────────────────┬───────┬──────────────────────────────┬──────┬─────┬──────────┬────┐
-│ Dépôt            │ PR    │ Titre                        │ État │ Rev │ Triggers │ CI │
-├──────────────────┼───────┼──────────────────────────────┼──────┼─────┼──────────┼────┤
-│ mapado/ticketing │ #7020 │ [WaitingList] Export waiting…│ 🟢   │ 3   │ 💬       │ ✅ │
-│ mapado/ticketing │ #7045 │ [CI] fix block-labeled-prs   │ 📝   │ ·   │          │ 🟡 │
-└──────────────────┴───────┴──────────────────────────────┴──────┴─────┴──────────┴────┘
+┌──────────────────┬───────┬──────────────────────────────┬──────┬────┬──────────┬────┐
+│ Dépôt            │ PR    │ Titre                        │ État │ ✅ │ Triggers │ CI │
+├──────────────────┼───────┼──────────────────────────────┼──────┼────┼──────────┼────┤
+│ mapado/ticketing │ #7020 │ [WaitingList] Export waiting…│ 🟢   │ 2  │ 💬       │ ✅ │
+│ mapado/ticketing │ #7045 │ [CI] fix block-labeled-prs   │ 📝   │ ·  │          │ 🟡 │
+└──────────────────┴───────┴──────────────────────────────┴──────┴────┴──────────┴────┘
 
 👥 Activité sur les PR des autres (34)
-┌──────────────────┬──────┬───────────────┬─────────┬───────────┬──────────┬──────┬─────┬──────────┬────┐
-│ Dépôt            │ PR   │ Titre         │ Auteur  │ Ouverte   │ Diff     │ État │ Rev │ Triggers │ CI │
-├──────────────────┼──────┼───────────────┼─────────┼───────────┼──────────┼──────┼─────┼──────────┼────┤
-│ mapado/oauth-srv │ #388 │ feat: add api…│ @lnahiro│ il y a 2h │ +451 −10 │ 🟢   │ 4   │ 🔍       │ ✅ │
-└──────────────────┴──────┴───────────────┴─────────┴───────────┴──────────┴──────┴─────┴──────────┴────┘
+┌──────────────────┬──────┬───────────────┬─────────┬───────────┬──────────┬──────┬────┬──────────┬────┐
+│ Dépôt            │ PR   │ Titre         │ Auteur  │ Ouverte   │ Diff     │ État │ ✅ │ Triggers │ CI │
+├──────────────────┼──────┼───────────────┼─────────┼───────────┼──────────┼──────┼────┼──────────┼────┤
+│ mapado/oauth-srv │ #388 │ feat: add api…│ @lnahiro│ il y a 2h │ +451 −10 │ 🟢   │ 1  │ 🔍       │ ✅ │
+└──────────────────┴──────┴───────────────┴─────────┴───────────┴──────────┴──────┴────┴──────────┴────┘
 ```
 
 ## Ce que ça fait
@@ -30,8 +30,8 @@ et un affichage en tableaux, là où l'inbox GitHub native est trop bruyante.
   mentions, réponses à tes fils), avec auteur, date d'ouverture, taille du diff, état, nombre de
   reviews, CI.
 
-Colonnes communes : **État** (📝 draft · 🟢 ouverte · 🟣 mergée · 🔴 fermée) et **Rev** (nombre de
-reviews reçues, `·` si aucune).
+Colonnes communes : **État** (📝 draft · 🟢 ouverte · 🟣 mergée · 🔴 fermée) et **✅** (nombre
+d'**approbations** — utilisateurs distincts dont la dernière review approuve, `·` si aucune).
 
 Le **dépôt / la PR / le titre sont cliquables** (liens de terminal OSC 8) et mènent directement à
 la bonne cible.

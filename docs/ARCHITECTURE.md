@@ -51,7 +51,7 @@ notif desktop : seuls les items de `data.notifications` le font.
 
 - **Thread** (`/notifications`) : `{ id, reason, updated_at, subject:{title,url,latest_comment_url,type}, repository:{full_name} }`
 - **Item** (sortie de `classify`) : `{ category, actor, url, repo, number, title, threadId, updatedAt }`
-- **Row** (sortie de `collectPRs`) : `{ repo, number, url, title, triggers:[…], author, createdAt, additions, deletions, ci, state, reviews }` — `state` ∈ {draft,open,merged,closed} (via `prState`), `reviews` = nombre de reviews (`reviews.length` de `gh pr view`).
+- **Row** (sortie de `collectPRs`) : `{ repo, number, url, title, triggers:[…], author, createdAt, additions, deletions, ci, state, approvals }` — `state` ∈ {draft,open,merged,closed} (via `prState`), `approvals` = nb d'**approbations** (via `countApprovals` : users distincts dont la dernière review est APPROVED — pas `reviews.length`).
 - **scope** : `null` (tout) | `{ type:'org', value }` | `{ type:'repo', value:'owner/name' }`
 
 ## Décisions non-évidentes (⚠️ pièges)

@@ -103,6 +103,23 @@ export function ciRollup(rollup) {
   return pending ? 'pending' : 'pass';
 }
 
+// Nombre d'approbations : utilisateurs distincts dont la review LA PLUS RÉCENTE
+// est APPROVED (comme l'UI GitHub). Ignore les COMMENTED/CHANGES_REQUESTED, et une
+// approbation annulée par une review ultérieure du même user ne compte plus.
+export function countApprovals(reviews) {
+  if (!Array.isArray(reviews)) return 0;
+  const latestByUser = new Map();
+  for (const r of reviews) {
+    const login = r.author?.login;
+    if (!login) continue;
+    const prev = latestByUser.get(login);
+    if (!prev || (r.submittedAt || '') >= (prev.submittedAt || '')) latestByUser.set(login, r);
+  }
+  let n = 0;
+  for (const r of latestByUser.values()) if ((r.state || '').toUpperCase() === 'APPROVED') n++;
+  return n;
+}
+
 // État affiché d'une PR à partir de `gh pr view` : 'draft' | 'open' | 'merged' | 'closed'.
 export function prState(d) {
   if (d?.isDraft) return 'draft';
@@ -157,7 +174,7 @@ export async function collectPRs(gh, me, { all = false, scope = null } = {}) {
       deletions: d?.deletions ?? 0,
       ci: ciRollup(d?.statusCheckRollup),
       state: prState(d),
-      reviews: Array.isArray(d?.reviews) ? d.reviews.length : 0,
+      approvals: countApprovals(d?.reviews),
     };
     if (d && d.author?.login === me) mine.push(row);
     else others.push(row);

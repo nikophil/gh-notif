@@ -9,31 +9,30 @@ import {
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
 const PLAIN = { color: false, hyperlinks: false, now: NOW };
 
-const myRow = (over = {}) => ({ repo: 'mapado/web', number: 120, url: 'u', title: 'fix header', triggers: ['comment'], ci: 'pass', state: 'open', reviews: 0, ...over });
-const otherRow = (over = {}) => ({ repo: 'mapado/api', number: 55, url: 'u', title: 'perf: cache', triggers: ['review'], ci: 'pass', author: 'alice', createdAt: '2026-06-21T12:00:00Z', additions: 412, deletions: 38, state: 'open', reviews: 2, ...over });
+const myRow = (over = {}) => ({ repo: 'mapado/web', number: 120, url: 'u', title: 'fix header', triggers: ['comment'], ci: 'pass', state: 'open', approvals: 0, ...over });
+const otherRow = (over = {}) => ({ repo: 'mapado/api', number: 55, url: 'u', title: 'perf: cache', triggers: ['review'], ci: 'pass', author: 'alice', createdAt: '2026-06-21T12:00:00Z', additions: 412, deletions: 38, state: 'open', approvals: 2, ...over });
 
 test('rendu vide', () => {
   assert.match(renderList({ mine: [], others: [] }, PLAIN), /Rien à signaler/);
 });
 
-test('tableau « tes PR » : État + Rev + Triggers + CI, pas de colonne Auteur', () => {
-  const out = renderList({ mine: [myRow({ triggers: ['comment', 'mention'], state: 'draft', reviews: 3 })], others: [] }, PLAIN);
+test('tableau « tes PR » : État + ✅ (approbations) + Triggers + CI, pas de colonne Auteur', () => {
+  const out = renderList({ mine: [myRow({ triggers: ['comment', 'mention'], state: 'draft', approvals: 3 })], others: [] }, PLAIN);
   assert.match(out, /Tes PR ouvertes \(1\)/);
   assert.match(out, /┌.*┐/);
   assert.match(out, /État/);
-  assert.match(out, /Rev/);
   assert.match(out, /Triggers/);
   assert.ok(out.includes('🗨'));         // triggers : emojis seuls
   assert.ok(out.includes('💬'));
   assert.ok(!out.includes('commentaire')); // plus de libellé texte
   assert.ok(out.includes('📝'));         // état draft
-  assert.ok(out.includes('3'));          // nombre de reviews
-  assert.ok(out.includes('✅'));
+  assert.ok(out.includes('3'));          // nombre d'approbations
+  assert.ok(out.includes('✅'));         // en-tête colonne approbations
   assert.doesNotMatch(out, /Auteur/);
 });
 
-test('tableau « autres PR » : Auteur, Ouverte, Diff (sans barre), État, Rev', () => {
-  const out = renderList({ mine: [], others: [otherRow({ state: 'merged', reviews: 4 })] }, PLAIN);
+test('tableau « autres PR » : Auteur, Ouverte, Diff (sans barre), État, ✅', () => {
+  const out = renderList({ mine: [], others: [otherRow({ state: 'merged', approvals: 4 })] }, PLAIN);
   assert.match(out, /Activité sur les PR des autres \(1\)/);
   assert.match(out, /Auteur/);
   assert.match(out, /Ouverte/);
@@ -44,6 +43,7 @@ test('tableau « autres PR » : Auteur, Ouverte, Diff (sans barre), État, Rev',
   assert.ok(out.includes('−38'));
   assert.ok(!out.includes('🟩') && !out.includes('🟥')); // plus de barre de couleur
   assert.ok(out.includes('🟣'));         // état mergée
+  assert.ok(out.includes('4'));          // nombre d'approbations
 });
 
 test('les deux tableaux peuvent coexister', () => {

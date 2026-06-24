@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { collectNotifications, collectPending, collectPRs, ciRollup, prState, scopeMatches, scopeQualifier } from '../src/collect.js';
+import { collectNotifications, collectPending, collectPRs, ciRollup, prState, countApprovals, scopeMatches, scopeQualifier } from '../src/collect.js';
 
 const ME = 'nikophil';
 
@@ -81,6 +81,27 @@ test('ciRollup: vide → none, échec → fail, en cours → pending, ok → pas
   assert.equal(ciRollup([{ status: 'IN_PROGRESS' }, { conclusion: 'SUCCESS', status: 'COMPLETED' }]), 'pending');
   assert.equal(ciRollup([{ state: 'PENDING' }]), 'pending');
   assert.equal(ciRollup([{ conclusion: 'SUCCESS', status: 'COMPLETED' }, { state: 'SUCCESS' }]), 'pass');
+});
+
+test('countApprovals : users distincts dont la dernière review est APPROVED', () => {
+  assert.equal(countApprovals(undefined), 0);
+  assert.equal(countApprovals([]), 0);
+  // alice approuve, bob commente → 1 approbation
+  assert.equal(countApprovals([
+    { author: { login: 'alice' }, state: 'APPROVED', submittedAt: '2026-06-20T10:00:00Z' },
+    { author: { login: 'bob' }, state: 'COMMENTED', submittedAt: '2026-06-20T11:00:00Z' },
+  ]), 1);
+  // alice approuve puis redemande des changements → ne compte plus
+  assert.equal(countApprovals([
+    { author: { login: 'alice' }, state: 'APPROVED', submittedAt: '2026-06-20T10:00:00Z' },
+    { author: { login: 'alice' }, state: 'CHANGES_REQUESTED', submittedAt: '2026-06-21T10:00:00Z' },
+  ]), 0);
+  // deux approbations du même user → comptées une fois
+  assert.equal(countApprovals([
+    { author: { login: 'alice' }, state: 'APPROVED', submittedAt: '2026-06-20T10:00:00Z' },
+    { author: { login: 'alice' }, state: 'APPROVED', submittedAt: '2026-06-21T10:00:00Z' },
+    { author: { login: 'bob' }, state: 'APPROVED', submittedAt: '2026-06-21T12:00:00Z' },
+  ]), 2);
 });
 
 test('prState : draft > merged > closed > open', () => {
@@ -222,7 +243,10 @@ test('collectPRs: une review en attente non vue ajoute une PR « autres » avec 
   const gh = fakeGh({
     notifications: [],
     search: [{ number: 98, title: 'À review', html_url: 'https://github.com/o/r/pull/98', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
-    details: () => ({ number: 98, title: 'À review', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 3, deletions: 3, statusCheckRollup: [{ status: 'IN_PROGRESS' }], state: 'OPEN', isDraft: false, reviews: [{}, {}, {}] }),
+    details: () => ({ number: 98, title: 'À review', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 3, deletions: 3, statusCheckRollup: [{ status: 'IN_PROGRESS' }], state: 'OPEN', isDraft: false, reviews: [
+      { author: { login: 'dan' }, state: 'APPROVED', submittedAt: '2026-06-20T10:00:00Z' },
+      { author: { login: 'eve' }, state: 'COMMENTED', submittedAt: '2026-06-20T11:00:00Z' },
+    ] }),
   });
   const { mine, others } = await collectPRs(gh, ME, {});
   assert.equal(mine.length, 0);
@@ -230,5 +254,5 @@ test('collectPRs: une review en attente non vue ajoute une PR « autres » avec 
   assert.deepEqual(others[0].triggers, ['review']);
   assert.equal(others[0].ci, 'pending');
   assert.equal(others[0].state, 'open');
-  assert.equal(others[0].reviews, 3);
+  assert.equal(others[0].approvals, 1);
 });
