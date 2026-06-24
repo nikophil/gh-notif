@@ -21,19 +21,18 @@ export function scopeQualifier(scope) {
 }
 
 export async function inspectThread(gh, thread, me) {
-  const reason = thread.reason;
-  if (reason === 'review_requested') return null;
+  if (thread.reason === 'review_requested') return null;
 
-  if (reason === 'mention' || reason === 'team_mention' || reason === 'author') {
-    const url = thread.subject?.latest_comment_url;
-    const latestComment = url ? await gh.getComment(url) : null;
-    return { latestComment, reviewComments: [] };
-  }
-
-  // comment / subscribed / manual
+  // On récupère le dernier commentaire (acteur des mention/author) ET les
+  // review-comments (détection de réponse à mon fil), car la `reason` est
+  // « collante » : une réponse réelle peut arriver sous une reason=mention.
   const number = Number(thread.subject.url.split('/').pop());
-  const reviewComments = await gh.getReviewComments(thread.repository.full_name, number);
-  return { latestComment: null, reviewComments };
+  const url = thread.subject?.latest_comment_url;
+  const [latestComment, reviewComments] = await Promise.all([
+    url ? gh.getComment(url) : Promise.resolve(null),
+    gh.getReviewComments(thread.repository.full_name, number),
+  ]);
+  return { latestComment, reviewComments };
 }
 
 export async function collectNotifications(gh, me, { all = false, scope = null } = {}) {

@@ -38,6 +38,14 @@ export function classify(thread, me, inspection) {
     return baseItem(thread, { category: CATEGORY.REVIEW_REQUEST, actor: null, url: prHtmlUrl(thread) });
   }
 
+  // Une vraie réponse dans un fil où j'ai participé est le signal le plus précis :
+  // elle prime sur la `reason` (qui reste « collante » sur mention/author/subscribed
+  // même quand l'évènement réel est une réponse de quelqu'un d'autre).
+  const reply = findReplyToMe(inspection?.reviewComments ?? [], me);
+  if (reply) {
+    return baseItem(thread, { category: CATEGORY.THREAD_REPLY, actor: reply.user.login, url: reply.html_url });
+  }
+
   if (reason === 'mention' || reason === 'team_mention') {
     const c = inspection?.latestComment;
     return baseItem(thread, {
@@ -54,10 +62,8 @@ export function classify(thread, me, inspection) {
     return baseItem(thread, { category: CATEGORY.ON_MY_PR, actor: c.user.login, url: c.html_url });
   }
 
-  // comment / subscribed / manual
-  const reply = findReplyToMe(inspection?.reviewComments ?? [], me);
-  if (!reply) return null;
-  return baseItem(thread, { category: CATEGORY.THREAD_REPLY, actor: reply.user.login, url: reply.html_url });
+  // comment / subscribed / manual sans réponse à moi → bruit
+  return null;
 }
 
 // Regroupe les review-comments par fil (racine = remontée des in_reply_to_id).

@@ -80,6 +80,15 @@ Pour chaque thread renvoyé par `/notifications`, classification selon `reason` 
 | `comment` / `subscribed` / `manual` | KEEP si réponse à un de **mes** commentaires | ↩️ Réponse à mon commentaire | fetch des review-comments        |
 | `ci_activity`, `state_change`, `assign`, `push`, autres | **DROP** (mises à jour de la PR) | —             | non                              |
 
+> **Priorité « réponse à moi » sur la `reason` collante.** La `reason` d'un thread GitHub est
+> *collante* : une PR où j'ai été mentionné garde `reason: mention` même quand l'évènement réel
+> suivant est une réponse de quelqu'un d'autre dans un fil de review. On ne fait donc pas
+> aveuglément confiance à la `reason` : pour toute notif à commentaire, on regarde d'abord s'il y a
+> une **vraie réponse dans un fil où j'ai participé** (`findReplyToMe`) — si oui, c'est
+> `THREAD_REPLY` (avec le bon acteur), quelle que soit la `reason`. Sinon on retombe sur
+> mention / author. Pour cela, `inspectThread` récupère **toujours** les review-comments (en plus
+> du dernier commentaire), pas seulement pour `reason: comment`.
+
 > **Garde-fou explicite sur les mises à jour de PR.** Un thread n'est gardé que si sa `reason`
 > est dans la liste blanche `{review_requested, mention, team_mention, author, comment,
 > subscribed, manual}`. Tout le reste est droppé. De plus, pour `author` (ma PR) on ne garde que

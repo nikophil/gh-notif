@@ -126,6 +126,20 @@ test('comment avec réponse à mon fil → THREAD_REPLY', () => {
   assert.equal(item.url, 'https://github.com/o/r/pull/42#discussion_r2');
 });
 
+test('reason=mention collante mais vraie réponse dans mon fil → THREAD_REPLY (prime sur mention)', () => {
+  // Cas réel : j'ai été mentionné sur la PR (reason reste « mention »), mais
+  // l'évènement réel est une réponse de lnahiro dans un fil où j'ai participé.
+  const insp = { latestComment: null, reviewComments: [
+    { id: 1, user: { login: 'lnahiro' }, created_at: '2026-06-24T13:00:00Z', html_url: 'root' },
+    { id: 2, in_reply_to_id: 1, user: { login: ME }, created_at: '2026-06-24T13:05:00Z', html_url: 'mine' },
+    { id: 3, in_reply_to_id: 1, user: { login: 'lnahiro' }, created_at: '2026-06-24T13:07:00Z', html_url: 'https://github.com/o/r/pull/42#discussion_r3' },
+  ] };
+  const item = classify(prThread({ reason: 'mention' }), ME, insp);
+  assert.equal(item.category, CATEGORY.THREAD_REPLY);
+  assert.equal(item.actor, 'lnahiro');
+  assert.equal(item.url, 'https://github.com/o/r/pull/42#discussion_r3');
+});
+
 test('comment sur PR où je suis juste reviewer (pas de fil à moi) → null', () => {
   const insp = { latestComment: null, reviewComments: [
     { id: 1, user: { login: 'bob' }, created_at: '2026-06-24T10:00:00Z', html_url: 'u1' },
