@@ -139,33 +139,42 @@ lancement enverrait une notif desktop par non-lue existante (un flot).
 
 ## Affichage
 
+Chaque catégorie est rendue dans un **tableau encadré** (box-drawing Unicode) avec en-têtes de
+colonnes `Dépôt | PR | Titre` (en-tête `Titre / Qui` pour les sections à acteur, où le suffixe
+`— @acteur` est ajouté au titre). La section « Reviews en attente » suit le même format.
+
 ```
 🔍 Reviews demandées (2)
-  owner/repo #123  Titre de la PR
-  → https://github.com/owner/repo/pull/123
+┌──────────────────┬───────┬────────────────────────────────┐
+│ Dépôt            │ PR    │ Titre                          │
+├──────────────────┼───────┼────────────────────────────────┤
+│ mapado/oauth-srv │ #388  │ feat: add api to create globa… │
+│ mapado/ticketing │ #7039 │ feat: move payment check lock  │
+└──────────────────┴───────┴────────────────────────────────┘
+
 💬 Mentions (1)
-  owner/repo #120  Titre  — mention de @alice
-  → https://github.com/owner/repo/pull/120#discussion_r456
-📥 Activité sur tes PR (3)
-  owner/repo #118  Titre  — @bob a commenté
-  → https://github.com/owner/repo/pull/118#issuecomment_789
-↩️ Réponses à tes commentaires (1)
-  owner/repo #115  Titre  — @carol t'a répondu
-  → https://github.com/owner/repo/pull/115#discussion_r321
-──────────────────────────────
-📋 Reviews en attente (4)
-  owner/repo #98   Titre  (en attente depuis 3j)
-  → https://github.com/owner/repo/pull/98
+┌────────────┬──────┬───────────────────────────────┐
+│ Dépôt      │ PR   │ Titre / Qui                   │
+├────────────┼──────┼───────────────────────────────┤
+│ mapado/web │ #120 │ fix: header overflow — @alice │
+└────────────┴──────┴───────────────────────────────┘
 ```
 
-**Les liens sont obligatoires** : chaque item affiche une URL cliquable menant **directement** à
-la bonne cible — la PR pour une review demandée / review en attente, et l'**ancre du commentaire
-ou du thread précis** (`#discussion_r…` pour un review-comment, `#issuecomment_…` pour un
-commentaire de conversation) pour les mentions, l'activité et les réponses. On construit ces URLs
-à partir du champ `html_url` des commentaires récupérés (l'API notifications ne donne qu'une URL
-API ; il faut résoudre le `latest_comment_url` ou le commentaire concerné pour obtenir le
-`html_url` ancré). Les terminaux modernes rendent les URLs cliquables ; on peut aussi utiliser les
-hyperliens OSC 8 si le terminal les supporte.
+**Liens (OSC 8, obligatoires).** Au lieu d'afficher l'URL en clair, les cellules Dépôt / PR /
+Titre sont rendues **cliquables** via les hyperliens de terminal OSC 8 (`\e]8;;URL\e\\texte\e]8;;\e\\`).
+L'URL pointe **directement** vers la bonne cible — la PR pour une review demandée / review en
+attente, l'**ancre du commentaire ou du thread précis** (`#discussion_r…` / `#issuecomment_…`)
+pour les mentions, l'activité et les réponses. On construit l'URL à partir du `html_url` du
+commentaire concerné (l'API notifications ne donne qu'une URL API ; on résout le
+`latest_comment_url` / le commentaire pour obtenir le `html_url` ancré). Si le terminal ne
+supporte pas OSC 8, le texte s'affiche normalement (non cliquable).
+
+**Largeurs, troncature, couleur.** Les largeurs de colonnes sont calculées à partir du contenu
+(dépôt plafonné à 32 colonnes, titre à 60, troncature avec `…`). La largeur d'affichage compte 2
+colonnes pour les emojis larges et 1 pour le box-drawing. Couleurs douces (dépôt cyan, `#PR`
+jaune, en-têtes gras, bordures atténuées), **automatiquement désactivées hors TTY ou si
+`NO_COLOR`** est défini — ce qui rend la sortie non-TTY déterministe (utile pour les tests et les
+pipes).
 
 ## Notifications desktop (`--watch`)
 
