@@ -2,6 +2,32 @@
 import { makeGh } from './src/github.js';
 import { collectNotifications, collectPending } from './src/collect.js';
 import { renderList } from './src/render.js';
+import { sendNotification } from './src/notify.js';
+import { statePath, loadState, saveState, isNew, markSeen } from './src/state.js';
+
+const POLL_SECONDS = 60;
+const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
+
+async function runWatch(gh) {
+  const me = await gh.getCurrentUser();
+  const path = statePath();
+  const state = loadState(path);
+  process.stdout.write(`gh notif --watch : surveillance toutes les ${POLL_SECONDS}s (Ctrl-C pour arrêter)\n`);
+  for (;;) {
+    try {
+      const items = await collectNotifications(gh, me, { all: false });
+      const fresh = items.filter((i) => isNew(state, i));
+      for (const item of fresh) {
+        sendNotification(item);
+        markSeen(state, item);
+      }
+      if (fresh.length > 0) saveState(path, state);
+    } catch (err) {
+      process.stderr.write(`gh notif --watch: ${err.message}\n`);
+    }
+    await sleep(POLL_SECONDS);
+  }
+}
 
 const HELP = `gh notif — notifications GitHub filtrées
 
@@ -26,7 +52,11 @@ async function main(argv) {
   if (args.has('--help') || args.has('-h')) { process.stdout.write(HELP); return; }
   const gh = makeGh();
   try {
-    await runList(gh, { all: args.has('--all') });
+    if (args.has('--watch')) {
+      await runWatch(gh);
+    } else {
+      await runList(gh, { all: args.has('--all') });
+    }
   } catch (err) {
     process.stderr.write(`gh notif: ${err.message}\n`);
     process.exit(1);
