@@ -1,0 +1,9 @@
+{
+  "name": "gh-notif",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Extension gh CLI : notifications GitHub filtrées",
+  "scripts": {
+    "test": "node --test"
+  }
+}

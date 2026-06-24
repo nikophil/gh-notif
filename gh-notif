@@ -1,0 +1,21 @@
+#!/usr/bin/env node
+
+const HELP = `gh notif — notifications GitHub filtrées
+
+Usage:
+  gh notif            Liste les notifications pertinentes + reviews en attente
+  gh notif --all      Inclut les notifications déjà lues
+  gh notif --watch    Poll en continu et pousse des notifs desktop
+  gh notif --help     Affiche cette aide
+`;
+
+function main(argv) {
+  const args = new Set(argv.slice(2));
+  if (args.has('--help') || args.has('-h')) {
+    process.stdout.write(HELP);
+    return;
+  }
+  process.stdout.write(HELP);
+}
+
+main(process.argv);
