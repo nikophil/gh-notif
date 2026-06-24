@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { collectNotifications, collectPending, collectPRs, ciRollup, prState, countApprovals, scopeMatches, scopeQualifier } from '../src/collect.js';
+import { collectNotifications, collectPending, collectPRs, ciFromState, prState, countApprovals, scopeMatches, scopeQualifier } from '../src/collect.js';
 
 const ME = 'nikophil';
 
@@ -12,7 +12,7 @@ function fakeGh(over = {}) {
     async getReviewComments() { return over.reviewComments ?? []; },
     async searchReviewRequested() { return over.search ?? []; },
     async searchAuthored() { return over.authored ?? []; },
-    async getPullDetails(repo, number) { return over.details?.(repo, number) ?? null; },
+    async getPullDetailsBatch(prs) { return prs.map(({ repo, number }) => over.details?.(repo, number) ?? null); },
   };
 }
 
@@ -73,14 +73,14 @@ test('collectNotifications filtre par scope avant inspection', async () => {
 });
 
 // ── ciRollup ─────────────────────────────────────────────────────────────
-test('ciRollup: vide → none, échec → fail, en cours → pending, ok → pass', () => {
-  assert.equal(ciRollup(undefined), 'none');
-  assert.equal(ciRollup([]), 'none');
-  assert.equal(ciRollup([{ conclusion: 'SUCCESS', status: 'COMPLETED' }, { conclusion: 'FAILURE', status: 'COMPLETED' }]), 'fail');
-  assert.equal(ciRollup([{ state: 'FAILURE' }]), 'fail');
-  assert.equal(ciRollup([{ status: 'IN_PROGRESS' }, { conclusion: 'SUCCESS', status: 'COMPLETED' }]), 'pending');
-  assert.equal(ciRollup([{ state: 'PENDING' }]), 'pending');
-  assert.equal(ciRollup([{ conclusion: 'SUCCESS', status: 'COMPLETED' }, { state: 'SUCCESS' }]), 'pass');
+test('ciFromState: SUCCESS→pass, FAILURE/ERROR→fail, PENDING/EXPECTED→pending, null→none', () => {
+  assert.equal(ciFromState(null), 'none');
+  assert.equal(ciFromState(undefined), 'none');
+  assert.equal(ciFromState('SUCCESS'), 'pass');
+  assert.equal(ciFromState('FAILURE'), 'fail');
+  assert.equal(ciFromState('ERROR'), 'fail');
+  assert.equal(ciFromState('PENDING'), 'pending');
+  assert.equal(ciFromState('EXPECTED'), 'pending');
 });
 
 test('countApprovals : users distincts dont la dernière review est APPROVED', () => {
@@ -134,8 +134,8 @@ test('collectPRs: agrège les triggers d’une même PR et sépare mine/others',
     // recherche (source fiable), pas de la notif review_requested collante.
     search: [{ number: 42, title: 'PR A', html_url: 'https://github.com/o/r/pull/42', updated_at: '2026-06-24T12:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
     details: (repo, number) => {
-      if (repo === 'o/r' && number === 42) return { number: 42, title: 'PR A', author: { login: 'alice' }, createdAt: '2026-06-21T12:00:00Z', additions: 10, deletions: 2, statusCheckRollup: [{ conclusion: 'SUCCESS', status: 'COMPLETED' }] };
-      if (repo === 'o/x' && number === 7) return { number: 7, title: 'Ma PR', author: { login: ME }, createdAt: '2026-06-23T12:00:00Z', additions: 1, deletions: 0, statusCheckRollup: [] };
+      if (repo === 'o/r' && number === 42) return { number: 42, title: 'PR A', author: { login: 'alice' }, createdAt: '2026-06-21T12:00:00Z', additions: 10, deletions: 2, statusCheckRollupState: 'SUCCESS' };
+      if (repo === 'o/x' && number === 7) return { number: 7, title: 'Ma PR', author: { login: ME }, createdAt: '2026-06-23T12:00:00Z', additions: 1, deletions: 0, statusCheckRollupState: null };
       return null;
     },
   });
@@ -162,7 +162,7 @@ test('collectPRs: une PR ouverte que j’ai écrite (sans activité) apparaît d
   const gh = fakeGh({
     notifications: [],
     authored: [{ number: 20, title: 'Ma PR sans activité', html_url: 'https://github.com/o/x/pull/20', repository_url: 'https://api.github.com/repos/o/x' }],
-    details: () => ({ number: 20, title: 'Ma PR sans activité', author: { login: ME }, createdAt: '2026-06-22T12:00:00Z', additions: 5, deletions: 1, statusCheckRollup: [{ conclusion: 'SUCCESS', status: 'COMPLETED' }] }),
+    details: () => ({ number: 20, title: 'Ma PR sans activité', author: { login: ME }, createdAt: '2026-06-22T12:00:00Z', additions: 5, deletions: 1, statusCheckRollupState: 'SUCCESS' }),
   });
   const { mine, others } = await collectPRs(gh, ME, {});
   assert.equal(others.length, 0);
@@ -180,7 +180,7 @@ test('collectPRs: notif review_requested collante mais déjà review (absente du
     notifications: [reviewReqThread], // o/r#42, reason review_requested
     search: [],                        // plus en attente
     reviewComments: [],                // aucune réponse à mon fil
-    details: () => ({ number: 42, title: 'PR A', author: { login: 'alice' }, createdAt: '2026-06-21T12:00:00Z', additions: 1, deletions: 0, statusCheckRollup: [] }),
+    details: () => ({ number: 42, title: 'PR A', author: { login: 'alice' }, createdAt: '2026-06-21T12:00:00Z', additions: 1, deletions: 0, statusCheckRollupState: null }),
   });
   const { mine, others } = await collectPRs(gh, ME, {});
   assert.equal(mine.length, 0);
@@ -195,7 +195,7 @@ test('collectPRs: notif review_requested collante AVEC réponse à mon fil → l
       { id: 1, user: { login: ME }, created_at: '2026-06-24T10:00:00Z', html_url: 'mine' },
       { id: 2, in_reply_to_id: 1, user: { login: 'alice' }, created_at: '2026-06-24T11:00:00Z', html_url: 'https://github.com/o/r/pull/42#discussion_r2' },
     ],
-    details: () => ({ number: 42, title: 'PR A', author: { login: 'alice' }, createdAt: '2026-06-21T12:00:00Z', additions: 1, deletions: 0, statusCheckRollup: [] }),
+    details: () => ({ number: 42, title: 'PR A', author: { login: 'alice' }, createdAt: '2026-06-21T12:00:00Z', additions: 1, deletions: 0, statusCheckRollupState: null }),
   });
   const { others } = await collectPRs(gh, ME, {});
   assert.equal(others.length, 1);
@@ -214,7 +214,7 @@ test('collectPRs: PR mergée, review demandée, AUCUNE réponse à mon fil → i
       { id: 1, user: { login: 'bjulien' }, created_at: '2026-06-23T09:00:00Z', html_url: 'root' },
       { id: 2, in_reply_to_id: 1, user: { login: ME }, created_at: '2026-06-23T12:00:00Z', html_url: 'mine' },
     ], // j'ai répondu à bjulien, mais personne après moi
-    details: () => ({ number: 42, title: 'PR A', author: { login: 'alice' }, createdAt: '2026-06-21T12:00:00Z', additions: 1, deletions: 0, statusCheckRollup: [] }),
+    details: () => ({ number: 42, title: 'PR A', author: { login: 'alice' }, createdAt: '2026-06-21T12:00:00Z', additions: 1, deletions: 0, statusCheckRollupState: null }),
   });
   const { mine, others } = await collectPRs(gh, ME, {});
   assert.equal(mine.length, 0);
@@ -232,7 +232,7 @@ test('collectPRs: PR mergée mais réponse à mon fil → reste visible (trigger
       { id: 1, user: { login: ME }, created_at: '2026-06-23T09:00:00Z', html_url: 'mine' },
       { id: 2, in_reply_to_id: 1, user: { login: 'alice' }, created_at: '2026-06-23T12:00:00Z', html_url: 'https://github.com/o/r/pull/42#discussion_rX' },
     ], // alice m'a répondu après mon commentaire
-    details: () => ({ number: 42, title: 'PR A', author: { login: 'alice' }, createdAt: '2026-06-21T12:00:00Z', additions: 1, deletions: 0, statusCheckRollup: [] }),
+    details: () => ({ number: 42, title: 'PR A', author: { login: 'alice' }, createdAt: '2026-06-21T12:00:00Z', additions: 1, deletions: 0, statusCheckRollupState: null }),
   });
   const { others } = await collectPRs(gh, ME, {});
   assert.equal(others.length, 1);
@@ -243,7 +243,7 @@ test('collectPRs: une review en attente non vue ajoute une PR « autres » avec 
   const gh = fakeGh({
     notifications: [],
     search: [{ number: 98, title: 'À review', html_url: 'https://github.com/o/r/pull/98', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
-    details: () => ({ number: 98, title: 'À review', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 3, deletions: 3, statusCheckRollup: [{ status: 'IN_PROGRESS' }], state: 'OPEN', isDraft: false, reviews: [
+    details: () => ({ number: 98, title: 'À review', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 3, deletions: 3, statusCheckRollupState: 'PENDING', state: 'OPEN', isDraft: false, reviews: [
       { author: { login: 'dan' }, state: 'APPROVED', submittedAt: '2026-06-20T10:00:00Z' },
       { author: { login: 'eve' }, state: 'COMMENTED', submittedAt: '2026-06-20T11:00:00Z' },
     ] }),

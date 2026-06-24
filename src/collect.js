@@ -96,21 +96,14 @@ async function mapLimit(items, limit, fn) {
   return results;
 }
 
-// Réduit le statusCheckRollup (tableau renvoyé par `gh pr view`) en un état
-// global : 'fail' | 'pending' | 'pass' | 'none'.
-export function ciRollup(rollup) {
-  if (!Array.isArray(rollup) || rollup.length === 0) return 'none';
-  let pending = false;
-  for (const c of rollup) {
-    const concl = (c.conclusion || '').toUpperCase();
-    const state = (c.state || '').toUpperCase();
-    const status = (c.status || '').toUpperCase();
-    if (['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE'].includes(concl)) return 'fail';
-    if (['FAILURE', 'ERROR'].includes(state)) return 'fail';
-    if (status && status !== 'COMPLETED') pending = true;
-    if (['PENDING', 'EXPECTED'].includes(state)) pending = true;
-  }
-  return pending ? 'pending' : 'pass';
+// Traduit l'état du statusCheckRollup GraphQL (un seul état agrégé par GitHub)
+// en : 'fail' | 'pending' | 'pass' | 'none'.
+export function ciFromState(state) {
+  const s = (state || '').toUpperCase();
+  if (s === 'SUCCESS') return 'pass';
+  if (s === 'FAILURE' || s === 'ERROR') return 'fail';
+  if (s === 'PENDING' || s === 'EXPECTED') return 'pending';
+  return 'none'; // pas de checks (rollup null)
 }
 
 // Nombre d'approbations : utilisateurs distincts dont la review LA PLUS RÉCENTE
@@ -166,7 +159,7 @@ export async function collectPRs(gh, me, { all = false, scope = null } = {}) {
   for (const a of authored) ensure(a.repo, a.number, a.title); // dashboard : pas de trigger
 
   const entries = [...byKey.values()];
-  const details = await mapLimit(entries, CONCURRENCY, (e) => gh.getPullDetails(e.repo, e.number).catch(() => null));
+  const details = await gh.getPullDetailsBatch(entries.map((e) => ({ repo: e.repo, number: e.number })));
 
   const mine = [];
   const others = [];
@@ -182,7 +175,7 @@ export async function collectPRs(gh, me, { all = false, scope = null } = {}) {
       createdAt: d?.createdAt ?? null,
       additions: d?.additions ?? 0,
       deletions: d?.deletions ?? 0,
-      ci: ciRollup(d?.statusCheckRollup),
+      ci: ciFromState(d?.statusCheckRollupState),
       state: prState(d),
       approvals: countApprovals(d?.reviews),
     };

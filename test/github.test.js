@@ -58,14 +58,39 @@ test('currentRepo renvoie nameWithOwner, null si hors dépôt', async () => {
   assert.equal(await ghErr.currentRepo(), null);
 });
 
-test('getPullDetails appelle `gh pr view` avec les bons champs', async () => {
-  const runner = fakeRunner([['pr view 42', JSON.stringify({ number: 42, author: { login: 'alice' }, additions: 10, deletions: 2 })]]);
+test('getPullDetailsBatch : une requête GraphQL, alias par PR, forme normalisée', async () => {
+  const gqlResponse = JSON.stringify({ data: {
+    p0: { pullRequest: {
+      number: 42, title: 'A', author: { login: 'alice' }, createdAt: 'd1', additions: 10, deletions: 2,
+      isDraft: false, state: 'OPEN',
+      latestReviews: { nodes: [{ author: { login: 'bob' }, state: 'APPROVED', submittedAt: 's1' }] },
+      commits: { nodes: [{ commit: { statusCheckRollup: { state: 'SUCCESS' } } }] },
+    } },
+    p1: { pullRequest: null }, // PR introuvable → null
+  } });
+  const runner = fakeRunner([['api graphql', gqlResponse]]);
   const gh = makeGh(runner);
-  const out = await gh.getPullDetails('o/r', 42);
-  assert.equal(out.number, 42);
-  assert.equal(out.author.login, 'alice');
-  const args = runner.calls[0].join(' ');
-  assert.ok(args.includes('pr view 42'));
-  assert.ok(args.includes('--repo o/r'));
-  assert.ok(args.includes('statusCheckRollup'));
+  const out = await gh.getPullDetailsBatch([{ repo: 'o/r', number: 42 }, { repo: 'o/r', number: 99 }]);
+
+  assert.equal(out.length, 2);
+  assert.equal(out[0].number, 42);
+  assert.equal(out[0].author.login, 'alice');
+  assert.equal(out[0].state, 'OPEN');
+  assert.equal(out[0].statusCheckRollupState, 'SUCCESS');
+  assert.deepEqual(out[0].reviews, [{ author: { login: 'bob' }, state: 'APPROVED', submittedAt: 's1' }]);
+  assert.equal(out[1], null);
+
+  // une seule requête, contient les alias et le repo
+  assert.equal(runner.calls.length, 1);
+  const q = runner.calls[0].join(' ');
+  assert.ok(q.includes('p0: repository(owner: "o", name: "r")'));
+  assert.ok(q.includes('pullRequest(number: 42)'));
+  assert.ok(q.includes('pullRequest(number: 99)'));
+});
+
+test('getPullDetailsBatch : liste vide → aucune requête', async () => {
+  const runner = fakeRunner([]);
+  const gh = makeGh(runner);
+  assert.deepEqual(await gh.getPullDetailsBatch([]), []);
+  assert.equal(runner.calls.length, 0);
 });

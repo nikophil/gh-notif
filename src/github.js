@@ -14,8 +14,49 @@ function parseJson(stdout) {
   return JSON.parse(s);
 }
 
-export function makeGh(runner = defaultRunner) {
+// Champs PR récupérés en une fois via GraphQL (cf. getPullDetailsBatch).
+const PR_FRAGMENT = `fragment pr on PullRequest {
+  number title author { login } createdAt additions deletions isDraft state
+  latestReviews(first: 100) { nodes { author { login } state submittedAt } }
+  commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+}`;
+
+// Normalise un nœud PullRequest GraphQL vers la forme consommée par collect.js.
+function normalizePull(pr) {
+  if (!pr) return null;
   return {
+    number: pr.number,
+    title: pr.title,
+    author: pr.author ? { login: pr.author.login } : null,
+    createdAt: pr.createdAt,
+    additions: pr.additions,
+    deletions: pr.deletions,
+    isDraft: pr.isDraft,
+    state: pr.state,
+    reviews: (pr.latestReviews?.nodes ?? []).map((r) => ({
+      author: r.author ? { login: r.author.login } : null,
+      state: r.state,
+      submittedAt: r.submittedAt,
+    })),
+    statusCheckRollupState: pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state ?? null,
+  };
+}
+
+export function makeGh(runner = defaultRunner) {
+  // Une requête GraphQL par lot de PR (alias p0,p1,… → un repository/pullRequest
+  // chacun). Renvoie un tableau aligné sur `chunk` (null si PR introuvable).
+  async function graphqlPullChunk(chunk) {
+    const aliases = chunk.map(({ repo, number }, i) => {
+      const [owner, name] = repo.split('/');
+      return `p${i}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { pullRequest(number: ${Number(number)}) { ...pr } }`;
+    });
+    const query = `query {\n${aliases.join('\n')}\n}\n${PR_FRAGMENT}`;
+    const data = parseJson(await runner(['api', 'graphql', '-f', `query=${query}`]))?.data ?? {};
+    return chunk.map((_, i) => normalizePull(data[`p${i}`]?.pullRequest));
+  }
+
+  return {
+    graphqlPullChunk,
     async getCurrentUser() {
       return parseJson(await runner(['api', 'user'])).login;
     },
@@ -31,12 +72,18 @@ export function makeGh(runner = defaultRunner) {
     async getReviewComments(repoFullName, number) {
       return parseJson(await runner(['api', '--paginate', `repos/${repoFullName}/pulls/${number}/comments`])) ?? [];
     },
-    async getPullDetails(repoFullName, number) {
-      return parseJson(await runner([
-        'pr', 'view', String(number),
-        '--repo', repoFullName,
-        '--json', 'number,title,author,createdAt,additions,deletions,statusCheckRollup,state,isDraft,reviews',
-      ]));
+    // Détails de N PR en un minimum de requêtes (GraphQL batch, chunks de 30 en
+    // parallèle). Renvoie un tableau aligné sur `prs` ([{repo, number}]) ; null
+    // pour une PR introuvable, et null pour tout un chunk en échec (dégradation).
+    async getPullDetailsBatch(prs) {
+      if (!prs || prs.length === 0) return [];
+      const CHUNK = 30;
+      const chunks = [];
+      for (let i = 0; i < prs.length; i += CHUNK) chunks.push(prs.slice(i, i + CHUNK));
+      const results = await Promise.all(
+        chunks.map((c) => graphqlPullChunk(c).catch(() => c.map(() => null))),
+      );
+      return results.flat();
     },
     async searchReviewRequested(qualifier = '') {
       const out = parseJson(await runner(['api', '-X', 'GET', 'search/issues', '-f', `q=is:open is:pr review-requested:@me${qualifier}`]));

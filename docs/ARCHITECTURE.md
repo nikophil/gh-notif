@@ -35,7 +35,7 @@ gh-notif (parse args → scope)
        ├─ collectPending        → search review-requested:@me (+ qualifier scope)
        ├─ collectAuthored       → search author:@me        (+ qualifier scope)
        ├─ regroupe par PR (repo#number), agrège les triggers
-       ├─ getPullDetails par PR (gh pr view --json …), concurrence limitée à 8
+       ├─ getPullDetailsBatch : 1 requête GraphQL par lot de 30 PR (alias p0,p1,…)
        └─ split mine / others selon l'auteur de la PR
   └─ renderList({mine, others}) → deux tableaux
 ```
@@ -113,15 +113,21 @@ notif desktop : seuls les items de `data.notifications` le font.
    notification → `THREAD_REPLY`, indépendant de l'état). Ne pas ajouter de filtre `is:open` côté
    notifications : ça masquerait les réponses sur PR fermées.
 
-8. **Coût & parallélisme.** `collectPRs` fait un `gh pr view` par PR (auteur/date/diff/CI/reviews) →
-   c'est le poste dominant (~0,9 s/PR, process `gh` + plusieurs appels REST). Tout ce qui peut l'être
-   tourne en parallèle : les 3 sources (`collectNotifications`/`collectPending`/`collectAuthored`)
-   via `Promise.all`, l'**inspection des notifications** via `mapLimit` (avant : `await` séquentiel
-   par thread = goulot ; cold run divisé par ~2), et les `gh pr view` via `mapLimit`. Concurrence
-   plafonnée à `CONCURRENCY = 10` pour ne pas spawner des dizaines de process / heurter le
-   **rate-limit secondaire** de GitHub (au-delà, ça ralentit au lieu d'accélérer). Le scope filtre
-   **avant** ces appels. Un spinner (`src/spinner.js`, stderr) couvre l'attente. *Piste restante :
-   remplacer les N `gh pr view` par une seule requête GraphQL batch — gros gain, plus de rewrite.*
+8. **Coût & parallélisme.** Les détails des PR (auteur/date/diff/CI/approbations) sont récupérés via
+   **un batch GraphQL** (`getPullDetailsBatch`) : une requête par lot de 30 PR, avec un alias
+   `p0,p1,…` par PR (`repository(owner,name){pullRequest(number){…}}`) et un fragment commun ; les
+   lots tournent en parallèle (`Promise.all`). C'est l'évolution majeure : avant, un `gh pr view` par
+   PR (~0,9 s pièce, process `gh` + multi-REST) dominait le temps. Mesures (scope de 17 PR, cold
+   run) : `gh pr view` séquentiel ≈ 11,4 s → parallèle ≈ 5,8 s → **GraphQL batch ≈ 3,0 s**. Les 3
+   sources (`collectNotifications`/`collectPending`/`collectAuthored`) tournent en `Promise.all` ;
+   l'**inspection des notifications** (review-comments par thread) reste en `mapLimit` (avant :
+   `await` séquentiel = goulot). `CONCURRENCY = 10` plafonne l'inspection pour ne pas heurter le
+   **rate-limit secondaire** de GitHub. Le scope filtre **avant** ces appels. Spinner
+   (`src/spinner.js`, stderr, no-op hors TTY) pendant l'attente.
+
+   Le CI vient du `statusCheckRollup.state` du dernier commit (un seul état agrégé côté GitHub →
+   `ciFromState`), et les approbations de `latestReviews`/`latestOpinionatedReviews` (→
+   `countApprovals`), pas d'un tableau de checks REST.
 
 9. **Apostrophes typographiques (`U+2019`).** Les libellés FR (`t'a répondu`, `t'a mentionné`)
    utilisent `'` (U+2019), pas l'ASCII `'`. Régression récurrente : vérifier les octets si tu touches
