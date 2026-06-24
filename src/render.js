@@ -9,9 +9,9 @@ const SECTIONS = [
 
 function suffix(item) {
   switch (item.category) {
-    case CATEGORY.MENTION:      return `  — mention de @${item.actor}`;
-    case CATEGORY.ON_MY_PR:     return `  — @${item.actor} a commenté`;
-    case CATEGORY.THREAD_REPLY: return `  — @${item.actor} t’a répondu`;
+    case CATEGORY.MENTION:      return item.actor ? `  — mention de @${item.actor}` : '  — mention';
+    case CATEGORY.ON_MY_PR:     return item.actor ? `  — @${item.actor} a commenté` : '  — nouvelle activité';
+    case CATEGORY.THREAD_REPLY: return item.actor ? `  — @${item.actor} t’a répondu` : '  — nouvelle réponse';
     default:                    return '';
   }
 }

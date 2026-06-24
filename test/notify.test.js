@@ -34,3 +34,9 @@ test('sendNotification appelle spawn avec titre et corps', () => {
   assert.equal(calls[0].cmd, 'notify-send');
   assert.equal(calls[0].args[0], 'Nouvelle PR à review');
 });
+
+test('notif mention sans auteur résolu → titre générique sans @null', () => {
+  const m = notifyMessage({ repo: 'o/r', number: 5, title: 'PR M', url: 'https://github.com/o/r/pull/5', category: CATEGORY.MENTION, actor: null });
+  assert.equal(m.title, 'Tu as été mentionné');
+  assert.ok(!m.title.includes('@null'));
+});

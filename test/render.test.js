@@ -34,6 +34,14 @@ test('rend une réponse à un commentaire avec le suffixe correct', () => {
   const out = renderList(items, []);
   assert.match(out, /Réponses à tes commentaires \(1\)/);
   assert.ok(out.includes('@carol t’a répondu'));
-  assert.ok(!out.includes("t'a répondu"), "doit utiliser l'apostrophe typographique U+2019, pas ASCII");
+  assert.ok(!out.includes("t'a répondu"), "doit utiliser l’apostrophe typographique U+2019, pas ASCII");
   assert.match(out, /https:\/\/github.com\/o\/r\/pull\/7#discussion_r1/);
+});
+
+test('mention sans auteur résolu → pas de @null', () => {
+  const items = [{ category: CATEGORY.MENTION, repo: 'o/r', number: 5, title: 'PR M', url: 'https://github.com/o/r/pull/5', actor: null }];
+  const out = renderList(items, []);
+  assert.ok(!out.includes('@null'), 'ne doit jamais afficher @null');
+  assert.match(out, /Mentions \(1\)/);
+  assert.match(out, /— mention$/m);
 });
