@@ -19,3 +19,11 @@ export function sendNotification(item, spawn = nodeSpawn) {
   const child = spawn('notify-send', [title, body], { stdio: 'ignore' });
   if (child.unref) child.unref();
 }
+
+// Ligne terminal pour une notif poussée par `--watch` : horodatage + motif
+// (le déclencheur) + dépôt/PR/titre. `title` est exactement le motif affiché
+// dans la notif desktop.
+export function watchEventLine(item, time) {
+  const { title } = notifyMessage(item);
+  return `🔔 ${time}  ${title}  ·  ${item.repo} #${item.number} ${item.title}`;
+}

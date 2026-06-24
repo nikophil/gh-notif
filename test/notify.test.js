@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CATEGORY } from '../src/filter.js';
-import { notifyMessage, sendNotification } from '../src/notify.js';
+import { notifyMessage, sendNotification, watchEventLine } from '../src/notify.js';
 
 const base = { repo: 'o/r', number: 42, title: 'Ma PR', url: 'https://github.com/o/r/pull/42' };
 
@@ -39,4 +39,20 @@ test('notif mention sans auteur résolu → titre générique sans @null', () =>
   const m = notifyMessage({ repo: 'o/r', number: 5, title: 'PR M', url: 'https://github.com/o/r/pull/5', category: CATEGORY.MENTION, actor: null });
   assert.equal(m.title, 'Tu as été mentionné');
   assert.ok(!m.title.includes('@null'));
+});
+
+test('watchEventLine: horodatage + motif (déclencheur) + dépôt/PR/titre', () => {
+  const item = { ...base, category: CATEGORY.MENTION, actor: 'alice' };
+  const line = watchEventLine(item, '14:32:05');
+  assert.ok(line.includes('14:32:05'), 'doit inclure l’heure');
+  assert.ok(line.includes(notifyMessage(item).title), 'doit inclure le motif exact de la notif');
+  assert.ok(line.includes('o/r #42'), 'doit inclure dépôt + PR');
+  assert.ok(line.includes('Ma PR'), 'doit inclure le titre');
+});
+
+test('watchEventLine: motif pour une review demandée', () => {
+  const item = { ...base, category: CATEGORY.REVIEW_REQUEST, actor: null };
+  const line = watchEventLine(item, '09:00:00');
+  assert.ok(line.includes('Nouvelle PR à review'));
+  assert.ok(line.includes('o/r #42'));
 });

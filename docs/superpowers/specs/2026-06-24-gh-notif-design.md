@@ -191,6 +191,12 @@ notifié) et le corps donne le contexte + le lien. Le motif découle de la caté
 Le `notify-send` reçoit aussi l'URL cliquable (dans le corps) ; selon le daemon de notif, on peut
 ajouter une action « Ouvrir » qui lance le lien. À défaut, l'URL en clair dans le corps suffit.
 
+**Sortie terminal du `--watch`.** Entre deux polls, un **compte à rebours** réécrit en place
+(`\r`, uniquement en TTY) indique le temps restant : `⏳ prochain check dans 42s…`. À chaque notif
+poussée, une ligne est loggée avec son **déclencheur** (le motif, identique au titre de la notif
+desktop) : `🔔 14:32:05  @alice t'a mentionné  ·  mapado/web #120 fix: header overflow`. La mise en
+forme de cette ligne est `watchEventLine(item, heure)` (fonction pure, testée).
+
 ## Gestion des erreurs
 
 - `gh` absent ou non authentifié → message clair, exit 1.
