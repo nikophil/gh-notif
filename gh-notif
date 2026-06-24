@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { existsSync } from 'node:fs';
 import { makeGh } from './src/github.js';
 import { collectNotifications, collectPending } from './src/collect.js';
 import { renderList } from './src/render.js';
@@ -11,17 +12,27 @@ const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
 async function runWatch(gh) {
   const me = await gh.getCurrentUser();
   const path = statePath();
+  let primed = existsSync(path); // un état existe déjà : on notifie normalement
   const state = loadState(path);
   process.stdout.write(`gh notif --watch : surveillance toutes les ${POLL_SECONDS}s (Ctrl-C pour arrêter)\n`);
   for (;;) {
     try {
       const items = await collectNotifications(gh, me, { all: false });
-      const fresh = items.filter((i) => isNew(state, i));
-      for (const item of fresh) {
-        sendNotification(item);
-        markSeen(state, item);
+      if (!primed) {
+        // Premier run : on enregistre le backlog existant sans alerter,
+        // pour ne notifier que les évènements survenant après le démarrage.
+        for (const item of items) markSeen(state, item);
+        saveState(path, state);
+        primed = true;
+        process.stdout.write(`(premier run : ${items.length} notification(s) existante(s) marquée(s) comme vues, sans alerte)\n`);
+      } else {
+        const fresh = items.filter((i) => isNew(state, i));
+        for (const item of fresh) {
+          sendNotification(item);
+          markSeen(state, item);
+        }
+        if (fresh.length > 0) saveState(path, state);
       }
-      if (fresh.length > 0) saveState(path, state);
     } catch (err) {
       process.stderr.write(`gh notif --watch: ${err.message}\n`);
     }
