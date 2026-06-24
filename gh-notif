@@ -5,6 +5,7 @@ import { collectPRs } from './src/collect.js';
 import { renderList } from './src/render.js';
 import { sendNotification, watchEventLine } from './src/notify.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './src/state.js';
+import { startSpinner } from './src/spinner.js';
 
 const POLL_SECONDS = 60;
 const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
@@ -45,7 +46,13 @@ async function runWatch(gh, { scope }) {
   const recent = []; // lignes d'évènements (plus récent en tête)
   for (;;) {
     try {
-      const data = await collectPRs(gh, me, { all: false, scope });
+      const stop = startSpinner('Mise à jour…');
+      let data;
+      try {
+        data = await collectPRs(gh, me, { all: false, scope });
+      } finally {
+        stop();
+      }
       const items = data.notifications ?? [];
       if (!primed) {
         // Premier run : on enregistre le backlog existant sans alerter,
@@ -125,8 +132,14 @@ async function resolveScope(gh, flags) {
 }
 
 async function runList(gh, { all, scope }) {
-  const me = await gh.getCurrentUser();
-  const data = await collectPRs(gh, me, { all, scope });
+  const stop = startSpinner('Récupération des PRs et notifications…');
+  let data;
+  try {
+    const me = await gh.getCurrentUser();
+    data = await collectPRs(gh, me, { all, scope });
+  } finally {
+    stop();
+  }
   process.stdout.write(renderList(data));
 }
 

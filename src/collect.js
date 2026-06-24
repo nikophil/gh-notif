@@ -1,5 +1,9 @@
 import { classify, CATEGORY } from './filter.js';
 
+// Concurrence max des appels `gh` (évite de spawner des dizaines de process
+// d'un coup / de heurter le rate-limit secondaire de GitHub).
+const CONCURRENCY = 10;
+
 // Triggers dérivés des notifications. Volontairement SANS review_request : en mode
 // liste, le trigger « review » provient exclusivement de collectPending (recherche
 // `review-requested:@me`, fiable car GitHub t'en retire dès que tu reviews). La
@@ -39,14 +43,20 @@ export async function inspectThread(gh, thread, me) {
 
 export async function collectNotifications(gh, me, { all = false, scope = null } = {}) {
   const threads = await gh.listNotifications({ all });
+  // Ne garde que les PR du scope avant toute requête (filtre = gratuit).
+  const prThreads = threads.filter(
+    (t) => t.subject?.type === 'PullRequest' && scopeMatches(scope, t.repository?.full_name),
+  );
+  // Inspection en parallèle (au lieu d'un await séquentiel par thread) : c'est le
+  // gros gain de temps. `mapLimit` préserve l'ordre ; un thread en échec → null.
+  const inspections = await mapLimit(prThreads, CONCURRENCY, (t) =>
+    inspectThread(gh, t, me).catch(() => null),
+  );
   const items = [];
-  for (const thread of threads) {
-    if (thread.subject?.type !== 'PullRequest') continue; // évite tout fetch inutile
-    if (!scopeMatches(scope, thread.repository?.full_name)) continue; // hors org/repo demandé
-    const inspection = await inspectThread(gh, thread, me);
-    const item = classify(thread, me, inspection);
+  prThreads.forEach((thread, i) => {
+    const item = classify(thread, me, inspections[i]);
     if (item) items.push(item);
-  }
+  });
   return items;
 }
 
@@ -156,7 +166,7 @@ export async function collectPRs(gh, me, { all = false, scope = null } = {}) {
   for (const a of authored) ensure(a.repo, a.number, a.title); // dashboard : pas de trigger
 
   const entries = [...byKey.values()];
-  const details = await mapLimit(entries, 8, (e) => gh.getPullDetails(e.repo, e.number).catch(() => null));
+  const details = await mapLimit(entries, CONCURRENCY, (e) => gh.getPullDetails(e.repo, e.number).catch(() => null));
 
   const mine = [];
   const others = [];

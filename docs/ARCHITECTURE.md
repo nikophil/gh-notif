@@ -21,6 +21,7 @@ qui réutilise l'auth de l'utilisateur. Tests avec le runner natif `node:test` (
 | `src/state.js` | Persistance + déduplication du `--watch`. | oui |
 | `src/notify.js` | Notifs desktop (`notify-send`) + ligne d'évènement terminal. | oui via spawn stub |
 | `src/render.js` | Tableaux encadrés alignés, couleur, liens OSC 8, helpers d'affichage. | oui |
+| `src/spinner.js` | Spinner pendant les requêtes (stderr, no-op hors TTY). | oui via stream stub |
 
 Chaque module a une responsabilité claire ; la logique difficile vit dans des **fonctions pures**
 testées sur fixtures (pas d'appel réseau en test).
@@ -112,9 +113,15 @@ notif desktop : seuls les items de `data.notifications` le font.
    notification → `THREAD_REPLY`, indépendant de l'état). Ne pas ajouter de filtre `is:open` côté
    notifications : ça masquerait les réponses sur PR fermées.
 
-8. **Coût.** `collectPRs` fait un `gh pr view` par PR (auteur/date/diff/CI) → `gh notif` prend
-   quelques secondes. Concurrence limitée à 8 (`mapLimit`) pour ne pas spawner des dizaines de
-   process `gh`. Le scope (`--org`/`--repo`) filtre **avant** ces appels.
+8. **Coût & parallélisme.** `collectPRs` fait un `gh pr view` par PR (auteur/date/diff/CI/reviews) →
+   c'est le poste dominant (~0,9 s/PR, process `gh` + plusieurs appels REST). Tout ce qui peut l'être
+   tourne en parallèle : les 3 sources (`collectNotifications`/`collectPending`/`collectAuthored`)
+   via `Promise.all`, l'**inspection des notifications** via `mapLimit` (avant : `await` séquentiel
+   par thread = goulot ; cold run divisé par ~2), et les `gh pr view` via `mapLimit`. Concurrence
+   plafonnée à `CONCURRENCY = 10` pour ne pas spawner des dizaines de process / heurter le
+   **rate-limit secondaire** de GitHub (au-delà, ça ralentit au lieu d'accélérer). Le scope filtre
+   **avant** ces appels. Un spinner (`src/spinner.js`, stderr) couvre l'attente. *Piste restante :
+   remplacer les N `gh pr view` par une seule requête GraphQL batch — gros gain, plus de rewrite.*
 
 9. **Apostrophes typographiques (`U+2019`).** Les libellés FR (`t'a répondu`, `t'a mentionné`)
    utilisent `'` (U+2019), pas l'ASCII `'`. Régression récurrente : vérifier les octets si tu touches
