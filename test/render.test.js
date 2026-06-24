@@ -28,3 +28,12 @@ test('omet les catégories vides', () => {
   assert.doesNotMatch(out, /Reviews demandées/);
   assert.match(out, /Mentions \(1\)/);
 });
+
+test('rend une réponse à un commentaire avec le suffixe correct', () => {
+  const items = [{ category: CATEGORY.THREAD_REPLY, repo: 'o/r', number: 7, title: 'PR T', url: 'https://github.com/o/r/pull/7#discussion_r1', actor: 'carol' }];
+  const out = renderList(items, []);
+  assert.match(out, /Réponses à tes commentaires \(1\)/);
+  assert.ok(out.includes('@carol t’a répondu'));
+  assert.ok(!out.includes("t'a répondu"), "doit utiliser l'apostrophe typographique U+2019, pas ASCII");
+  assert.match(out, /https:\/\/github.com\/o\/r\/pull\/7#discussion_r1/);
+});

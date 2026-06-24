@@ -11,7 +11,7 @@ function suffix(item) {
   switch (item.category) {
     case CATEGORY.MENTION:      return `  — mention de @${item.actor}`;
     case CATEGORY.ON_MY_PR:     return `  — @${item.actor} a commenté`;
-    case CATEGORY.THREAD_REPLY: return `  — @${item.actor} t'a répondu`;
+    case CATEGORY.THREAD_REPLY: return `  — @${item.actor} t’a répondu`;
     default:                    return '';
   }
 }
