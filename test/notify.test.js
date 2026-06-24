@@ -1,0 +1,36 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { CATEGORY } from '../src/filter.js';
+import { notifyMessage, sendNotification } from '../src/notify.js';
+
+const base = { repo: 'o/r', number: 42, title: 'Ma PR', url: 'https://github.com/o/r/pull/42' };
+
+test('titre review demandée', () => {
+  const m = notifyMessage({ ...base, category: CATEGORY.REVIEW_REQUEST, actor: null });
+  assert.equal(m.title, 'Nouvelle PR à review');
+  assert.ok(m.body.includes('o/r #42'));
+  assert.ok(m.body.includes('https://github.com/o/r/pull/42'));
+});
+
+test('titre mention inclut l\'auteur', () => {
+  const m = notifyMessage({ ...base, category: CATEGORY.MENTION, actor: 'alice' });
+  assert.equal(m.title, "@alice t'a mentionné");
+});
+
+test('titre activité sur ma PR', () => {
+  const m = notifyMessage({ ...base, category: CATEGORY.ON_MY_PR, actor: 'bob' });
+  assert.equal(m.title, '@bob a commenté ta PR');
+});
+
+test('titre réponse', () => {
+  const m = notifyMessage({ ...base, category: CATEGORY.THREAD_REPLY, actor: 'carol' });
+  assert.equal(m.title, "@carol t'a répondu");
+});
+
+test('sendNotification appelle spawn avec titre et corps', () => {
+  const calls = [];
+  const spawn = (cmd, args) => { calls.push({ cmd, args }); return { on() {}, unref() {} }; };
+  sendNotification({ ...base, category: CATEGORY.REVIEW_REQUEST, actor: null }, spawn);
+  assert.equal(calls[0].cmd, 'notify-send');
+  assert.equal(calls[0].args[0], 'Nouvelle PR à review');
+});
