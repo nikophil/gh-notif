@@ -31,6 +31,13 @@ export function makeGh(runner = defaultRunner) {
     async getReviewComments(repoFullName, number) {
       return parseJson(await runner(['api', '--paginate', `repos/${repoFullName}/pulls/${number}/comments`])) ?? [];
     },
+    async getPullDetails(repoFullName, number) {
+      return parseJson(await runner([
+        'pr', 'view', String(number),
+        '--repo', repoFullName,
+        '--json', 'number,title,author,createdAt,additions,deletions,statusCheckRollup',
+      ]));
+    },
     async searchReviewRequested() {
       const out = parseJson(await runner(['api', '-X', 'GET', 'search/issues', '-f', 'q=is:open is:pr review-requested:@me']));
       return out?.items ?? [];

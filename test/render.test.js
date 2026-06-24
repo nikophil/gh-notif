@@ -1,107 +1,123 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CATEGORY } from '../src/filter.js';
-import { renderList, hyperlink, truncate, displayWidth } from '../src/render.js';
+import {
+  renderList, hyperlink, truncate, displayWidth,
+  triggersLabel, ciIcon, relativeDate, diffStat,
+} from '../src/render.js';
 
-// Pour des assertions de mise en page déterministes, on désactive couleur et liens.
-const PLAIN = { color: false, hyperlinks: false };
+// Mise en page déterministe : couleur et liens désactivés, `now` fixe.
+const NOW = new Date('2026-06-24T12:00:00Z').getTime();
+const PLAIN = { color: false, hyperlinks: false, now: NOW };
+
+const myRow = (over = {}) => ({ repo: 'mapado/web', number: 120, url: 'u', title: 'fix header', triggers: ['comment'], ci: 'pass', ...over });
+const otherRow = (over = {}) => ({ repo: 'mapado/api', number: 55, url: 'u', title: 'perf: cache', triggers: ['review'], ci: 'pass', author: 'alice', createdAt: '2026-06-21T12:00:00Z', additions: 412, deletions: 38, ...over });
 
 test('rendu vide', () => {
-  assert.match(renderList([], [], PLAIN), /Rien à signaler/);
+  assert.match(renderList({ mine: [], others: [] }, PLAIN), /Rien à signaler/);
 });
 
-test('rend une review demandée dans un tableau encadré', () => {
-  const items = [{ category: CATEGORY.REVIEW_REQUEST, repo: 'o/r', number: 42, title: 'PR A', url: 'https://github.com/o/r/pull/42', actor: null }];
-  const out = renderList(items, [], PLAIN);
-  assert.match(out, /Reviews demandées \(1\)/);
+test('tableau « tes PR » : Triggers + CI, pas de colonne Auteur', () => {
+  const out = renderList({ mine: [myRow({ triggers: ['comment', 'mention'] })], others: [] }, PLAIN);
+  assert.match(out, /Activité sur tes PR \(1\)/);
   assert.match(out, /┌.*┐/);
-  assert.match(out, /Dépôt/);
-  assert.match(out, /o\/r/);
-  assert.match(out, /#42/);
-  assert.match(out, /PR A/);
+  assert.match(out, /Triggers/);
+  assert.ok(out.includes('🗨 commentaire'));
+  assert.ok(out.includes('💬 mention'));
+  assert.ok(out.includes('✅'));
+  assert.doesNotMatch(out, /Auteur/);
 });
 
-test('section avec acteur : en-tête « Titre / Qui » et suffixe @acteur', () => {
-  const items = [{ category: CATEGORY.MENTION, repo: 'o/r', number: 120, title: 'fix header', url: 'u', actor: 'alice' }];
-  const out = renderList(items, [], PLAIN);
-  assert.match(out, /Mentions \(1\)/);
-  assert.match(out, /Titre \/ Qui/);
-  assert.ok(out.includes('fix header — @alice'));
+test('tableau « autres PR » : Auteur, Ouverte, Diff', () => {
+  const out = renderList({ mine: [], others: [otherRow()] }, PLAIN);
+  assert.match(out, /Activité sur les PR des autres \(1\)/);
+  assert.match(out, /Auteur/);
+  assert.match(out, /Ouverte/);
+  assert.match(out, /Diff/);
+  assert.ok(out.includes('@alice'));
+  assert.ok(out.includes('il y a 3j'));
+  assert.ok(out.includes('+412'));
+  assert.ok(out.includes('−38'));
 });
 
-test('mention sans auteur résolu → pas de @null', () => {
-  const items = [{ category: CATEGORY.MENTION, repo: 'o/r', number: 5, title: 'PR M', url: 'u', actor: null }];
-  const out = renderList(items, [], PLAIN);
-  assert.ok(!out.includes('@null'), 'ne doit jamais afficher @null');
-  assert.match(out, /Mentions \(1\)/);
-  assert.ok(out.includes('PR M'));
+test('les deux tableaux peuvent coexister', () => {
+  const out = renderList({ mine: [myRow()], others: [otherRow()] }, PLAIN);
+  assert.match(out, /Activité sur tes PR \(1\)/);
+  assert.match(out, /Activité sur les PR des autres \(1\)/);
 });
 
-test('réponse à un commentaire : suffixe @acteur', () => {
-  const items = [{ category: CATEGORY.THREAD_REPLY, repo: 'o/r', number: 7, title: 'PR T', url: 'u', actor: 'carol' }];
-  const out = renderList(items, [], PLAIN);
-  assert.match(out, /Réponses à tes commentaires \(1\)/);
-  assert.ok(out.includes('PR T — @carol'));
-});
-
-test('rend la section reviews en attente avec lien', () => {
-  const pending = [{ repo: 'o/r', number: 98, title: 'PR X', url: 'https://github.com/o/r/pull/98', updatedAt: '2026-06-20T09:00:00Z' }];
-  const out = renderList([], pending, PLAIN);
-  assert.match(out, /Reviews en attente \(1\)/);
-  assert.match(out, /#98/);
-  assert.match(out, /PR X/);
-});
-
-test('omet les catégories vides', () => {
-  const items = [{ category: CATEGORY.MENTION, repo: 'o/r', number: 1, title: 'T', url: 'u', actor: 'alice' }];
-  const out = renderList(items, [], PLAIN);
-  assert.doesNotMatch(out, /Reviews demandées/);
-  assert.match(out, /Mentions \(1\)/);
-});
-
-test('alignement : toutes les lignes d’un tableau ont la même largeur', () => {
-  const items = [
-    { category: CATEGORY.REVIEW_REQUEST, repo: 'mapado/oauth-server', number: 388, title: 'feat: add api to create global private application here', url: 'u', actor: null },
-    { category: CATEGORY.REVIEW_REQUEST, repo: 'a/b', number: 1, title: 'x', url: 'u', actor: null },
+test('alignement : chaque tableau a toutes ses lignes de même largeur (emojis inclus)', () => {
+  const others = [
+    otherRow({ repo: 'mapado/oauth-server', title: 'feat: add api to create a very very long thing', triggers: ['review', 'mention', 'reply', 'comment'], ci: 'fail', additions: 7, deletions: 980 }),
+    otherRow({ repo: 'a/b', number: 1, title: 'x', triggers: ['review'], ci: 'pending', author: 'bob', additions: 0, deletions: 5 }),
   ];
-  const out = renderList(items, [], PLAIN);
-  const tableLines = out.split('\n').filter((l) => /^[┌├└│]/.test(l));
-  const widths = new Set(tableLines.map(displayWidth));
-  assert.equal(widths.size, 1, `largeurs incohérentes: ${[...widths].join(',')}`);
-});
-
-test('troncature des titres trop longs', () => {
-  const items = [{ category: CATEGORY.REVIEW_REQUEST, repo: 'o/r', number: 1, title: 'x'.repeat(200), url: 'u', actor: null }];
-  const out = renderList(items, [], PLAIN);
-  assert.ok(out.includes('…'), 'un titre trop long doit être tronqué avec …');
+  const mine = [myRow({ triggers: ['mention', 'reply'], ci: 'none' }), myRow({ number: 7, title: 'y', triggers: ['comment'] })];
+  const out = renderList({ mine, others }, PLAIN);
+  // Chaque bloc-tableau : toutes les lignes box-drawing doivent avoir la même largeur.
+  for (const block of out.split('\n\n')) {
+    const lines = block.split('\n').filter((l) => /^[┌├└│]/.test(l));
+    if (lines.length === 0) continue;
+    const widths = new Set(lines.map(displayWidth));
+    assert.equal(widths.size, 1, `largeurs incohérentes (${[...widths].join(',')}) dans:\n${block}`);
+  }
 });
 
 // ── helpers purs ─────────────────────────────────────────────────────────
-test('hyperlink: enveloppe en OSC 8 quand activé', () => {
-  const s = hyperlink('https://x', 'texte', { hyperlinks: true });
-  assert.ok(s.startsWith('\x1b]8;;https://x\x1b\\'));
-  assert.ok(s.includes('texte'));
+test('triggersLabel : ordonné, icône + libellé, séparés par ·', () => {
+  assert.equal(triggersLabel(['mention', 'review']), '🔍 review · 💬 mention');
+  assert.equal(triggersLabel(['reply']), '↩️ réponse');
+  assert.equal(triggersLabel([]), '');
 });
 
-test('hyperlink: texte brut quand désactivé ou sans url', () => {
-  assert.equal(hyperlink('https://x', 'texte', { hyperlinks: false }), 'texte');
-  assert.equal(hyperlink(null, 'texte', { hyperlinks: true }), 'texte');
+test('ciIcon', () => {
+  assert.equal(ciIcon('pass'), '✅');
+  assert.equal(ciIcon('fail'), '❌');
+  assert.equal(ciIcon('pending'), '🟡');
+  assert.equal(ciIcon('none'), '·');
 });
 
-test('displayWidth: ASCII = longueur, emoji = 2', () => {
+test('relativeDate', () => {
+  assert.equal(relativeDate('2026-06-21T12:00:00Z', NOW), 'il y a 3j');
+  assert.equal(relativeDate('2026-06-24T07:00:00Z', NOW), 'il y a 5h');
+  assert.equal(relativeDate('2026-06-24T11:30:00Z', NOW), 'il y a 30min');
+  assert.equal(relativeDate(null, NOW), '?');
+});
+
+test('diffStat : texte brut + barre de 5 blocs, rendu coloré', () => {
+  const d = diffStat(412, 38);
+  assert.ok(d.text.startsWith('+412 −38 '));
+  const blocks = [...d.text].filter((c) => c === '🟩' || c === '🟥').length;
+  assert.equal(blocks, 5);
+  assert.ok(d.render({ color: true }).includes('\x1b[32m'), 'ajouts en vert');
+  assert.ok(d.render({ color: true }).includes('\x1b[31m'), 'retraits en rouge');
+});
+
+test('diffStat : diff vide → pas de barre', () => {
+  const d = diffStat(0, 0);
+  assert.equal(d.text, '+0 −0');
+});
+
+test('displayWidth : ASCII=1, emoji simple=2, emoji+VS16 (↩️)=2, box=1', () => {
   assert.equal(displayWidth('abc'), 3);
   assert.equal(displayWidth('🔍'), 2);
+  assert.equal(displayWidth('↩️'), 2);   // base U+21A9 + VS16 U+FE0F
+  assert.equal(displayWidth('🗨'), 2);
+  assert.equal(displayWidth('─┌│'), 3);   // box-drawing : 1 chacun
+  assert.equal(displayWidth('−'), 1);     // signe moins U+2212
 });
 
-test('truncate: respecte la largeur max et ajoute …', () => {
-  const t = truncate('abcdefghij', 5);
-  assert.equal(t, 'abcd…');
-  assert.ok(displayWidth(t) <= 5);
+test('hyperlink: OSC 8 quand activé, brut sinon', () => {
+  assert.ok(hyperlink('https://x', 't', { hyperlinks: true }).startsWith('\x1b]8;;https://x\x1b\\'));
+  assert.equal(hyperlink('https://x', 't', { hyperlinks: false }), 't');
+  assert.equal(hyperlink(null, 't', { hyperlinks: true }), 't');
+});
+
+test('truncate: largeur max + …', () => {
+  assert.equal(truncate('abcdefghij', 5), 'abcd…');
   assert.equal(truncate('abc', 5), 'abc');
 });
 
-test('couleur: aucune séquence ANSI quand color:false, présente quand color:true', () => {
-  const items = [{ category: CATEGORY.REVIEW_REQUEST, repo: 'o/r', number: 1, title: 'T', url: 'u', actor: null }];
-  assert.ok(!renderList(items, [], { color: false, hyperlinks: false }).includes('\x1b['));
-  assert.ok(renderList(items, [], { color: true, hyperlinks: false }).includes('\x1b['));
+test('couleur: ANSI absent si color:false, présent si color:true', () => {
+  const data = { mine: [myRow()], others: [] };
+  assert.ok(!renderList(data, { color: false, hyperlinks: false, now: NOW }).includes('\x1b['));
+  assert.ok(renderList(data, { color: true, hyperlinks: false, now: NOW }).includes('\x1b['));
 });

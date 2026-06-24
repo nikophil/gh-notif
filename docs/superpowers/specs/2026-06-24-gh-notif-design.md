@@ -139,42 +139,41 @@ lancement enverrait une notif desktop par non-lue existante (un flot).
 
 ## Affichage
 
-Chaque catégorie est rendue dans un **tableau encadré** (box-drawing Unicode) avec en-têtes de
-colonnes `Dépôt | PR | Titre` (en-tête `Titre / Qui` pour les sections à acteur, où le suffixe
-`— @acteur` est ajouté au titre). La section « Reviews en attente » suit le même format.
+`gh notif` produit **une ligne par PR** (toutes les notifications d'une même PR sont regroupées et
+leurs triggers agrégés), réparti en **deux tableaux encadrés** selon l'auteur de la PR :
+
+- **📥 Activité sur tes PR** (PRs dont tu es l'auteur) — colonnes : `Dépôt · PR · Titre · Triggers · CI`
+- **👥 Activité sur les PR des autres** — colonnes : `Dépôt · PR · Titre · Auteur · Ouverte · Diff · Triggers · CI`
 
 ```
-🔍 Reviews demandées (2)
-┌──────────────────┬───────┬────────────────────────────────┐
-│ Dépôt            │ PR    │ Titre                          │
-├──────────────────┼───────┼────────────────────────────────┤
-│ mapado/oauth-srv │ #388  │ feat: add api to create globa… │
-│ mapado/ticketing │ #7039 │ feat: move payment check lock  │
-└──────────────────┴───────┴────────────────────────────────┘
-
-💬 Mentions (1)
-┌────────────┬──────┬───────────────────────────────┐
-│ Dépôt      │ PR   │ Titre / Qui                   │
-├────────────┼──────┼───────────────────────────────┤
-│ mapado/web │ #120 │ fix: header overflow — @alice │
-└────────────┴──────┴───────────────────────────────┘
+👥 Activité sur les PR des autres (2)
+┌──────────────────┬──────┬──────────────────┬────────┬───────────┬──────────────────┬────────────────────┬────┐
+│ Dépôt            │ PR   │ Titre            │ Auteur │ Ouverte   │ Diff             │ Triggers           │ CI │
+├──────────────────┼──────┼──────────────────┼────────┼───────────┼──────────────────┼────────────────────┼────┤
+│ mapado/oauth-srv │ #388 │ feat: add api…   │ @alice │ il y a 3j │ +412 −38 🟩🟩🟩🟩🟥 │ 🔍 review          │ ✅ │
+│ mapado/api       │ #55  │ perf: cache      │ @bob   │ il y a 5h │ +7 −2 🟩🟥        │ 🔍 review · ↩️ réponse │ 🟡 │
+└──────────────────┴──────┴──────────────────┴────────┴───────────┴──────────────────┴────────────────────┴────┘
 ```
 
-**Liens (OSC 8, obligatoires).** Au lieu d'afficher l'URL en clair, les cellules Dépôt / PR /
-Titre sont rendues **cliquables** via les hyperliens de terminal OSC 8 (`\e]8;;URL\e\\texte\e]8;;\e\\`).
-L'URL pointe **directement** vers la bonne cible — la PR pour une review demandée / review en
-attente, l'**ancre du commentaire ou du thread précis** (`#discussion_r…` / `#issuecomment_…`)
-pour les mentions, l'activité et les réponses. On construit l'URL à partir du `html_url` du
-commentaire concerné (l'API notifications ne donne qu'une URL API ; on résout le
-`latest_comment_url` / le commentaire pour obtenir le `html_url` ancré). Si le terminal ne
-supporte pas OSC 8, le texte s'affiche normalement (non cliquable).
+**Triggers (agrégés, plusieurs possibles par PR)** : `🔍 review` · `💬 mention` · `↩️ réponse` ·
+`🗨 commentaire` (activité d'un autre sur ta PR). **Reviews en attente** : une PR où on t'a demandé
+une review mais pas encore faite apparaît dans « autres PR » avec le trigger `🔍 review` (la search
+API `review-requested:@me` la capte même si tu as déjà lu la notif).
 
-**Largeurs, troncature, couleur.** Les largeurs de colonnes sont calculées à partir du contenu
-(dépôt plafonné à 32 colonnes, titre à 60, troncature avec `…`). La largeur d'affichage compte 2
-colonnes pour les emojis larges et 1 pour le box-drawing. Couleurs douces (dépôt cyan, `#PR`
-jaune, en-têtes gras, bordures atténuées), **automatiquement désactivées hors TTY ou si
-`NO_COLOR`** est défini — ce qui rend la sortie non-TTY déterministe (utile pour les tests et les
-pipes).
+**CI** : `✅` ok · `❌` échec · `🟡` en cours · `·` aucune — réduction du `statusCheckRollup` (voir
+`ciRollup`). **Diff** : `+ajouts` en vert, `−retraits` en rouge, plus une barre de 5 blocs
+proportionnelle (`🟩`/`🟥`), façon GitHub. **Auteur / Ouverte / Diff / CI** proviennent d'un appel
+`gh pr view --json …` par PR (parallélisés) → `gh notif` fait nettement plus d'appels et prend
+quelques secondes de plus, ce qui est assumé.
+
+**Lien (OSC 8)** : une ligne = une PR, donc dépôt / PR / titre sont rendus **cliquables** vers la
+**PR** (hyperliens de terminal OSC 8 `\e]8;;URL\e\\texte\e]8;;\e\\` ; texte simple si non supporté).
+On perd l'ancre vers le commentaire précis — c'est le prix du regroupement par PR.
+
+**Largeurs, troncature, couleur.** Les largeurs sont calculées sur le contenu (dépôt plafonné,
+titre tronqué avec `…`). `displayWidth` compte 2 colonnes pour les emojis larges (y compris
+`base + U+FE0F` comme `↩️`), 0 pour les sélecteurs de variante, 1 pour le box-drawing et `−`.
+Couleurs douces, **désactivées hors TTY ou si `NO_COLOR`** (sortie non-TTY déterministe).
 
 ## Notifications desktop (`--watch`)
 

@@ -1,4 +1,11 @@
-import { classify } from './filter.js';
+import { classify, CATEGORY } from './filter.js';
+
+const TRIGGER_FOR = {
+  [CATEGORY.REVIEW_REQUEST]: 'review',
+  [CATEGORY.MENTION]: 'mention',
+  [CATEGORY.THREAD_REPLY]: 'reply',
+  [CATEGORY.ON_MY_PR]: 'comment',
+};
 
 export async function inspectThread(gh, thread, me) {
   const reason = thread.reason;
@@ -37,4 +44,64 @@ export async function collectPending(gh) {
     url: it.html_url,
     updatedAt: it.updated_at,
   }));
+}
+
+// Réduit le statusCheckRollup (tableau renvoyé par `gh pr view`) en un état
+// global : 'fail' | 'pending' | 'pass' | 'none'.
+export function ciRollup(rollup) {
+  if (!Array.isArray(rollup) || rollup.length === 0) return 'none';
+  let pending = false;
+  for (const c of rollup) {
+    const concl = (c.conclusion || '').toUpperCase();
+    const state = (c.state || '').toUpperCase();
+    const status = (c.status || '').toUpperCase();
+    if (['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE'].includes(concl)) return 'fail';
+    if (['FAILURE', 'ERROR'].includes(state)) return 'fail';
+    if (status && status !== 'COMPLETED') pending = true;
+    if (['PENDING', 'EXPECTED'].includes(state)) pending = true;
+  }
+  return pending ? 'pending' : 'pass';
+}
+
+// Regroupe notifications + reviews en attente par PR, agrège les triggers,
+// récupère les détails de chaque PR (auteur / date / diff / CI) en parallèle,
+// puis sépare selon que la PR est de moi ou d'un autre.
+export async function collectPRs(gh, me, { all = false } = {}) {
+  const items = await collectNotifications(gh, me, { all });
+  const pending = await collectPending(gh);
+
+  const byKey = new Map();
+  const ensure = (repo, number, title) => {
+    const key = `${repo}#${number}`;
+    if (!byKey.has(key)) {
+      byKey.set(key, { repo, number, title, url: `https://github.com/${repo}/pull/${number}`, triggers: new Set() });
+    }
+    return byKey.get(key);
+  };
+  for (const it of items) ensure(it.repo, it.number, it.title).triggers.add(TRIGGER_FOR[it.category]);
+  for (const p of pending) ensure(p.repo, p.number, p.title).triggers.add('review');
+
+  const entries = [...byKey.values()];
+  const details = await Promise.all(entries.map((e) => gh.getPullDetails(e.repo, e.number).catch(() => null)));
+
+  const mine = [];
+  const others = [];
+  entries.forEach((e, i) => {
+    const d = details[i];
+    const row = {
+      repo: e.repo,
+      number: e.number,
+      url: e.url,
+      title: d?.title ?? e.title,
+      triggers: [...e.triggers],
+      author: d?.author?.login ?? null,
+      createdAt: d?.createdAt ?? null,
+      additions: d?.additions ?? 0,
+      deletions: d?.deletions ?? 0,
+      ci: ciRollup(d?.statusCheckRollup),
+    };
+    if (d && d.author?.login === me) mine.push(row);
+    else others.push(row);
+  });
+  return { mine, others };
 }

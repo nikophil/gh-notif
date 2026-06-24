@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync } from 'node:fs';
 import { makeGh } from './src/github.js';
-import { collectNotifications, collectPending } from './src/collect.js';
+import { collectNotifications, collectPRs } from './src/collect.js';
 import { renderList } from './src/render.js';
 import { sendNotification, watchEventLine } from './src/notify.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './src/state.js';
@@ -58,7 +58,7 @@ async function runWatch(gh) {
 const HELP = `gh notif — notifications GitHub filtrées
 
 Usage:
-  gh notif            Liste les notifications pertinentes + reviews en attente
+  gh notif            Deux tableaux : activité sur tes PR / sur les PR des autres
   gh notif --all      Inclut les notifications déjà lues
   gh notif --watch    Poll en continu (compte à rebours) et pousse des notifs
                       desktop, en loggant chaque notif + son déclencheur
@@ -67,11 +67,8 @@ Usage:
 
 async function runList(gh, { all }) {
   const me = await gh.getCurrentUser();
-  const [items, pending] = await Promise.all([
-    collectNotifications(gh, me, { all }),
-    collectPending(gh),
-  ]);
-  process.stdout.write(renderList(items, pending));
+  const data = await collectPRs(gh, me, { all });
+  process.stdout.write(renderList(data));
 }
 
 async function main(argv) {

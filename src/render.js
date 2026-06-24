@@ -1,20 +1,13 @@
-import { CATEGORY } from './filter.js';
+// Couleur & liens (désactivés hors TTY ou si NO_COLOR), construction de tableaux
+// encadrés alignés, et helpers d'affichage (triggers, CI, date relative, diff).
 
-// ── Sections (ordre d'affichage) ─────────────────────────────────────────
-const SECTIONS = [
-  { category: CATEGORY.REVIEW_REQUEST, icon: '🔍', label: 'Reviews demandées', withActor: false },
-  { category: CATEGORY.MENTION,        icon: '💬', label: 'Mentions',          withActor: true },
-  { category: CATEGORY.ON_MY_PR,       icon: '📥', label: 'Activité sur tes PR', withActor: true },
-  { category: CATEGORY.THREAD_REPLY,   icon: '↩️', label: 'Réponses à tes commentaires', withActor: true },
-];
+const REPO_MAX = 26;
+const TITLE_MAX = 46;
 
-const TITLE_MAX = 60;
-const REPO_MAX = 32;
-
-// ── Couleur & liens (désactivés hors TTY ou si NO_COLOR) ─────────────────
 const C = {
   reset: '\x1b[0m', dim: '\x1b[2m', bold: '\x1b[1m',
   cyan: '\x1b[36m', yellow: '\x1b[33m', magenta: '\x1b[35m',
+  green: '\x1b[32m', red: '\x1b[31m',
 };
 
 function resolveOpts(opts) {
@@ -22,6 +15,7 @@ function resolveOpts(opts) {
   return {
     color: opts?.color ?? (tty && !process.env.NO_COLOR),
     hyperlinks: opts?.hyperlinks ?? tty,
+    now: opts?.now ?? Date.now(),
   };
 }
 
@@ -29,26 +23,33 @@ function paint(text, code, opts) {
   return opts.color && code ? `${code}${text}${C.reset}` : text;
 }
 
-// Hyperlien terminal OSC 8 : le texte devient cliquable, l'URL n'est pas affichée.
 export function hyperlink(url, text, opts) {
   if (!opts.hyperlinks || !url) return text;
   return `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\`;
 }
 
-// ── Largeur d'affichage (compte 2 colonnes pour les emojis larges) ───────
+// ── Largeur d'affichage ──────────────────────────────────────────────────
+// Compte 2 colonnes pour les emojis larges, 0 pour les sélecteurs de variante
+// (U+FE0F). Une base immédiatement suivie de U+FE0F (présentation emoji, ex.
+// ↩️) compte donc 2. Le box-drawing et le signe « − » restent à 1.
 function isWide(cp) {
-  // Emojis larges uniquement. On exclut volontairement le bloc box-drawing
-  // (U+2500–U+257F) et les flèches, qui s'affichent sur une seule colonne.
   return (
     (cp >= 0x1100 && cp <= 0x115f) ||  // Hangul Jamo
-    (cp >= 0x2600 && cp <= 0x27bf) ||  // symboles divers + dingbats
-    (cp >= 0x1f000 && cp <= 0x1faff)   // plans emoji
+    (cp >= 0x2600 && cp <= 0x27bf) ||  // symboles divers + dingbats (✅ ❌ …)
+    (cp >= 0x1f000 && cp <= 0x1faff)   // plans emoji (🔍 💬 🟩 🟥 🟡 …)
   );
 }
 
 export function displayWidth(text) {
+  const chars = [...text];
   let w = 0;
-  for (const ch of text) w += isWide(ch.codePointAt(0)) ? 2 : 1;
+  for (let i = 0; i < chars.length; i++) {
+    const cp = chars[i].codePointAt(0);
+    if (cp >= 0xfe00 && cp <= 0xfe0f) continue;                 // sélecteur de variante : 0
+    const next = chars[i + 1] ? chars[i + 1].codePointAt(0) : 0;
+    if (next === 0xfe0f) { w += 2; continue; }                 // base + VS16 → emoji large
+    w += isWide(cp) ? 2 : 1;
+  }
   return w;
 }
 
@@ -65,29 +66,85 @@ export function truncate(text, max) {
   return out + '…';
 }
 
+// ── Helpers de présentation ──────────────────────────────────────────────
+const TRIGGER_ORDER = ['review', 'mention', 'reply', 'comment'];
+const TRIGGER_LABEL = {
+  review: '🔍 review',
+  mention: '💬 mention',
+  reply: '↩️ réponse',
+  comment: '🗨 commentaire',
+};
+
+export function triggersLabel(keys) {
+  return TRIGGER_ORDER.filter((k) => keys.includes(k)).map((k) => TRIGGER_LABEL[k]).join(' · ');
+}
+
+const CI_ICON = { pass: '✅', fail: '❌', pending: '🟡', none: '·' };
+export function ciIcon(state) {
+  return CI_ICON[state] || '·';
+}
+
+export function relativeDate(iso, nowMs) {
+  if (!iso) return '?';
+  const ms = nowMs - new Date(iso).getTime();
+  const min = Math.floor(ms / 60000);
+  const h = Math.floor(min / 60);
+  const d = Math.floor(h / 24);
+  if (d > 0) return `il y a ${d}j`;
+  if (h > 0) return `il y a ${h}h`;
+  if (min > 0) return `il y a ${min}min`;
+  return "à l'instant";
+}
+
+// Renvoie { text, render(opts) } : `text` (brut) sert au calcul de largeur ;
+// `render` colore +ajouts en vert / −retraits en rouge (même largeur visible).
+export function diffStat(additions, deletions) {
+  const a = additions || 0;
+  const d = deletions || 0;
+  let g = 0;
+  let r = 0;
+  const total = a + d;
+  if (total > 0) {
+    if (a === 0) { g = 0; r = 5; }
+    else if (d === 0) { g = 5; r = 0; }
+    else { g = Math.min(4, Math.max(1, Math.round((5 * a) / total))); r = 5 - g; }
+  }
+  const bar = '🟩'.repeat(g) + '🟥'.repeat(r);
+  const text = `+${a} −${d}${bar ? ' ' + bar : ''}`;
+  const render = (opts) =>
+    `${paint('+' + a, C.green, opts)} ${paint('−' + d, C.red, opts)}${bar ? ' ' + bar : ''}`;
+  return { text, render };
+}
+
 // ── Construction d'un tableau encadré ────────────────────────────────────
-// columns: [{ header, max?, color? }]
-// rows: [[{ text, url?, color? }, ...], ...]  (une cellule par colonne)
+// columns: [{ header, max? }]
+// rows: [[cell, ...]] où cell = { text, url?, color?, render?(opts) }
+//   - `text` est toujours le texte brut servant à la largeur/troncature
+//   - `render` (optionnel, colonnes non plafonnées) fournit un rendu décoré de
+//     même largeur visible que `text`
 function buildTable(columns, rows, opts) {
   const widths = columns.map((col, i) => {
     const natural = Math.max(displayWidth(col.header), ...rows.map((r) => displayWidth(r[i].text)), 0);
     return col.max ? Math.min(natural, col.max) : natural;
   });
 
+  const bar = (ch) => paint(ch, C.dim, opts);
   const border = (l, m, r) => paint(l + widths.map((w) => '─'.repeat(w + 2)).join(m) + r, C.dim, opts);
 
   const renderRow = (cells, isHeader) =>
-    paint('│', C.dim, opts) +
+    bar('│') +
     cells
       .map((cell, i) => {
         const plain = truncate(cell.text, widths[i]);
-        const pad = ' '.repeat(widths[i] - displayWidth(plain));
-        let shown = isHeader ? paint(plain, C.bold, opts) : paint(plain, cell.color, opts);
-        if (!isHeader) shown = hyperlink(cell.url, shown, opts);
+        const pad = ' '.repeat(Math.max(0, widths[i] - displayWidth(plain)));
+        let shown;
+        if (isHeader) shown = paint(plain, C.bold, opts);
+        else if (cell.render) shown = cell.render(opts);
+        else shown = hyperlink(cell.url, paint(plain, cell.color, opts), opts);
         return ` ${shown}${pad} `;
       })
-      .join(paint('│', C.dim, opts)) +
-    paint('│', C.dim, opts);
+      .join(bar('│')) +
+    bar('│');
 
   return [
     border('┌', '┬', '┐'),
@@ -98,50 +155,62 @@ function buildTable(columns, rows, opts) {
   ].join('\n');
 }
 
-function itemRow(item, withActor) {
-  const titleText = withActor && item.actor ? `${item.title} — @${item.actor}` : item.title;
-  return [
-    { text: item.repo, color: C.cyan, url: item.url },
-    { text: `#${item.number}`, color: C.yellow, url: item.url },
-    { text: titleText, url: item.url },
-  ];
-}
-
-function sectionBlock(section, group, opts) {
-  const columns = [
-    { header: 'Dépôt', max: REPO_MAX },
-    { header: 'PR' },
-    { header: section.withActor ? 'Titre / Qui' : 'Titre', max: TITLE_MAX },
-  ];
-  const rows = group.map((item) => itemRow(item, section.withActor));
-  const heading = `${section.icon} ${paint(section.label, C.bold, opts)} ${paint(`(${group.length})`, C.dim, opts)}`;
-  return `${heading}\n${buildTable(columns, rows, opts)}`;
-}
-
-function pendingBlock(pending, opts) {
+function mineTable(rows, opts) {
   const columns = [
     { header: 'Dépôt', max: REPO_MAX },
     { header: 'PR' },
     { header: 'Titre', max: TITLE_MAX },
+    { header: 'Triggers' },
+    { header: 'CI' },
   ];
-  const rows = pending.map((p) => [
-    { text: p.repo, color: C.cyan, url: p.url },
-    { text: `#${p.number}`, color: C.yellow, url: p.url },
-    { text: p.title, url: p.url },
+  const cells = rows.map((r) => [
+    { text: r.repo, color: C.cyan, url: r.url },
+    { text: `#${r.number}`, color: C.yellow, url: r.url },
+    { text: r.title, url: r.url },
+    { text: triggersLabel(r.triggers) },
+    { text: ciIcon(r.ci) },
   ]);
-  const heading = `📋 ${paint('Reviews en attente', C.bold, opts)} ${paint(`(${pending.length})`, C.dim, opts)}`;
-  return `${heading}\n${buildTable(columns, rows, opts)}`;
+  return buildTable(columns, cells, opts);
 }
 
-export function renderList(items, pending, opts) {
+function othersTable(rows, opts) {
+  const columns = [
+    { header: 'Dépôt', max: REPO_MAX },
+    { header: 'PR' },
+    { header: 'Titre', max: TITLE_MAX },
+    { header: 'Auteur' },
+    { header: 'Ouverte' },
+    { header: 'Diff' },
+    { header: 'Triggers' },
+    { header: 'CI' },
+  ];
+  const cells = rows.map((r) => {
+    const diff = diffStat(r.additions, r.deletions);
+    return [
+      { text: r.repo, color: C.cyan, url: r.url },
+      { text: `#${r.number}`, color: C.yellow, url: r.url },
+      { text: r.title, url: r.url },
+      { text: r.author ? `@${r.author}` : '?', color: C.magenta },
+      { text: relativeDate(r.createdAt, opts.now), color: C.dim },
+      { text: diff.text, render: diff.render },
+      { text: triggersLabel(r.triggers) },
+      { text: ciIcon(r.ci) },
+    ];
+  });
+  return buildTable(columns, cells, opts);
+}
+
+export function renderList(data, opts) {
   const o = resolveOpts(opts);
   const blocks = [];
-  for (const section of SECTIONS) {
-    const group = items.filter((i) => i.category === section.category);
-    if (group.length === 0) continue;
-    blocks.push(sectionBlock(section, group, o));
+  if (data.mine && data.mine.length > 0) {
+    const heading = `📥 ${paint('Activité sur tes PR', C.bold, o)} ${paint(`(${data.mine.length})`, C.dim, o)}`;
+    blocks.push(`${heading}\n${mineTable(data.mine, o)}`);
   }
-  if (pending.length > 0) blocks.push(pendingBlock(pending, o));
+  if (data.others && data.others.length > 0) {
+    const heading = `👥 ${paint('Activité sur les PR des autres', C.bold, o)} ${paint(`(${data.others.length})`, C.dim, o)}`;
+    blocks.push(`${heading}\n${othersTable(data.others, o)}`);
+  }
   if (blocks.length === 0) return 'Rien à signaler ✨\n';
   return blocks.join('\n\n') + '\n';
 }

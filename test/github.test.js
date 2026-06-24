@@ -40,3 +40,15 @@ test('getReviewComments construit le bon chemin', async () => {
   assert.equal(out[0].id, 1);
   assert.ok(runner.calls[0].join(' ').includes('repos/o/r/pulls/42/comments'));
 });
+
+test('getPullDetails appelle `gh pr view` avec les bons champs', async () => {
+  const runner = fakeRunner([['pr view 42', JSON.stringify({ number: 42, author: { login: 'alice' }, additions: 10, deletions: 2 })]]);
+  const gh = makeGh(runner);
+  const out = await gh.getPullDetails('o/r', 42);
+  assert.equal(out.number, 42);
+  assert.equal(out.author.login, 'alice');
+  const args = runner.calls[0].join(' ');
+  assert.ok(args.includes('pr view 42'));
+  assert.ok(args.includes('--repo o/r'));
+  assert.ok(args.includes('statusCheckRollup'));
+});
