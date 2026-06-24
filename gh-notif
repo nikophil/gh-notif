@@ -28,17 +28,17 @@ const RECENT_MAX = 8; // évènements de session affichés sous les tableaux
 
 // Redessine l'écran : en-tête + les deux tableaux (comme `gh notif`) + journal
 // des évènements détectés depuis le démarrage. Efface l'écran en TTY.
-function drawWatch(data, recent) {
+function drawWatch(data, recent, verbose) {
   if (process.stdout.isTTY) process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
   process.stdout.write(`\x1b[2m🔄 gh notif --watch · maj ${now()} · toutes les ${POLL_SECONDS}s · Ctrl-C pour arrêter\x1b[0m\n\n`);
   process.stdout.write(renderList(data));
-  if (recent.length > 0) {
+  if (verbose && recent.length > 0) {
     process.stdout.write(`\n\x1b[1m🔔 Évènements détectés (session)\x1b[0m\n`);
     for (const line of recent) process.stdout.write(`${line}\n`);
   }
 }
 
-async function runWatch(gh, { scope }) {
+async function runWatch(gh, { scope, verbose }) {
   const me = await gh.getCurrentUser();
   const path = statePath();
   let primed = existsSync(path); // un état existe déjà : on notifie normalement
@@ -70,7 +70,7 @@ async function runWatch(gh, { scope }) {
         if (fresh.length > 0) saveState(path, state);
       }
       while (recent.length > RECENT_MAX) recent.pop();
-      drawWatch(data, recent);
+      drawWatch(data, recent, verbose);
     } catch (err) {
       process.stderr.write(`gh notif --watch: ${err.message}\n`);
     }
@@ -84,6 +84,7 @@ Usage:
   gh notif                   Deux tableaux : tes PR / les PR des autres
   gh notif --all             Inclut les notifications déjà lues
   gh notif --watch           Tableaux rafraîchis en continu + notifs desktop
+  gh notif --watch -v        + journal des évènements détectés sous les tableaux
   gh notif --org <org>       Limite à une organisation
   gh notif --repo [o/r]      Limite à un dépôt (sans valeur = dépôt courant)
   gh notif --help            Affiche cette aide
@@ -96,7 +97,7 @@ Usage:
 // (erreur, valeur requise), string=valeur.
 function parseArgs(argv) {
   const args = argv.slice(2);
-  const flags = { all: false, watch: false, help: false, org: undefined, repo: undefined };
+  const flags = { all: false, watch: false, help: false, verbose: false, org: undefined, repo: undefined };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     const takeValue = () => {
@@ -107,6 +108,7 @@ function parseArgs(argv) {
     if (a === '--help' || a === '-h') flags.help = true;
     else if (a === '--all') flags.all = true;
     else if (a === '--watch') flags.watch = true;
+    else if (a === '--verbose' || a === '-v') flags.verbose = true;
     else if (a.startsWith('--org=')) flags.org = a.slice(6);
     else if (a === '--org') flags.org = takeValue();
     else if (a.startsWith('--repo=')) flags.repo = a.slice(7);
@@ -150,7 +152,7 @@ async function main(argv) {
   try {
     const scope = await resolveScope(gh, flags);
     if (flags.watch) {
-      await runWatch(gh, { scope });
+      await runWatch(gh, { scope, verbose: flags.verbose });
     } else {
       await runList(gh, { all: flags.all, scope });
     }

@@ -59,8 +59,10 @@ sens. Une même PR peut cumuler plusieurs triggers.
 
 `gh notif --watch` affiche **les mêmes deux tableaux que `gh notif`**, mais **rafraîchis
 automatiquement** (~60 s, avec un compte à rebours), et **pousse en plus une notification desktop**
-(`notify-send`) pour chaque nouvel évènement. Les évènements détectés pendant la session sont aussi
-journalisés sous les tableaux :
+(`notify-send`) pour chaque nouvel évènement.
+
+Avec **`-v`** (`--verbose`), les évènements détectés pendant la session sont aussi journalisés sous
+les tableaux (le compte à rebours et le spinner restent dans tous les cas) :
 
 ```
 🔄 gh notif --watch · maj 14:36:50 · toutes les 60s · Ctrl-C pour arrêter
@@ -70,7 +72,7 @@ journalisés sous les tableaux :
 👥 Activité sur les PR des autres (18)
 ┌────…
 
-🔔 Évènements détectés (session)
+🔔 Évènements détectés (session)        ← uniquement avec -v
 🔔 14:36:50  @lnahiro t'a répondu  ·  mapado/ticketing #7020 [WaitingList] Export…
 ⏳ prochain check dans 42s…
 ```
@@ -99,6 +101,7 @@ gh extension install .
 gh notif                      # deux tableaux : tes PR / les PR des autres
 gh notif --all                # inclut les notifications déjà lues
 gh notif --watch              # surveille et pousse des notifs desktop (~60s)
+gh notif --watch -v           # + journal des évènements sous les tableaux
 gh notif --org mapado         # limite à une organisation
 gh notif --repo mapado/web    # limite à un dépôt
 gh notif --repo               # limite au dépôt courant (gh repo view)
