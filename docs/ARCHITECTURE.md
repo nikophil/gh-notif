@@ -93,6 +93,13 @@ gh-notif (parse args → scope)
 7. **« Tes PR » est un dashboard**, alimenté par `search author:@me is:open` (pas seulement par les
    notifications), sinon la section est vide quand personne n'a bougé sur tes PR.
 
+   **Indépendance vis-à-vis de l'état merged/closed.** La logique n'interroge **jamais** l'état d'une
+   PR (`getPullDetails` ne récupère pas `state`/`mergedAt`). Conséquence voulue : une review demandée
+   sur une PR mergée disparaît (jamais dans `review-requested:@me is:open`, item review_requested
+   ignoré), MAIS une réponse à un de mes fils reste visible même PR mergée (elle vient d'une
+   notification → `THREAD_REPLY`, indépendant de l'état). Ne pas ajouter de filtre `is:open` côté
+   notifications : ça masquerait les réponses sur PR fermées.
+
 8. **Coût.** `collectPRs` fait un `gh pr view` par PR (auteur/date/diff/CI) → `gh notif` prend
    quelques secondes. Concurrence limitée à 8 (`mapLimit`) pour ne pas spawner des dizaines de
    process `gh`. Le scope (`--org`/`--repo`) filtre **avant** ces appels.

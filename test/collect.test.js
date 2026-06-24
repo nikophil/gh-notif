@@ -169,6 +169,43 @@ test('collectPRs: notif review_requested collante AVEC réponse à mon fil → l
   assert.deepEqual(others[0].triggers, ['reply']);
 });
 
+test('collectPRs: PR mergée, review demandée, AUCUNE réponse à mon fil → ignorée', async () => {
+  // Règle : review demandée + pas de réponse à mon fil + PR mergée ⇒ rien.
+  // (#7027 réel : mergée, j'avais commenté mais personne ne m'a répondu.)
+  // L'état mergé n'a pas à être interrogé : pas en attente (search vide) +
+  // item review_requested ignoré ⇒ aucune ligne.
+  const gh = fakeGh({
+    notifications: [reviewReqThread], // o/r#42, reason review_requested collant
+    search: [],                        // mergée donc absente de review-requested:@me (is:open)
+    reviewComments: [
+      { id: 1, user: { login: 'bjulien' }, created_at: '2026-06-23T09:00:00Z', html_url: 'root' },
+      { id: 2, in_reply_to_id: 1, user: { login: ME }, created_at: '2026-06-23T12:00:00Z', html_url: 'mine' },
+    ], // j'ai répondu à bjulien, mais personne après moi
+    details: () => ({ number: 42, title: 'PR A', author: { login: 'alice' }, createdAt: '2026-06-21T12:00:00Z', additions: 1, deletions: 0, statusCheckRollup: [] }),
+  });
+  const { mine, others } = await collectPRs(gh, ME, {});
+  assert.equal(mine.length, 0);
+  assert.equal(others.length, 0);
+});
+
+test('collectPRs: PR mergée mais réponse à mon fil → reste visible (trigger reply)', async () => {
+  // Règle : si on m'a répondu, la notif reste visible même PR mergée.
+  // getPullDetails ne renvoie pas l'état merged → l'état mergé est invisible
+  // pour la logique : seule la présence d'une réponse compte.
+  const gh = fakeGh({
+    notifications: [reviewReqThread], // o/r#42
+    search: [],                        // mergée
+    reviewComments: [
+      { id: 1, user: { login: ME }, created_at: '2026-06-23T09:00:00Z', html_url: 'mine' },
+      { id: 2, in_reply_to_id: 1, user: { login: 'alice' }, created_at: '2026-06-23T12:00:00Z', html_url: 'https://github.com/o/r/pull/42#discussion_rX' },
+    ], // alice m'a répondu après mon commentaire
+    details: () => ({ number: 42, title: 'PR A', author: { login: 'alice' }, createdAt: '2026-06-21T12:00:00Z', additions: 1, deletions: 0, statusCheckRollup: [] }),
+  });
+  const { others } = await collectPRs(gh, ME, {});
+  assert.equal(others.length, 1);
+  assert.deepEqual(others[0].triggers, ['reply']);
+});
+
 test('collectPRs: une review en attente non vue ajoute une PR « autres » avec trigger review', async () => {
   const gh = fakeGh({
     notifications: [],
