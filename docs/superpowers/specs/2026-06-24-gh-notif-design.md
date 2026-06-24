@@ -89,11 +89,14 @@ Décidé : granularité **stricte au niveau du fil de review inline** (pas au ni
 Pour un thread `comment`/`subscribed` sur une PR :
 
 1. Fetch des review-comments : `GET /repos/{owner}/{repo}/pulls/{n}/comments` (paginé).
-2. Reconstruire les fils via `in_reply_to_id` (chaque commentaire pointe vers son parent ; la
-   racine est le commentaire sans `in_reply_to_id`).
+2. Reconstruire les fils via `in_reply_to_id`. **Attention : GitHub aplatit les fils** — toutes
+   les réponses d'un thread pointent vers le commentaire **racine**, pas vers le commentaire qui
+   précède. On remonte donc `in_reply_to_id` jusqu'à la racine pour regrouper par fil.
 3. Un fil « me concerne » s'il contient au moins un commentaire dont l'auteur est **moi**.
-4. KEEP si, dans un fil qui me concerne, il existe un commentaire **plus récent que l'état**
-   dont l'auteur ≠ moi. Sinon DROP.
+4. KEEP si, dans un fil qui me concerne, il existe un commentaire d'un **autre auteur** dont la
+   date est **postérieure à mon dernier commentaire de ce fil** (= une vraie réponse arrivée après
+   ma participation). On renvoie le plus récent de ces commentaires. Sinon DROP. Ce critère
+   « postérieur à ma participation » exclut le commentaire pré-existant auquel j'ai répondu.
 
 Conséquence voulue : un commentaire général dans l'onglet conversation (commentaires « issue »,
 non threadés) d'une PR où je suis juste reviewer → **DROP**. C'est exactement le bruit qu'on ne
