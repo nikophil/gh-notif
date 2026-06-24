@@ -64,7 +64,7 @@ async function runWatch(gh, { scope, verbose }) {
         const fresh = items.filter((i) => isNew(state, i));
         for (const item of fresh) {
           sendNotification(item);
-          recent.unshift(watchEventLine(item, now()));
+          recent.unshift(watchEventLine(item, now(), { hyperlinks: process.stdout.isTTY }));
           markSeen(state, item);
         }
         if (fresh.length > 0) saveState(path, state);

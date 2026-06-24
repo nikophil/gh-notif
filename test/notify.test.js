@@ -56,3 +56,13 @@ test('watchEventLine: motif pour une review demandée', () => {
   assert.ok(line.includes('Nouvelle PR à review'));
   assert.ok(line.includes('o/r #42'));
 });
+
+test('watchEventLine: dépôt/PR/titre est un lien OSC 8 (et brut si hyperlinks:false)', () => {
+  const item = { ...base, category: CATEGORY.MENTION, actor: 'alice' };
+  const linked = watchEventLine(item, '14:32:05'); // défaut : liens activés
+  assert.ok(linked.includes(`\x1b]8;;${base.url}\x1b\\`), 'séquence OSC 8 vers l’URL');
+  assert.ok(linked.includes('o/r #42 Ma PR'), 'texte du lien intact');
+  const plain = watchEventLine(item, '14:32:05', { hyperlinks: false });
+  assert.ok(!plain.includes('\x1b]8;;'), 'pas d’OSC 8 quand désactivé');
+  assert.ok(plain.includes('o/r #42 Ma PR'));
+});

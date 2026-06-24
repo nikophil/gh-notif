@@ -1,5 +1,6 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 import { CATEGORY } from './filter.js';
+import { hyperlink } from './render.js';
 
 export function notifyMessage(item) {
   let title;
@@ -21,9 +22,13 @@ export function sendNotification(item, spawn = nodeSpawn) {
 }
 
 // Ligne terminal pour une notif poussée par `--watch` : horodatage + motif
-// (le déclencheur) + dépôt/PR/titre. `title` est exactement le motif affiché
-// dans la notif desktop.
-export function watchEventLine(item, time) {
+// (le déclencheur) + dépôt/PR/titre cliquable (OSC 8). `title` est exactement
+// le motif affiché dans la notif desktop. `opts.hyperlinks` (défaut true)
+// contrôle le lien — passer false hors TTY.
+export function watchEventLine(item, time, opts = {}) {
   const { title } = notifyMessage(item);
-  return `🔔 ${time}  ${title}  ·  ${item.repo} #${item.number} ${item.title}`;
+  const target = hyperlink(item.url, `${item.repo} #${item.number} ${item.title}`, {
+    hyperlinks: opts.hyperlinks ?? true,
+  });
+  return `🔔 ${time}  ${title}  ·  ${target}`;
 }
