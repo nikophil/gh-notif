@@ -35,7 +35,7 @@ export function makeGh(runner = defaultRunner) {
       return parseJson(await runner([
         'pr', 'view', String(number),
         '--repo', repoFullName,
-        '--json', 'number,title,author,createdAt,additions,deletions,statusCheckRollup',
+        '--json', 'number,title,author,createdAt,additions,deletions,statusCheckRollup,state,isDraft,reviews',
       ]));
     },
     async searchReviewRequested(qualifier = '') {

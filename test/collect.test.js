@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { collectNotifications, collectPending, collectPRs, ciRollup, scopeMatches, scopeQualifier } from '../src/collect.js';
+import { collectNotifications, collectPending, collectPRs, ciRollup, prState, scopeMatches, scopeQualifier } from '../src/collect.js';
 
 const ME = 'nikophil';
 
@@ -81,6 +81,14 @@ test('ciRollup: vide → none, échec → fail, en cours → pending, ok → pas
   assert.equal(ciRollup([{ status: 'IN_PROGRESS' }, { conclusion: 'SUCCESS', status: 'COMPLETED' }]), 'pending');
   assert.equal(ciRollup([{ state: 'PENDING' }]), 'pending');
   assert.equal(ciRollup([{ conclusion: 'SUCCESS', status: 'COMPLETED' }, { state: 'SUCCESS' }]), 'pass');
+});
+
+test('prState : draft > merged > closed > open', () => {
+  assert.equal(prState({ isDraft: true, state: 'OPEN' }), 'draft');
+  assert.equal(prState({ state: 'MERGED' }), 'merged');
+  assert.equal(prState({ state: 'CLOSED' }), 'closed');
+  assert.equal(prState({ state: 'OPEN' }), 'open');
+  assert.equal(prState(null), 'open');
 });
 
 // ── collectPRs ─────────────────────────────────────────────────────────────
@@ -210,11 +218,13 @@ test('collectPRs: une review en attente non vue ajoute une PR « autres » avec 
   const gh = fakeGh({
     notifications: [],
     search: [{ number: 98, title: 'À review', html_url: 'https://github.com/o/r/pull/98', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
-    details: () => ({ number: 98, title: 'À review', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 3, deletions: 3, statusCheckRollup: [{ status: 'IN_PROGRESS' }] }),
+    details: () => ({ number: 98, title: 'À review', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 3, deletions: 3, statusCheckRollup: [{ status: 'IN_PROGRESS' }], state: 'OPEN', isDraft: false, reviews: [{}, {}, {}] }),
   });
   const { mine, others } = await collectPRs(gh, ME, {});
   assert.equal(mine.length, 0);
   assert.equal(others.length, 1);
   assert.deepEqual(others[0].triggers, ['review']);
   assert.equal(others[0].ci, 'pending');
+  assert.equal(others[0].state, 'open');
+  assert.equal(others[0].reviews, 3);
 });

@@ -103,6 +103,15 @@ export function ciRollup(rollup) {
   return pending ? 'pending' : 'pass';
 }
 
+// État affiché d'une PR à partir de `gh pr view` : 'draft' | 'open' | 'merged' | 'closed'.
+export function prState(d) {
+  if (d?.isDraft) return 'draft';
+  const s = (d?.state || '').toUpperCase();
+  if (s === 'MERGED') return 'merged';
+  if (s === 'CLOSED') return 'closed';
+  return 'open';
+}
+
 // Regroupe notifications + reviews en attente par PR, agrège les triggers,
 // récupère les détails de chaque PR (auteur / date / diff / CI) en parallèle,
 // puis sépare selon que la PR est de moi ou d'un autre.
@@ -147,6 +156,8 @@ export async function collectPRs(gh, me, { all = false, scope = null } = {}) {
       additions: d?.additions ?? 0,
       deletions: d?.deletions ?? 0,
       ci: ciRollup(d?.statusCheckRollup),
+      state: prState(d),
+      reviews: Array.isArray(d?.reviews) ? d.reviews.length : 0,
     };
     if (d && d.author?.login === me) mine.push(row);
     else others.push(row);

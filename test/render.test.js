@@ -2,33 +2,38 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   renderList, hyperlink, truncate, displayWidth,
-  triggersLabel, ciIcon, relativeDate, diffStat,
+  triggersLabel, ciIcon, stateIcon, relativeDate, diffStat,
 } from '../src/render.js';
 
 // Mise en page déterministe : couleur et liens désactivés, `now` fixe.
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
 const PLAIN = { color: false, hyperlinks: false, now: NOW };
 
-const myRow = (over = {}) => ({ repo: 'mapado/web', number: 120, url: 'u', title: 'fix header', triggers: ['comment'], ci: 'pass', ...over });
-const otherRow = (over = {}) => ({ repo: 'mapado/api', number: 55, url: 'u', title: 'perf: cache', triggers: ['review'], ci: 'pass', author: 'alice', createdAt: '2026-06-21T12:00:00Z', additions: 412, deletions: 38, ...over });
+const myRow = (over = {}) => ({ repo: 'mapado/web', number: 120, url: 'u', title: 'fix header', triggers: ['comment'], ci: 'pass', state: 'open', reviews: 0, ...over });
+const otherRow = (over = {}) => ({ repo: 'mapado/api', number: 55, url: 'u', title: 'perf: cache', triggers: ['review'], ci: 'pass', author: 'alice', createdAt: '2026-06-21T12:00:00Z', additions: 412, deletions: 38, state: 'open', reviews: 2, ...over });
 
 test('rendu vide', () => {
   assert.match(renderList({ mine: [], others: [] }, PLAIN), /Rien à signaler/);
 });
 
-test('tableau « tes PR » : Triggers + CI, pas de colonne Auteur', () => {
-  const out = renderList({ mine: [myRow({ triggers: ['comment', 'mention'] })], others: [] }, PLAIN);
+test('tableau « tes PR » : État + Rev + Triggers + CI, pas de colonne Auteur', () => {
+  const out = renderList({ mine: [myRow({ triggers: ['comment', 'mention'], state: 'draft', reviews: 3 })], others: [] }, PLAIN);
   assert.match(out, /Tes PR ouvertes \(1\)/);
   assert.match(out, /┌.*┐/);
+  assert.match(out, /État/);
+  assert.match(out, /Rev/);
   assert.match(out, /Triggers/);
-  assert.ok(out.includes('🗨 commentaire'));
-  assert.ok(out.includes('💬 mention'));
+  assert.ok(out.includes('🗨'));         // triggers : emojis seuls
+  assert.ok(out.includes('💬'));
+  assert.ok(!out.includes('commentaire')); // plus de libellé texte
+  assert.ok(out.includes('📝'));         // état draft
+  assert.ok(out.includes('3'));          // nombre de reviews
   assert.ok(out.includes('✅'));
   assert.doesNotMatch(out, /Auteur/);
 });
 
-test('tableau « autres PR » : Auteur, Ouverte, Diff', () => {
-  const out = renderList({ mine: [], others: [otherRow()] }, PLAIN);
+test('tableau « autres PR » : Auteur, Ouverte, Diff (sans barre), État, Rev', () => {
+  const out = renderList({ mine: [], others: [otherRow({ state: 'merged', reviews: 4 })] }, PLAIN);
   assert.match(out, /Activité sur les PR des autres \(1\)/);
   assert.match(out, /Auteur/);
   assert.match(out, /Ouverte/);
@@ -37,6 +42,8 @@ test('tableau « autres PR » : Auteur, Ouverte, Diff', () => {
   assert.ok(out.includes('il y a 3j'));
   assert.ok(out.includes('+412'));
   assert.ok(out.includes('−38'));
+  assert.ok(!out.includes('🟩') && !out.includes('🟥')); // plus de barre de couleur
+  assert.ok(out.includes('🟣'));         // état mergée
 });
 
 test('les deux tableaux peuvent coexister', () => {
@@ -62,9 +69,10 @@ test('alignement : chaque tableau a toutes ses lignes de même largeur (emojis i
 });
 
 // ── helpers purs ─────────────────────────────────────────────────────────
-test('triggersLabel : ordonné, icône + libellé, séparés par ·', () => {
-  assert.equal(triggersLabel(['mention', 'review']), '🔍 review · 💬 mention');
-  assert.equal(triggersLabel(['reply']), '↩️ réponse');
+test('triggersLabel : ordonné, emojis seuls séparés par un espace', () => {
+  assert.equal(triggersLabel(['mention', 'review']), '🔍 💬');
+  assert.equal(triggersLabel(['reply']), '↩️');
+  assert.equal(triggersLabel(['comment', 'reply', 'mention', 'review']), '🔍 💬 ↩️ 🗨');
   assert.equal(triggersLabel([]), '');
 });
 
@@ -75,6 +83,14 @@ test('ciIcon', () => {
   assert.equal(ciIcon('none'), '·');
 });
 
+test('stateIcon : draft / open / merged / closed', () => {
+  assert.equal(stateIcon('draft'), '📝');
+  assert.equal(stateIcon('open'), '🟢');
+  assert.equal(stateIcon('merged'), '🟣');
+  assert.equal(stateIcon('closed'), '🔴');
+  assert.equal(stateIcon('???'), '·');
+});
+
 test('relativeDate', () => {
   assert.equal(relativeDate('2026-06-21T12:00:00Z', NOW), 'il y a 3j');
   assert.equal(relativeDate('2026-06-24T07:00:00Z', NOW), 'il y a 5h');
@@ -82,16 +98,15 @@ test('relativeDate', () => {
   assert.equal(relativeDate(null, NOW), '?');
 });
 
-test('diffStat : texte brut + barre de 5 blocs, rendu coloré', () => {
+test('diffStat : +ajouts −retraits sans barre, rendu coloré', () => {
   const d = diffStat(412, 38);
-  assert.ok(d.text.startsWith('+412 −38 '));
-  const blocks = [...d.text].filter((c) => c === '🟩' || c === '🟥').length;
-  assert.equal(blocks, 5);
+  assert.equal(d.text, '+412 −38');
+  assert.ok(![...d.text].some((c) => c === '🟩' || c === '🟥'), 'plus de barre');
   assert.ok(d.render({ color: true }).includes('\x1b[32m'), 'ajouts en vert');
   assert.ok(d.render({ color: true }).includes('\x1b[31m'), 'retraits en rouge');
 });
 
-test('diffStat : diff vide → pas de barre', () => {
+test('diffStat : diff vide', () => {
   const d = diffStat(0, 0);
   assert.equal(d.text, '+0 −0');
 });

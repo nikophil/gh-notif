@@ -5,29 +5,33 @@ et un affichage en tableaux, là où l'inbox GitHub native est trop bruyante.
 
 ```
 📥 Tes PR ouvertes (6)
-┌──────────────────┬───────┬──────────────────────────────┬────────────┬────┐
-│ Dépôt            │ PR    │ Titre                        │ Triggers   │ CI │
-├──────────────────┼───────┼──────────────────────────────┼────────────┼────┤
-│ mapado/ticketing │ #7020 │ [WaitingList] Export waiting…│ 💬 mention │ ✅ │
-│ mapado/ticketing │ #7045 │ [CI] fix block-labeled-prs   │            │ 🟡 │
-└──────────────────┴───────┴──────────────────────────────┴────────────┴────┘
+┌──────────────────┬───────┬──────────────────────────────┬──────┬─────┬──────────┬────┐
+│ Dépôt            │ PR    │ Titre                        │ État │ Rev │ Triggers │ CI │
+├──────────────────┼───────┼──────────────────────────────┼──────┼─────┼──────────┼────┤
+│ mapado/ticketing │ #7020 │ [WaitingList] Export waiting…│ 🟢   │ 3   │ 💬       │ ✅ │
+│ mapado/ticketing │ #7045 │ [CI] fix block-labeled-prs   │ 📝   │ ·   │          │ 🟡 │
+└──────────────────┴───────┴──────────────────────────────┴──────┴─────┴──────────┴────┘
 
 👥 Activité sur les PR des autres (34)
-┌──────────────────┬──────┬───────────────┬─────────┬───────────┬──────────────────┬───────────┬────┐
-│ Dépôt            │ PR   │ Titre         │ Auteur  │ Ouverte   │ Diff             │ Triggers  │ CI │
-├──────────────────┼──────┼───────────────┼─────────┼───────────┼──────────────────┼───────────┼────┤
-│ mapado/oauth-srv │ #388 │ feat: add api…│ @lnahiro│ il y a 2h │ +451 −10 🟩🟩🟩🟩🟥 │ 🔍 review │ ✅ │
-└──────────────────┴──────┴───────────────┴─────────┴───────────┴──────────────────┴───────────┴────┘
+┌──────────────────┬──────┬───────────────┬─────────┬───────────┬──────────┬──────┬─────┬──────────┬────┐
+│ Dépôt            │ PR   │ Titre         │ Auteur  │ Ouverte   │ Diff     │ État │ Rev │ Triggers │ CI │
+├──────────────────┼──────┼───────────────┼─────────┼───────────┼──────────┼──────┼─────┼──────────┼────┤
+│ mapado/oauth-srv │ #388 │ feat: add api…│ @lnahiro│ il y a 2h │ +451 −10 │ 🟢   │ 4   │ 🔍       │ ✅ │
+└──────────────────┴──────┴───────────────┴─────────┴───────────┴──────────┴──────┴─────┴──────────┴────┘
 ```
 
 ## Ce que ça fait
 
 `gh notif` affiche **deux tableaux** :
 
-- **📥 Tes PR ouvertes** — toutes tes PR ouvertes (un dashboard), avec leur état CI et les triggers
-  d'activité éventuels.
+- **📥 Tes PR ouvertes** — toutes tes PR ouvertes (un dashboard), avec leur état, le nombre de
+  reviews reçues, l'état CI et les triggers d'activité éventuels.
 - **👥 Activité sur les PR des autres** — les PR des autres qui te concernent (reviews demandées,
-  mentions, réponses à tes fils), avec auteur, date d'ouverture, taille du diff, CI.
+  mentions, réponses à tes fils), avec auteur, date d'ouverture, taille du diff, état, nombre de
+  reviews, CI.
+
+Colonnes communes : **État** (📝 draft · 🟢 ouverte · 🟣 mergée · 🔴 fermée) et **Rev** (nombre de
+reviews reçues, `·` si aucune).
 
 Le **dépôt / la PR / le titre sont cliquables** (liens de terminal OSC 8) et mènent directement à
 la bonne cible.
@@ -41,7 +45,8 @@ la bonne cible.
 | ↩️ | réponse | quelqu'un a répondu dans un fil de review où tu as participé |
 | 🗨 | commentaire | quelqu'un a commenté **ta** PR |
 
-Une même PR peut cumuler plusieurs triggers.
+Dans les tableaux, seul l'emoji est affiché (pour gagner de la place) ; cette légende en donne le
+sens. Une même PR peut cumuler plusieurs triggers.
 
 ### Ce qui est volontairement **ignoré**
 

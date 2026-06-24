@@ -68,20 +68,28 @@ export function truncate(text, max) {
 
 // ── Helpers de présentation ──────────────────────────────────────────────
 const TRIGGER_ORDER = ['review', 'mention', 'reply', 'comment'];
-const TRIGGER_LABEL = {
-  review: '🔍 review',
-  mention: '💬 mention',
-  reply: '↩️ réponse',
-  comment: '🗨 commentaire',
+const TRIGGER_ICON = {
+  review: '🔍',
+  mention: '💬',
+  reply: '↩️',
+  comment: '🗨',
 };
 
+// Emojis seuls (espace pour gagner de la place). Légende : 🔍 review · 💬 mention
+// · ↩️ réponse · 🗨 commentaire (cf. README).
 export function triggersLabel(keys) {
-  return TRIGGER_ORDER.filter((k) => keys.includes(k)).map((k) => TRIGGER_LABEL[k]).join(' · ');
+  return TRIGGER_ORDER.filter((k) => keys.includes(k)).map((k) => TRIGGER_ICON[k]).join(' ');
 }
 
 const CI_ICON = { pass: '✅', fail: '❌', pending: '🟡', none: '·' };
 export function ciIcon(state) {
   return CI_ICON[state] || '·';
+}
+
+// État de la PR : 📝 draft · 🟢 ouverte · 🟣 mergée · 🔴 fermée.
+const STATE_ICON = { draft: '📝', open: '🟢', merged: '🟣', closed: '🔴' };
+export function stateIcon(state) {
+  return STATE_ICON[state] || '·';
 }
 
 export function relativeDate(iso, nowMs) {
@@ -101,18 +109,8 @@ export function relativeDate(iso, nowMs) {
 export function diffStat(additions, deletions) {
   const a = additions || 0;
   const d = deletions || 0;
-  let g = 0;
-  let r = 0;
-  const total = a + d;
-  if (total > 0) {
-    if (a === 0) { g = 0; r = 5; }
-    else if (d === 0) { g = 5; r = 0; }
-    else { g = Math.min(4, Math.max(1, Math.round((5 * a) / total))); r = 5 - g; }
-  }
-  const bar = '🟩'.repeat(g) + '🟥'.repeat(r);
-  const text = `+${a} −${d}${bar ? ' ' + bar : ''}`;
-  const render = (opts) =>
-    `${paint('+' + a, C.green, opts)} ${paint('−' + d, C.red, opts)}${bar ? ' ' + bar : ''}`;
+  const text = `+${a} −${d}`;
+  const render = (opts) => `${paint('+' + a, C.green, opts)} ${paint('−' + d, C.red, opts)}`;
   return { text, render };
 }
 
@@ -160,6 +158,8 @@ function mineTable(rows, opts) {
     { header: 'Dépôt', max: REPO_MAX },
     { header: 'PR' },
     { header: 'Titre', max: TITLE_MAX },
+    { header: 'État' },
+    { header: 'Rev' },
     { header: 'Triggers' },
     { header: 'CI' },
   ];
@@ -167,6 +167,8 @@ function mineTable(rows, opts) {
     { text: r.repo, color: C.cyan, url: r.url },
     { text: `#${r.number}`, color: C.yellow, url: r.url },
     { text: r.title, url: r.url },
+    { text: stateIcon(r.state) },
+    { text: r.reviews ? String(r.reviews) : '·', color: C.dim },
     { text: triggersLabel(r.triggers) },
     { text: ciIcon(r.ci) },
   ]);
@@ -181,6 +183,8 @@ function othersTable(rows, opts) {
     { header: 'Auteur' },
     { header: 'Ouverte' },
     { header: 'Diff' },
+    { header: 'État' },
+    { header: 'Rev' },
     { header: 'Triggers' },
     { header: 'CI' },
   ];
@@ -193,6 +197,8 @@ function othersTable(rows, opts) {
       { text: r.author ? `@${r.author}` : '?', color: C.magenta },
       { text: relativeDate(r.createdAt, opts.now), color: C.dim },
       { text: diff.text, render: diff.render },
+      { text: stateIcon(r.state) },
+      { text: r.reviews ? String(r.reviews) : '·', color: C.dim },
       { text: triggersLabel(r.triggers) },
       { text: ciIcon(r.ci) },
     ];

@@ -46,7 +46,7 @@ gh-notif (parse args → scope)
 
 - **Thread** (`/notifications`) : `{ id, reason, updated_at, subject:{title,url,latest_comment_url,type}, repository:{full_name} }`
 - **Item** (sortie de `classify`) : `{ category, actor, url, repo, number, title, threadId, updatedAt }`
-- **Row** (sortie de `collectPRs`) : `{ repo, number, url, title, triggers:[…], author, createdAt, additions, deletions, ci }`
+- **Row** (sortie de `collectPRs`) : `{ repo, number, url, title, triggers:[…], author, createdAt, additions, deletions, ci, state, reviews }` — `state` ∈ {draft,open,merged,closed} (via `prState`), `reviews` = nombre de reviews (`reviews.length` de `gh pr view`).
 - **scope** : `null` (tout) | `{ type:'org', value }` | `{ type:'repo', value:'owner/name' }`
 
 ## Décisions non-évidentes (⚠️ pièges)
