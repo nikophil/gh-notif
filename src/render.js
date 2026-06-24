@@ -204,7 +204,7 @@ export function renderList(data, opts) {
   const o = resolveOpts(opts);
   const blocks = [];
   if (data.mine && data.mine.length > 0) {
-    const heading = `📥 ${paint('Activité sur tes PR', C.bold, o)} ${paint(`(${data.mine.length})`, C.dim, o)}`;
+    const heading = `📥 ${paint('Tes PR ouvertes', C.bold, o)} ${paint(`(${data.mine.length})`, C.dim, o)}`;
     blocks.push(`${heading}\n${mineTable(data.mine, o)}`);
   }
   if (data.others && data.others.length > 0) {

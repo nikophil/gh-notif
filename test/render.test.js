@@ -18,7 +18,7 @@ test('rendu vide', () => {
 
 test('tableau « tes PR » : Triggers + CI, pas de colonne Auteur', () => {
   const out = renderList({ mine: [myRow({ triggers: ['comment', 'mention'] })], others: [] }, PLAIN);
-  assert.match(out, /Activité sur tes PR \(1\)/);
+  assert.match(out, /Tes PR ouvertes \(1\)/);
   assert.match(out, /┌.*┐/);
   assert.match(out, /Triggers/);
   assert.ok(out.includes('🗨 commentaire'));
@@ -41,7 +41,7 @@ test('tableau « autres PR » : Auteur, Ouverte, Diff', () => {
 
 test('les deux tableaux peuvent coexister', () => {
   const out = renderList({ mine: [myRow()], others: [otherRow()] }, PLAIN);
-  assert.match(out, /Activité sur tes PR \(1\)/);
+  assert.match(out, /Tes PR ouvertes \(1\)/);
   assert.match(out, /Activité sur les PR des autres \(1\)/);
 });
 

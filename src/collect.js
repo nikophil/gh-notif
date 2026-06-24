@@ -46,6 +46,31 @@ export async function collectPending(gh) {
   }));
 }
 
+export async function collectAuthored(gh) {
+  const items = await gh.searchAuthored();
+  return items.map((it) => ({
+    repo: it.repository_url.replace('https://api.github.com/repos/', ''),
+    number: it.number,
+    title: it.title,
+    url: it.html_url,
+  }));
+}
+
+// Exécute fn sur chaque item avec au plus `limit` exécutions concurrentes
+// (évite de lancer des dizaines de `gh pr view` d'un coup).
+async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let i = 0;
+  const worker = async () => {
+    while (i < items.length) {
+      const idx = i++;
+      results[idx] = await fn(items[idx], idx);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 // Réduit le statusCheckRollup (tableau renvoyé par `gh pr view`) en un état
 // global : 'fail' | 'pending' | 'pass' | 'none'.
 export function ciRollup(rollup) {
@@ -67,8 +92,11 @@ export function ciRollup(rollup) {
 // récupère les détails de chaque PR (auteur / date / diff / CI) en parallèle,
 // puis sépare selon que la PR est de moi ou d'un autre.
 export async function collectPRs(gh, me, { all = false } = {}) {
-  const items = await collectNotifications(gh, me, { all });
-  const pending = await collectPending(gh);
+  const [items, pending, authored] = await Promise.all([
+    collectNotifications(gh, me, { all }),
+    collectPending(gh),
+    collectAuthored(gh),
+  ]);
 
   const byKey = new Map();
   const ensure = (repo, number, title) => {
@@ -80,9 +108,10 @@ export async function collectPRs(gh, me, { all = false } = {}) {
   };
   for (const it of items) ensure(it.repo, it.number, it.title).triggers.add(TRIGGER_FOR[it.category]);
   for (const p of pending) ensure(p.repo, p.number, p.title).triggers.add('review');
+  for (const a of authored) ensure(a.repo, a.number, a.title); // dashboard : pas de trigger
 
   const entries = [...byKey.values()];
-  const details = await Promise.all(entries.map((e) => gh.getPullDetails(e.repo, e.number).catch(() => null)));
+  const details = await mapLimit(entries, 8, (e) => gh.getPullDetails(e.repo, e.number).catch(() => null));
 
   const mine = [];
   const others = [];

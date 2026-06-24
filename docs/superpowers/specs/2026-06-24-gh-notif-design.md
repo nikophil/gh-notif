@@ -151,7 +151,9 @@ lancement enverrait une notif desktop par non-lue existante (un flot).
 `gh notif` produit **une ligne par PR** (toutes les notifications d'une même PR sont regroupées et
 leurs triggers agrégés), réparti en **deux tableaux encadrés** selon l'auteur de la PR :
 
-- **📥 Activité sur tes PR** (PRs dont tu es l'auteur) — colonnes : `Dépôt · PR · Titre · Triggers · CI`
+- **📥 Tes PR ouvertes** (dashboard de toutes tes PR ouvertes, via la recherche `author:@me
+  is:open`) — colonnes : `Dépôt · PR · Titre · Triggers · CI`. Les triggers sont vides si aucune
+  activité récente ; la valeur principale est de voir l'état CI de toutes tes PR d'un coup.
 - **👥 Activité sur les PR des autres** — colonnes : `Dépôt · PR · Titre · Auteur · Ouverte · Diff · Triggers · CI`
 
 ```
@@ -172,8 +174,8 @@ API `review-requested:@me` la capte même si tu as déjà lu la notif).
 **CI** : `✅` ok · `❌` échec · `🟡` en cours · `·` aucune — réduction du `statusCheckRollup` (voir
 `ciRollup`). **Diff** : `+ajouts` en vert, `−retraits` en rouge, plus une barre de 5 blocs
 proportionnelle (`🟩`/`🟥`), façon GitHub. **Auteur / Ouverte / Diff / CI** proviennent d'un appel
-`gh pr view --json …` par PR (parallélisés) → `gh notif` fait nettement plus d'appels et prend
-quelques secondes de plus, ce qui est assumé.
+`gh pr view --json …` par PR (parallélisés, **au plus 8 en concurrence**) → `gh notif` fait
+nettement plus d'appels et prend quelques secondes de plus, ce qui est assumé.
 
 **Lien (OSC 8)** : une ligne = une PR, donc dépôt / PR / titre sont rendus **cliquables** vers la
 **PR** (hyperliens de terminal OSC 8 `\e]8;;URL\e\\texte\e]8;;\e\\` ; texte simple si non supporté).

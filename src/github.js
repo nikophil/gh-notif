@@ -42,5 +42,9 @@ export function makeGh(runner = defaultRunner) {
       const out = parseJson(await runner(['api', '-X', 'GET', 'search/issues', '-f', 'q=is:open is:pr review-requested:@me']));
       return out?.items ?? [];
     },
+    async searchAuthored() {
+      const out = parseJson(await runner(['api', '-X', 'GET', 'search/issues', '-f', 'q=is:open is:pr author:@me']));
+      return out?.items ?? [];
+    },
   };
 }

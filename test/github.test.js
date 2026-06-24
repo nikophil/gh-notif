@@ -41,6 +41,14 @@ test('getReviewComments construit le bon chemin', async () => {
   assert.ok(runner.calls[0].join(' ').includes('repos/o/r/pulls/42/comments'));
 });
 
+test('searchAuthored interroge author:@me', async () => {
+  const runner = fakeRunner([['search/issues', JSON.stringify({ items: [{ number: 7 }] })]]);
+  const gh = makeGh(runner);
+  const out = await gh.searchAuthored();
+  assert.equal(out[0].number, 7);
+  assert.ok(runner.calls[0].join(' ').includes('author:@me'));
+});
+
 test('getPullDetails appelle `gh pr view` avec les bons champs', async () => {
   const runner = fakeRunner([['pr view 42', JSON.stringify({ number: 42, author: { login: 'alice' }, additions: 10, deletions: 2 })]]);
   const gh = makeGh(runner);

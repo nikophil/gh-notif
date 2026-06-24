@@ -11,6 +11,7 @@ function fakeGh(over = {}) {
     async getComment() { return over.comment ?? null; },
     async getReviewComments() { return over.reviewComments ?? []; },
     async searchReviewRequested() { return over.search ?? []; },
+    async searchAuthored() { return over.authored ?? []; },
     async getPullDetails(repo, number) { return over.details?.(repo, number) ?? null; },
   };
 }
@@ -95,6 +96,20 @@ test('collectPRs: agrège les triggers d’une même PR et sépare mine/others',
   assert.equal(mine[0].repo, 'o/x');
   assert.deepEqual(mine[0].triggers, ['comment']);
   assert.equal(mine[0].ci, 'none');
+});
+
+test('collectPRs: une PR ouverte que j’ai écrite (sans activité) apparaît dans mine, triggers vides', async () => {
+  const gh = fakeGh({
+    notifications: [],
+    authored: [{ number: 20, title: 'Ma PR sans activité', html_url: 'https://github.com/o/x/pull/20', repository_url: 'https://api.github.com/repos/o/x' }],
+    details: () => ({ number: 20, title: 'Ma PR sans activité', author: { login: ME }, createdAt: '2026-06-22T12:00:00Z', additions: 5, deletions: 1, statusCheckRollup: [{ conclusion: 'SUCCESS', status: 'COMPLETED' }] }),
+  });
+  const { mine, others } = await collectPRs(gh, ME, {});
+  assert.equal(others.length, 0);
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0].repo, 'o/x');
+  assert.deepEqual(mine[0].triggers, []);
+  assert.equal(mine[0].ci, 'pass');
 });
 
 test('collectPRs: une review en attente non vue ajoute une PR « autres » avec trigger review', async () => {
