@@ -14,7 +14,7 @@ test('titre review demandée', () => {
 
 test('titre mention inclut l\'auteur', () => {
   const m = notifyMessage({ ...base, category: CATEGORY.MENTION, actor: 'alice' });
-  assert.equal(m.title, "@alice t'a mentionné");
+  assert.equal(m.title, "@alice t’a mentionné");
 });
 
 test('titre activité sur ma PR', () => {
@@ -24,7 +24,7 @@ test('titre activité sur ma PR', () => {
 
 test('titre réponse', () => {
   const m = notifyMessage({ ...base, category: CATEGORY.THREAD_REPLY, actor: 'carol' });
-  assert.equal(m.title, "@carol t'a répondu");
+  assert.equal(m.title, "@carol t’a répondu");
 });
 
 test('sendNotification appelle spawn avec titre et corps', () => {
