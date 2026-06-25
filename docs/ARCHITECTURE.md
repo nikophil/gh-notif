@@ -14,7 +14,7 @@ qui réutilise l'auth de l'utilisateur. Tests avec le runner natif `node:test` (
 
 | Fichier | Rôle | Pur / testable ? |
 |---------|------|------------------|
-| `gh-notif` | Entrypoint : parse les args, résout le scope, dispatch `runList` / `runWatch`. | non (I/O, boucle) |
+| `gh-notif` | Entrypoint : parse les args, résout le scope, dispatch `runList` / `runWatch` / `serve`. | non (I/O, boucle) |
 | `src/github.js` | Wrapper fin autour de `gh` (`makeGh(runner)`), `runner` injectable. Renvoie du JSON brut. | oui via runner stub |
 | `src/filter.js` | **Cœur** : `classify()` (règles de filtrage), `findReplyToMe()`, helpers. Fonctions pures. | oui |
 | `src/collect.js` | Orchestration : agrège notifications + recherches en PRs, récupère les détails, scope. | oui via gh stub |
@@ -23,6 +23,8 @@ qui réutilise l'auth de l'utilisateur. Tests avec le runner natif `node:test` (
 | `src/render.js` | Tableaux encadrés alignés, couleur, liens OSC 8, helpers d'affichage. | oui |
 | `src/spinner.js` | Spinner pendant les requêtes (stderr, no-op hors TTY). | oui via stream stub |
 | `src/hidden.js` | Masquage des PR des autres : persistance, signatures d'évènements, réconciliation, numéros. | oui |
+| `src/html.js` | Rendu **HTML pur** du mode `--serve` (`escapeHtml`, `renderFragment`, `renderShell`). Réutilise les helpers de `render.js`. | oui |
+| `src/serve.js` | Serveur HTTP local (`node:http`) + boucle de poll : `handleRequest` (pur) + `serve` (I/O). | `handleRequest` oui ; `serve` non (I/O) |
 
 Chaque module a une responsabilité claire ; la logique difficile vit dans des **fonctions pures**
 testées sur fixtures (pas d'appel réseau en test).
@@ -48,6 +50,19 @@ via `state.js` ; chaque nouvel item déclenche `sendNotification` + une ligne `w
 empilée dans un journal de session (max 8) affiché sous les tableaux. Puis `countdown` jusqu'au
 prochain poll. Les reviews en attente / PR authored (issues de recherche) n'émettent **pas** de
 notif desktop : seuls les items de `data.notifications` le font.
+
+`--serve` : `serve` (`src/serve.js`) lance **une seule boucle de poll** (`collectPRs`, mêmes
+données que `gh notif`, respecte la liste `hidden` persistée) alimentant un **snapshot en mémoire**
+`{ data, updatedAt, error }`, et monte un serveur `node:http`. Le routing est isolé dans
+`handleRequest(pathname, snapshot, {now, intervalMs})` (**pur**, testable sans socket) : `GET /` →
+`renderShell` (page + JS de polling), `GET /fragment` → `renderFragment` du snapshot (ou message
+d'erreur échappé), `GET /api/state` → JSON brut (amorce pour de futures interactions), sinon 404.
+Le rendu HTML (`src/html.js`) **réutilise** les helpers de présentation de `render.js`
+(`triggersLabel`, `ciIcon`, `stateIcon`, `relativeDate`) : seul le médium (terminal vs HTML)
+diffère. Le navigateur re-fetch `/fragment` toutes les ~10 s (rythme client **découplé** du poll
+GitHub à 60 s → plusieurs onglets ne multiplient pas les appels). Tout est inline (aucun asset
+externe). ⚠️ `renderFragment` **échappe** toute donnée GitHub (titre, repo, auteur) via `escapeHtml`
+— un titre de PR peut contenir `<`/`&` (anti-injection).
 
 ## Formes de données
 

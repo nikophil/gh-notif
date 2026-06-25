@@ -99,6 +99,25 @@ les tableaux (le compte à rebours et le spinner restent dans tous les cas) :
 Au tout premier lancement, le backlog existant est marqué « vu » **sans alerter** : les tableaux
 s'affichent, mais tu n'es notifié (desktop) que des évènements survenant **après** le démarrage.
 
+## `--serve` (page web)
+
+`gh notif --serve` lance un petit **serveur HTTP local** et ouvre une **page web** présentant les
+**mêmes deux tableaux que `gh notif`**, qui se **rafraîchit toute seule** (sans recharger la page) :
+
+```bash
+gh notif --serve              # http://localhost:7777, ouvre le navigateur
+gh notif --serve --port 8080  # sur un autre port
+gh notif --serve --org mapado # restreint le scope (comme les autres modes)
+```
+
+Le navigateur s'ouvre automatiquement sur l'URL. Une **unique boucle de poll côté serveur**
+(~60 s) interroge GitHub et alimente la page ; plusieurs onglets ouverts ne multiplient donc pas
+les appels. Les liens dépôt / PR / titre mènent à la bonne cible (le commentaire précis pour les
+triggers mention / réponse / commentaire). Les PR que tu as masquées (touche `h`) restent masquées.
+
+Zéro dépendance : c'est servi par le module HTTP natif de Node, tout est inline (aucun asset
+externe). `Ctrl-C` arrête le serveur.
+
 ## Prérequis
 
 - [`gh`](https://cli.github.com/) authentifié (`gh auth login`)
@@ -121,13 +140,15 @@ gh notif                      # deux tableaux : tes PR / les PR des autres
 gh notif --all                # inclut les notifications déjà lues
 gh notif --watch              # surveille et pousse des notifs desktop (~60s)
 gh notif --watch -v           # + journal des évènements sous les tableaux
+gh notif --serve              # page web locale auto-rafraîchie (http://localhost:7777)
+gh notif --serve --port 8080  # page web sur un autre port
 gh notif --show-hidden        # affiche aussi les PR masquées (grisées, 🙈)
 gh notif --org mapado         # limite à une organisation
 gh notif --repo mapado/web    # limite à un dépôt
 gh notif --repo               # limite au dépôt courant (gh repo view)
 ```
 
-`--org` et `--repo` sont mutuellement exclusifs et fonctionnent aussi avec `--watch`.
+`--org` et `--repo` sont mutuellement exclusifs et fonctionnent aussi avec `--watch` et `--serve`.
 
 > 💡 Couleurs et liens cliquables s'activent en terminal interactif. En pipe/redirection (ou avec
 > `NO_COLOR`), la sortie est en texte simple et déterministe.
