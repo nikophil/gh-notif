@@ -53,6 +53,7 @@ sens. Une même PR peut cumuler plusieurs triggers.
 - les mises à jour de PR : push, nouveau commit, état de la CI, merge/close, label/assignee ;
 - l'activité de tiers sur une PR où tu es **simple reviewer** (sauf si on répond à ton fil ou qu'on
   te mentionne) ;
+- les **PR en draft des autres** (tes propres drafts restent affichés dans « Tes PR ouvertes ») ;
 - tout ce qui n'est pas une Pull Request (issues, releases, discussions).
 
 ## `--watch`

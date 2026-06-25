@@ -183,8 +183,8 @@ export async function collectPRs(gh, me, { all = false, scope = null } = {}) {
       state: prState(d),
       approvals: countApprovals(d?.reviews),
     };
-    if (d && d.author?.login === me) mine.push(row);
-    else others.push(row);
+    if (d && d.author?.login === me) mine.push(row); // mes PR : on garde mes drafts
+    else if (row.state !== 'draft') others.push(row); // PR des autres : on masque les drafts
   });
   // `notifications` = items de notification déjà classifiés (avec url d'évènement),
   // exposés pour que `--watch` détecte les nouveautés sans refaire le travail.

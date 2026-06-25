@@ -269,6 +269,23 @@ test('collectPRs: PR mergée mais réponse à mon fil → reste visible (trigger
   assert.deepEqual(others[0].triggers, ['reply']);
 });
 
+test('collectPRs: les PR draft des autres sont masquées, mes drafts restent', async () => {
+  const gh = fakeGh({
+    // une review demandée sur une PR draft d'un autre + une de mes PR draft
+    search: [{ number: 80, title: 'Draft autre', html_url: 'https://github.com/o/r/pull/80', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
+    authored: [{ number: 81, title: 'Mon draft', html_url: 'https://github.com/o/x/pull/81', repository_url: 'https://api.github.com/repos/o/x' }],
+    details: (repo, number) => {
+      if (number === 80) return { number: 80, title: 'Draft autre', author: { login: 'alice' }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, isDraft: true, state: 'OPEN', statusCheckRollupState: 'SUCCESS' };
+      if (number === 81) return { number: 81, title: 'Mon draft', author: { login: ME }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, isDraft: true, state: 'OPEN', statusCheckRollupState: 'SUCCESS' };
+      return null;
+    },
+  });
+  const { mine, others } = await collectPRs(gh, ME, {});
+  assert.equal(others.length, 0);              // PR draft d'un autre → masquée
+  assert.equal(mine.length, 1);                // mon draft → conservé
+  assert.equal(mine[0].state, 'draft');
+});
+
 test('collectPRs: une review en attente non vue ajoute une PR « autres » avec trigger review', async () => {
   const gh = fakeGh({
     notifications: [],
