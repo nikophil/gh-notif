@@ -156,6 +156,36 @@ test('collectPRs: agrège les triggers d’une même PR et sépare mine/others',
   assert.equal(mine[0].repo, 'o/x');
   assert.deepEqual(mine[0].triggers, ['comment']);
   assert.equal(mine[0].ci, 'none');
+  assert.equal(mine[0].url, 'h'); // « commentaire sur ma PR » → lien vers le commentaire
+});
+
+test('collectPRs: le lien d’une réponse en thread pointe sur le commentaire', async () => {
+  const thread = {
+    id: 't1', reason: 'subscribed', updated_at: '2026-06-24T12:00:00Z',
+    subject: { title: 'PR R', url: 'https://api.github.com/repos/o/r/pulls/50', latest_comment_url: null, type: 'PullRequest' },
+    repository: { full_name: 'o/r' },
+  };
+  const gh = fakeGh({
+    notifications: [thread],
+    reviewComments: [
+      { id: 1, user: { login: ME }, created_at: '2026-06-24T10:00:00Z', html_url: 'mine' },
+      { id: 2, in_reply_to_id: 1, user: { login: 'bob' }, created_at: '2026-06-24T11:00:00Z', html_url: 'https://github.com/o/r/pull/50#discussion_r2' },
+    ],
+    details: () => ({ number: 50, title: 'PR R', author: { login: 'bob' }, createdAt: '2026-06-20T12:00:00Z', additions: 1, deletions: 1, statusCheckRollupState: 'SUCCESS' }),
+  });
+  const { others } = await collectPRs(gh, ME, {});
+  assert.equal(others.length, 1);
+  assert.deepEqual(others[0].triggers, ['reply']);
+  assert.equal(others[0].url, 'https://github.com/o/r/pull/50#discussion_r2');
+});
+
+test('collectPRs: une review en attente (sans commentaire) garde le lien vers la PR', async () => {
+  const gh = fakeGh({
+    search: [{ number: 60, title: 'À review', html_url: 'https://github.com/o/r/pull/60', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
+    details: () => ({ number: 60, title: 'À review', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, statusCheckRollupState: 'SUCCESS' }),
+  });
+  const { others } = await collectPRs(gh, ME, {});
+  assert.equal(others[0].url, 'https://github.com/o/r/pull/60'); // lien PR (pas de commentaire)
 });
 
 test('collectPRs: une PR ouverte que j’ai écrite (sans activité) apparaît dans mine, triggers vides', async () => {

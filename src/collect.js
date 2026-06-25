@@ -153,7 +153,11 @@ export async function collectPRs(gh, me, { all = false, scope = null } = {}) {
   for (const it of items) {
     const trig = TRIGGER_FOR[it.category];
     if (!trig) continue; // review_request : ignoré ici (cf. TRIGGER_FOR / collectPending)
-    ensure(it.repo, it.number, it.title).triggers.add(trig);
+    const row = ensure(it.repo, it.number, it.title);
+    row.triggers.add(trig);
+    // mention / reply / commentaire : `it.url` pointe sur le commentaire précis →
+    // le lien de la ligne y mène directement (et non sur la PR seule).
+    row.url = it.url;
   }
   for (const p of pending) ensure(p.repo, p.number, p.title).triggers.add('review');
   for (const a of authored) ensure(a.repo, a.number, a.title); // dashboard : pas de trigger
