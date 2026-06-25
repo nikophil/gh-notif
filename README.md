@@ -56,6 +56,22 @@ sens. Une même PR peut cumuler plusieurs triggers.
 - les **PR en draft des autres** (tes propres drafts restent affichés dans « Tes PR ouvertes ») ;
 - tout ce qui n'est pas une Pull Request (issues, releases, discussions).
 
+### Masquer une PR des autres
+
+Dans un terminal interactif, appuie sur **`h`** pour entrer en *mode masquage* : un **numéro**
+apparaît devant chaque PR de la table « autres ». Tape le **numéro puis `Entrée`** pour **masquer**
+la PR (jamais les tiennes ; `Backspace` corrige, `Esc` sort). `q` quitte `gh notif`.
+
+Une PR masquée **réapparaît automatiquement dès qu'un nouveau trigger arrive** (réponse à ton fil,
+mention, commentaire). Une review demandée que tu masques reste cachée jusqu'à une vraie
+interaction.
+
+`gh notif --show-hidden` réaffiche les PR masquées (grisées, 🙈) ; en mode masquage, leur numéro
+les **restaure**. Disponible aussi avec `--watch`. La liste des masquées est persistée dans
+`~/.local/state/gh-notif/hidden-v1.json`.
+
+> En pipe/redirection (non-TTY), `gh notif` affiche puis rend la main : aucune interaction.
+
 ## `--watch`
 
 `gh notif --watch` affiche **les mêmes deux tableaux que `gh notif`**, mais **rafraîchis
@@ -103,6 +119,7 @@ gh notif                      # deux tableaux : tes PR / les PR des autres
 gh notif --all                # inclut les notifications déjà lues
 gh notif --watch              # surveille et pousse des notifs desktop (~60s)
 gh notif --watch -v           # + journal des évènements sous les tableaux
+gh notif --show-hidden        # affiche aussi les PR masquées (grisées, 🙈)
 gh notif --org mapado         # limite à une organisation
 gh notif --repo mapado/web    # limite à un dépôt
 gh notif --repo               # limite au dépôt courant (gh repo view)

@@ -22,6 +22,7 @@ qui réutilise l'auth de l'utilisateur. Tests avec le runner natif `node:test` (
 | `src/notify.js` | Notifs desktop (`notify-send`) + ligne d'évènement terminal. | oui via spawn stub |
 | `src/render.js` | Tableaux encadrés alignés, couleur, liens OSC 8, helpers d'affichage. | oui |
 | `src/spinner.js` | Spinner pendant les requêtes (stderr, no-op hors TTY). | oui via stream stub |
+| `src/hidden.js` | Masquage des PR des autres : persistance, signatures d'évènements, réconciliation, numéros. | oui |
 
 Chaque module a une responsabilité claire ; la logique difficile vit dans des **fonctions pures**
 testées sur fixtures (pas d'appel réseau en test).
@@ -141,6 +142,22 @@ notif desktop : seuls les items de `data.notifications` le font.
 9. **Apostrophes typographiques (`U+2019`).** Les libellés FR (`t'a répondu`, `t'a mentionné`)
    utilisent `'` (U+2019), pas l'ASCII `'`. Régression récurrente : vérifier les octets si tu touches
    ces chaînes. Les tests asservissent ça.
+
+10. **Masquage « jusqu'au prochain trigger » (`hidden.js`).** Seules les PR de `others` sont
+    masquables (jamais `mine` — garde explicite dans `collectPRs`). On stocke un instantané des
+    **URLs d'évènements de trigger** (`signatureOf`, `review_request` exclu car absent de
+    `TRIGGER_FOR`) au moment du masquage ; `reconcile` dé-masque dès qu'une URL nouvelle apparaît et
+    élague les clés absentes des entrées courantes. Conséquence voulue : une review demandée
+    (signature vide) reste cachée jusqu'à une vraie interaction (réponse/mention/commentaire) — une
+    re-demande de review ne produit pas d'URL d'évènement, donc ne la fait pas réapparaître.
+    `collectPRs` réconcilie et renvoie `{ others (visibles), hidden (lignes masquées), hiddenCount,
+    hiddenChanged }`. L'interaction est **100 % clavier** (`h`, puis numéro saisi + Entrée, `Esc`,
+    `Backspace`), **sans capture souris ni alt-screen** (un essai souris a été abandonné car il
+    cassait scroll/liens/curseur), et **seulement** si stdin+stdout sont des TTY — sinon
+    « affiche puis rend la main ». En `--watch`, le poll est **gelé** pendant le mode masquage
+    (`waitNextPoll` ne décompte ni n'écrit) pour ne pas redessiner sous l'utilisateur. État
+    persisté dans `~/.local/state/gh-notif/hidden-v1.json`. ⚠️ `TRIGGER_FOR` vit dans `filter.js`
+    (pas `collect.js`) pour être partagé avec `hidden.js` sans cycle d'import.
 
 ## Conventions de test
 
