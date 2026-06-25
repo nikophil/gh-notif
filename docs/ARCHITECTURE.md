@@ -72,6 +72,15 @@ notif desktop : seuls les items de `data.notifications` le font.
    pratique `classify` peut émettre `REVIEW_REQUEST`, mais `collectPRs` l'**ignore** (absent de
    `TRIGGER_FOR`) ; cet item ne sert qu'au `--watch` (notifier une *nouvelle* demande de review).
    C'est ce qui évite qu'une PR déjà review (ex. réel : #7036) ré-apparaisse avec un trigger « review ».
+   ⚠️ Côté `--watch`, on ne notifie un `REVIEW_REQUEST` que si la PR est **encore ouverte/pending**
+   (présente dans `data.mine`/`data.others`, donc dans `collectPending` is:open) — sinon une demande
+   de review sur une PR fermée/mergée déclencherait « Nouvelle PR à review » à tort (réel : #7004).
+
+   **Commentaire (inline) sur MA PR.** Une notif `reason: author` n'a pas toujours de
+   `latest_comment_url` pour un review-comment → la branche `author` de `classify` inspecte AUSSI les
+   review-comments (`latestOtherComment`, filtré par `last_read_at`) pour émettre `ON_MY_PR` (réel :
+   #7015). Les réponses à MON fil restent captées avant (THREAD_REPLY). Rappel : une notif déjà lue
+   n'est pas récupérée par `gh notif` (all=false), donc un commentaire lu ne réapparaît pas.
 
 2. **GitHub aplatit les fils de review.** Toutes les réponses d'un fil pointent vers le commentaire
    **racine** (`in_reply_to_id` = racine), pas vers le commentaire précédent. `findReplyToMe`

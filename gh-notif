@@ -2,6 +2,7 @@
 import { existsSync } from 'node:fs';
 import { makeGh } from './src/github.js';
 import { collectPRs } from './src/collect.js';
+import { CATEGORY } from './src/filter.js';
 import { renderList } from './src/render.js';
 import { sendNotification, watchEventLine } from './src/notify.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './src/state.js';
@@ -61,11 +62,16 @@ async function runWatch(gh, { scope, verbose }) {
         saveState(path, state);
         primed = true;
       } else {
+        // PR encore ouvertes/pending (présentes dans les tableaux) : sert à ne pas
+        // notifier une demande de review sur une PR déjà fermée/mergée (cf. #7004).
+        const openKeys = new Set([...data.mine, ...data.others].map((r) => `${r.repo}#${r.number}`));
         const fresh = items.filter((i) => isNew(state, i));
         for (const item of fresh) {
+          markSeen(state, item);
+          // une demande de review n'a de sens que sur une PR ouverte
+          if (item.category === CATEGORY.REVIEW_REQUEST && !openKeys.has(`${item.repo}#${item.number}`)) continue;
           sendNotification(item);
           recent.unshift(watchEventLine(item, now(), { hyperlinks: process.stdout.isTTY }));
-          markSeen(state, item);
         }
         if (fresh.length > 0) saveState(path, state);
       }
