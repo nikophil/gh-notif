@@ -126,7 +126,7 @@ export function prState(d) {
 // Regroupe notifications + reviews en attente par PR, agrège les triggers,
 // récupère les détails de chaque PR (auteur / date / diff / CI) en parallèle,
 // puis sépare selon que la PR est de moi ou d'un autre.
-export async function collectPRs(gh, me, { all = false, scope = null } = {}) {
+export async function collectPRs(gh, me, { all = false, scope = null, hidden = {} } = {}) {
   const [items, pending, authored] = await Promise.all([
     collectNotifications(gh, me, { all, scope }),
     collectPending(gh, scope),
@@ -157,7 +157,7 @@ export async function collectPRs(gh, me, { all = false, scope = null } = {}) {
   const details = await gh.getPullDetailsBatch(entries.map((e) => ({ repo: e.repo, number: e.number })));
 
   const mine = [];
-  const others = [];
+  const othersAll = []; // PR des autres (hors draft), avant filtrage du masquage
   entries.forEach((e, i) => {
     const d = details[i];
     const row = {
@@ -174,10 +174,17 @@ export async function collectPRs(gh, me, { all = false, scope = null } = {}) {
       state: prState(d),
       approvals: countApprovals(d?.reviews),
     };
-    if (d && d.author?.login === me) mine.push(row); // mes PR : on garde mes drafts
-    else if (row.state !== 'draft') others.push(row); // PR des autres : on masque les drafts
+    if (d && d.author?.login === me) mine.push(row); // mes PR : jamais masquées, on garde mes drafts
+    else if (row.state !== 'draft') othersAll.push(row); // PR des autres : on masque les drafts
   });
+
+  // Dé-masque sur nouveau trigger + élague les clés obsolètes (mute `hidden`),
+  // puis sépare les PR des autres en visibles / masquées.
+  const hiddenChanged = reconcile(hidden, othersAll, items);
+  const others = othersAll.filter((r) => !isHidden(hidden, keyOf(r)));
+  const hiddenRows = othersAll.filter((r) => isHidden(hidden, keyOf(r)));
+
   // `notifications` = items de notification déjà classifiés (avec url d'évènement),
   // exposés pour que `--watch` détecte les nouveautés sans refaire le travail.
-  return { mine, others, notifications: items };
+  return { mine, others, hidden: hiddenRows, hiddenCount: hiddenRows.length, hiddenChanged, notifications: items };
 }

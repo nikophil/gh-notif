@@ -303,3 +303,50 @@ test('collectPRs: une review en attente non vue ajoute une PR « autres » avec 
   assert.equal(others[0].state, 'open');
   assert.equal(others[0].approvals, 1);
 });
+
+// ── masquage (hidden) ────────────────────────────────────────────────────────
+test('collectPRs: une PR « autres » masquée sort de others et passe dans hidden', async () => {
+  const gh = fakeGh({
+    search: [{ number: 60, title: 'À review', html_url: 'https://github.com/o/r/pull/60', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
+    details: () => ({ number: 60, title: 'À review', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, statusCheckRollupState: 'SUCCESS' }),
+  });
+  const hidden = { 'o/r#60': { at: 'x', seen: [] } };
+  const { others, hidden: hiddenRows, hiddenCount } = await collectPRs(gh, ME, { hidden });
+  assert.equal(others.length, 0);
+  assert.equal(hiddenCount, 1);
+  assert.equal(hiddenRows[0].number, 60);
+});
+
+test('collectPRs: on ne masque JAMAIS une PR à moi', async () => {
+  const gh = fakeGh({
+    authored: [{ number: 81, title: 'Ma PR', html_url: 'https://github.com/o/x/pull/81', repository_url: 'https://api.github.com/repos/o/x' }],
+    details: () => ({ number: 81, title: 'Ma PR', author: { login: ME }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, statusCheckRollupState: 'SUCCESS' }),
+  });
+  const hidden = { 'o/x#81': { at: 'x', seen: [] } }; // même si présente dans la map
+  const { mine, hiddenCount } = await collectPRs(gh, ME, { hidden });
+  assert.equal(mine.length, 1);     // reste dans mine
+  assert.equal(hiddenCount, 0);     // jamais comptée comme masquée
+});
+
+test('collectPRs: dé-masquage au nouveau trigger (reconcile) + hiddenChanged', async () => {
+  const thread = {
+    id: 't1', reason: 'subscribed', updated_at: '2026-06-24T12:00:00Z',
+    subject: { title: 'PR R', url: 'https://api.github.com/repos/o/r/pulls/50', latest_comment_url: null, type: 'PullRequest' },
+    repository: { full_name: 'o/r' },
+  };
+  const gh = fakeGh({
+    notifications: [thread],
+    reviewComments: [
+      { id: 1, user: { login: ME }, created_at: '2026-06-24T10:00:00Z', html_url: 'mine' },
+      { id: 2, in_reply_to_id: 1, user: { login: 'bob' }, created_at: '2026-06-24T11:00:00Z', html_url: 'https://github.com/o/r/pull/50#discussion_r2' },
+    ],
+    details: () => ({ number: 50, title: 'PR R', author: { login: 'bob' }, createdAt: '2026-06-20T12:00:00Z', additions: 1, deletions: 1, statusCheckRollupState: 'SUCCESS' }),
+  });
+  // masquée avec un instantané vide → l'évènement #discussion_r2 est « nouveau »
+  const hidden = { 'o/r#50': { at: 'x', seen: [] } };
+  const { others, hiddenCount, hiddenChanged } = await collectPRs(gh, ME, { hidden });
+  assert.equal(others.length, 1);    // réapparue
+  assert.equal(hiddenCount, 0);
+  assert.equal(hiddenChanged, true); // reconcile a modifié la map
+  assert.equal('o/r#50' in hidden, false);
+});
