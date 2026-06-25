@@ -225,8 +225,8 @@ Usage:
 
 --org et --repo sont mutuellement exclusifs. Ils s'appliquent aussi à --watch.
 
-Touches (terminal interactif) : h = masquer une PR des autres ·
-(en mode masquage) numéro + Entrée = masquer/restaurer · Esc = sortir · q = quitter.
+Touches (terminal interactif) : h = masquer/restaurer une PR des autres ·
+(en mode masquage) n° de PR + Entrée = valider · Esc = annuler · q = quitter.
 `;
 
 // Parse les arguments. repo: undefined=absent, null=donné sans valeur (dépôt
