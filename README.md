@@ -58,16 +58,18 @@ sens. Une même PR peut cumuler plusieurs triggers.
 
 ### Masquer une PR des autres
 
-Dans un terminal interactif, appuie sur **`h`** pour entrer en *mode masquage* : un **numéro**
-apparaît devant chaque PR de la table « autres ». Tape le **numéro puis `Entrée`** pour **masquer**
-la PR (jamais les tiennes ; `Backspace` corrige, `Esc` sort). `q` quitte `gh notif`.
+Un rappel s'affiche sous les tableaux : **`↳ appuie sur h pour masquer une PR des autres`**.
+Appuie sur **`h`**, puis tape le **numéro de la PR** (celui de la colonne « PR », ex. `6861`) et
+**`Entrée`** : la PR est masquée et le mode masquage se **referme aussitôt** (`Backspace` corrige,
+`Esc` annule). On ne masque jamais tes propres PR. `q` quitte `gh notif`.
 
 Une PR masquée **réapparaît automatiquement dès qu'un nouveau trigger arrive** (réponse à ton fil,
 mention, commentaire). Une review demandée que tu masques reste cachée jusqu'à une vraie
 interaction.
 
-`gh notif --show-hidden` réaffiche les PR masquées (grisées, 🙈) ; en mode masquage, leur numéro
-les **restaure**. Disponible aussi avec `--watch`. La liste des masquées est persistée dans
+`gh notif --show-hidden` réaffiche les PR masquées (grisées, 🙈) ; en mode masquage, retaper leur
+numéro les **restaure**. Disponible aussi avec `--watch` (où, avec `-v`, masquer/restaurer ajoute
+une ligne au journal). La liste des masquées est persistée dans
 `~/.local/state/gh-notif/hidden-v1.json`.
 
 > En pipe/redirection (non-TTY), `gh notif` affiche puis rend la main : aucune interaction.

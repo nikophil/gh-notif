@@ -18,14 +18,14 @@ const now = () => new Date().toLocaleTimeString('fr-FR');
 // pipe/redirection, on garde le comportement « affiche puis rend la main ».
 const interactive = () => process.stdin.isTTY && process.stdout.isTTY;
 
-// Lignes « autres » à afficher (+ flags/numéros) selon le mode courant.
-function viewModel(data, { hideMode, showHidden }) {
+// Lignes « autres » à afficher (+ flags masqué) selon le mode courant. La
+// sélection se fait au numéro de PR (colonne « PR »), pas à un index.
+function viewModel(data, { showHidden }) {
   const rows = showHidden ? [...data.others, ...data.hidden] : data.others;
   const hiddenFlags = showHidden
     ? [...data.others.map(() => false), ...data.hidden.map(() => true)]
     : data.others.map(() => false);
-  const labels = hideMode ? assignLabels(rows) : [];
-  return { rows, hiddenFlags, labels };
+  return { rows, hiddenFlags };
 }
 
 // Re-filtre others/hidden depuis les données déjà en mémoire (pas de refetch)
@@ -37,20 +37,33 @@ function recompute(data, hidden) {
   return { ...data, others, hidden: hiddenRows, hiddenCount: hiddenRows.length };
 }
 
-// Bandeau d'aide sous les tableaux selon le mode.
-function helpBanner(hideMode, buffer) {
+// Index de la ligne dont le numéro de PR == saisie (1re occurrence), ou -1.
+function rowIndexForInput(rows, buffer) {
+  return assignLabels(rows).indexOf(buffer.replace(/^#/, ''));
+}
+
+// Bandeau d'aide sous les tableaux. En mode masquage : invite « # de la PR ».
+// `quitHint` ajoute la touche de sortie propre au contexte (q en one-shot).
+function helpBanner(hideMode, buffer, quitHint = '') {
   return hideMode
-    ? `\n\x1b[2mn° à masquer/restaurer : \x1b[0m${buffer}\x1b[2m_  ·  Entrée valide · Esc sort\x1b[0m\n`
-    : `\n\x1b[2mh = masquer une PR des autres · q = quitter\x1b[0m\n`;
+    ? `\n\x1b[2mn° de la PR à masquer : \x1b[0m#${buffer}\x1b[2m_  ·  Entrée valide · Esc annule\x1b[0m\n`
+    : `\n\x1b[2m↳ appuie sur \x1b[0mh\x1b[2m pour masquer une PR des autres${quitHint}\x1b[0m\n`;
+}
+
+// Ligne de journal (--watch -v) quand une PR est masquée/restaurée à la main.
+function hideEventLine(nowHidden, row, time) {
+  const what = nowHidden ? '🙈 PR masquée' : '👁  PR restaurée';
+  return `\x1b[2m${time}\x1b[0m  ${what}  ·  ${row.repo} #${row.number} ${row.title}`;
 }
 
 // Boucle clavier partagée (one-shot). Résout quand l'utilisateur quitte (q hors
 // mode masquage). `draw(hideMode, buffer)` redessine ; `rowsFor()` renvoie les
-// lignes « autres » courantes ; `onToggle(key)` masque/restaure.
+// lignes « autres » courantes ; `onToggle(row)` masque/restaure. On quitte le
+// mode masquage dès qu'une PR a été (dé)masquée.
 function runInteractive({ draw, rowsFor, onToggle }) {
   return new Promise((resolve) => {
     let hideMode = false;
-    let buffer = ''; // chiffres saisis en mode masquage
+    let buffer = ''; // chiffres du numéro de PR saisi en mode masquage
     readline.emitKeypressEvents(process.stdin);
     process.stdin.setRawMode(true);
     process.stdin.resume();
@@ -66,14 +79,17 @@ function runInteractive({ draw, rowsFor, onToggle }) {
         else if (str === 'q') { cleanup(); resolve(); }
         return;
       }
-      // mode masquage : buffer de chiffres, Entrée valide, Backspace efface, Esc sort
+      // mode masquage : buffer du n° de PR, Entrée valide, Backspace efface, Esc annule
       if (key.name === 'escape') { hideMode = false; buffer = ''; draw(false, ''); return; }
       if (key.name === 'return' || key.name === 'enter') {
         const rows = rowsFor();
-        const idx = assignLabels(rows).indexOf(buffer);
-        if (idx >= 0) onToggle(keyOf(rows[idx]));
-        buffer = '';
-        draw(true, buffer);
+        const idx = rowIndexForInput(rows, buffer);
+        if (idx >= 0) {
+          onToggle(rows[idx]);
+          hideMode = false; buffer = ''; draw(false, ''); // sortie auto après action
+        } else {
+          buffer = ''; draw(true, buffer); // numéro inconnu : on réinitialise la saisie
+        }
         return;
       }
       if (key.name === 'backspace') { buffer = buffer.slice(0, -1); draw(true, buffer); return; }
@@ -99,15 +115,16 @@ async function runWatch(gh, { scope, verbose, showHidden }) {
   let hideMode = false;
   let buffer = '';
 
-  // Redessine : en-tête + les deux tableaux + (mode masquage) bandeau + journal.
+  // Redessine : en-tête + les deux tableaux + bandeau (indice ou saisie) + journal.
   const redraw = () => {
     if (!data) return;
-    const vm = viewModel(data, { hideMode, showHidden });
+    const vm = viewModel(data, { showHidden });
     if (process.stdout.isTTY) process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
     process.stdout.write(`\x1b[2m🔄 gh notif --watch · maj ${now()} · toutes les ${POLL_SECONDS}s · Ctrl-C pour arrêter\x1b[0m\n\n`);
     process.stdout.write(renderList({ mine: data.mine, others: vm.rows, hiddenCount: data.hiddenCount },
-      { hideMode, showHidden, labels: vm.labels, hiddenFlags: vm.hiddenFlags }));
-    if (hideMode) process.stdout.write(helpBanner(true, buffer));
+      { showHidden, hiddenFlags: vm.hiddenFlags }));
+    // indice « h » en permanence (mode normal) ou invite de saisie (mode masquage)
+    if (interactive()) process.stdout.write(helpBanner(hideMode, buffer));
     if (verbose && recent.length > 0) {
       process.stdout.write(`\n\x1b[1m🔔 Évènements détectés (session)\x1b[0m\n`);
       for (const line of recent) process.stdout.write(`${line}\n`);
@@ -122,9 +139,17 @@ async function runWatch(gh, { scope, verbose, showHidden }) {
       if (!hideMode) { if (str === 'h' && data) { hideMode = true; buffer = ''; redraw(); } return; }
       if (key.name === 'escape') { hideMode = false; buffer = ''; redraw(); return; }
       if (key.name === 'return' || key.name === 'enter') {
-        const rows = viewModel(data, { hideMode: true, showHidden }).rows;
-        const idx = assignLabels(rows).indexOf(buffer);
-        if (idx >= 0) { toggleHidden(hidden, keyOf(rows[idx]), data.notifications); saveHidden(hiddenFile, hidden); data = recompute(data, hidden); }
+        const rows = viewModel(data, { showHidden }).rows;
+        const idx = rowIndexForInput(rows, buffer);
+        if (idx >= 0) {
+          const row = rows[idx];
+          const nowHidden = toggleHidden(hidden, keyOf(row), data.notifications);
+          saveHidden(hiddenFile, hidden);
+          data = recompute(data, hidden);
+          recent.unshift(hideEventLine(nowHidden, row, now())); // journal (-v)
+          while (recent.length > RECENT_MAX) recent.pop();
+          hideMode = false; // sortie auto après action
+        }
         buffer = ''; redraw(); return;
       }
       if (key.name === 'backspace') { buffer = buffer.slice(0, -1); redraw(); return; }
@@ -261,21 +286,23 @@ async function runList(gh, { all, scope, showHidden }) {
 
   // Hors TTY (pipe/redirection) : affiche puis rend la main, sans interaction.
   if (!interactive()) {
-    process.stdout.write(renderList(data, { showHidden }));
+    const vm = viewModel(data, { showHidden });
+    process.stdout.write(renderList({ mine: data.mine, others: vm.rows, hiddenCount: data.hiddenCount },
+      { showHidden, hiddenFlags: vm.hiddenFlags }));
     return;
   }
 
   // Terminal interactif : on reste vivant pour permettre le masquage au clavier.
   await runInteractive({
     draw: (hideMode, buffer) => {
-      const vm = viewModel(data, { hideMode, showHidden });
+      const vm = viewModel(data, { showHidden });
       process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
       process.stdout.write(renderList({ mine: data.mine, others: vm.rows, hiddenCount: data.hiddenCount },
-        { hideMode, showHidden, labels: vm.labels, hiddenFlags: vm.hiddenFlags }));
-      process.stdout.write(helpBanner(hideMode, buffer));
+        { showHidden, hiddenFlags: vm.hiddenFlags }));
+      process.stdout.write(helpBanner(hideMode, buffer, ' · q pour quitter'));
     },
-    rowsFor: () => viewModel(data, { hideMode: true, showHidden }).rows,
-    onToggle: (key) => { toggleHidden(hidden, key, data.notifications); saveHidden(hiddenFile, hidden); data = recompute(data, hidden); },
+    rowsFor: () => viewModel(data, { showHidden }).rows,
+    onToggle: (row) => { toggleHidden(hidden, keyOf(row), data.notifications); saveHidden(hiddenFile, hidden); data = recompute(data, hidden); },
   });
 }
 

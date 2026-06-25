@@ -141,14 +141,13 @@ test('couleur: ANSI absent si color:false, présent si color:true', () => {
 // ── masquage (hidden) ────────────────────────────────────────────────────────
 const tableLines = (out) => out.split('\n').filter((l) => /^[┌├└│]/.test(l));
 
-test('renderList: mode masquage affiche une colonne de numéros alignée', () => {
-  const others = [otherRow(), otherRow({ number: 7, repo: 'o/x', title: 'autre' })];
-  const out = renderList({ others }, { color: false, hyperlinks: false, now: NOW, hideMode: true, labels: ['1', '2'], hiddenFlags: [false, false] });
-  const lines = tableLines(out);
-  const widths = new Set(lines.map(displayWidth));
+test('renderList: la sélection se fait au n° de PR (colonne PR), pas de colonne séquentielle', () => {
+  const others = [otherRow({ number: 7004 }), otherRow({ number: 388, repo: 'o/x', title: 'autre' })];
+  const out = renderList({ others }, { color: false, hyperlinks: false, now: NOW });
+  const widths = new Set(tableLines(out).map(displayWidth));
   assert.equal(widths.size, 1, `largeurs incohérentes (${[...widths].join(',')})`);
-  assert.match(out, /\b1\b/);
-  assert.match(out, /\b2\b/);
+  assert.match(out, /#7004/); // le numéro de PR est l'identifiant
+  assert.match(out, /#388/);
 });
 
 test('renderList: vue masquées affiche 🙈 + compteur « N masquées » + reste aligné', () => {

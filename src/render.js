@@ -16,9 +16,7 @@ function resolveOpts(opts) {
     color: opts?.color ?? (tty && !process.env.NO_COLOR),
     hyperlinks: opts?.hyperlinks ?? tty,
     now: opts?.now ?? Date.now(),
-    hideMode: !!opts?.hideMode,
     showHidden: !!opts?.showHidden,
-    labels: opts?.labels ?? [],
     hiddenFlags: opts?.hiddenFlags ?? [],
   };
 }
@@ -180,10 +178,11 @@ function mineTable(rows, opts) {
 }
 
 function othersTable(rows, opts) {
-  // Colonne de marqueur en tête : numéro (mode masquage) ou 🙈 (vue masquées).
-  const withMarker = opts.hideMode || opts.showHidden;
+  // Colonne de marqueur 🙈 en tête, uniquement s'il y a au moins une PR masquée
+  // à afficher (sinon, pas de colonne vide). La sélection se fait au numéro de PR.
+  const withMarker = opts.hiddenFlags.some(Boolean);
   const columns = [
-    ...(withMarker ? [{ header: '#' }] : []),
+    ...(withMarker ? [{ header: '' }] : []),
     { header: 'Dépôt', max: REPO_MAX },
     { header: 'PR' },
     { header: 'Titre', max: TITLE_MAX },
@@ -198,8 +197,7 @@ function othersTable(rows, opts) {
   const cells = rows.map((r, i) => {
     const diff = diffStat(r.additions, r.deletions);
     const isHid = !!opts.hiddenFlags[i];
-    // marqueur : numéro en mode masquage, sinon 🙈 si masquée, sinon vide
-    const marker = opts.hideMode ? (opts.labels[i] || '') : (isHid ? '🙈' : '');
+    const marker = isHid ? '🙈' : '';
     const col = (color) => (isHid ? C.dim : color); // lignes masquées : grisées
     const row = [
       { text: r.repo, color: col(C.cyan), url: r.url },

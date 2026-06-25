@@ -151,9 +151,12 @@ notif desktop : seuls les items de `data.notifications` le font.
     (signature vide) reste cachée jusqu'à une vraie interaction (réponse/mention/commentaire) — une
     re-demande de review ne produit pas d'URL d'évènement, donc ne la fait pas réapparaître.
     `collectPRs` réconcilie et renvoie `{ others (visibles), hidden (lignes masquées), hiddenCount,
-    hiddenChanged }`. L'interaction est **100 % clavier** (`h`, puis numéro saisi + Entrée, `Esc`,
-    `Backspace`), **sans capture souris ni alt-screen** (un essai souris a été abandonné car il
-    cassait scroll/liens/curseur), et **seulement** si stdin+stdout sont des TTY — sinon
+    hiddenChanged }`. L'interaction est **100 % clavier** : `h` entre en mode masquage (un rappel
+    « appuie sur h » reste affiché), puis on tape le **numéro de la PR** (label = `assignLabels` =
+    `String(row.number)`, colonne « PR ») + Entrée ; le mode se **referme dès qu'une PR est
+    (dé)masquée** (`Esc` annule, `Backspace` corrige). En `--watch -v`, chaque masquage/restauration
+    ajoute une ligne au journal de session. **Sans capture souris ni alt-screen** (essai souris
+    abandonné car il cassait scroll/liens/curseur), et **seulement** si stdin+stdout sont des TTY — sinon
     « affiche puis rend la main ». En `--watch`, le poll est **gelé** pendant le mode masquage
     (`waitNextPoll` ne décompte ni n'écrit) pour ne pas redessiner sous l'utilisateur. État
     persisté dans `~/.local/state/gh-notif/hidden-v1.json`. ⚠️ `TRIGGER_FOR` vit dans `filter.js`

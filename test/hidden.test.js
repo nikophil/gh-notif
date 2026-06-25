@@ -56,11 +56,7 @@ test('reconcile : élague une clé absente des entrées courantes', () => {
   assert.equal(isHidden(map, 'o/r#99'), false);
 });
 
-test('assignLabels : numéros 1..N dans l’ordre d’affichage', () => {
-  const rows = Array.from({ length: 12 }, (_, i) => ({ repo: 'o/r', number: i }));
-  const labels = assignLabels(rows);
-  assert.equal(labels[0], '1');
-  assert.equal(labels[8], '9');
-  assert.equal(labels[9], '10');   // scale au-delà de 9
-  assert.equal(labels[11], '12');
+test('assignLabels : le label est le numéro de la PR', () => {
+  const rows = [{ repo: 'o/r', number: 7004 }, { repo: 'o/x', number: 388 }];
+  assert.deepEqual(assignLabels(rows), ['7004', '388']);
 });

@@ -63,8 +63,9 @@ export function reconcile(map, entries, items) {
   return changed;
 }
 
-// Numéro par ligne (dans l'ordre d'affichage) : '1', '2', '3'…  Saisi au clavier
-// (buffer + Entrée) dans l'entrypoint, donc multi-chiffres OK — aucune limite.
+// Label de sélection d'une ligne = le numéro de la PR (ex. '7004'), tel qu'affiché
+// dans la colonne « PR ». L'utilisateur tape ce numéro (buffer + Entrée) dans
+// l'entrypoint. En cas de doublon de numéro entre dépôts, la 1re ligne l'emporte.
 export function assignLabels(rows) {
-  return rows.map((_, i) => String(i + 1));
+  return rows.map((r) => String(r.number));
 }
