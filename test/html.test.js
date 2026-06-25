@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { escapeHtml, renderFragment } from '../src/html.js';
+import { escapeHtml, renderFragment, renderShell } from '../src/html.js';
 
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
 
@@ -79,4 +79,24 @@ test('renderFragment : seulement « mine » (others vide) n’affiche pas la sec
   const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW });
   assert.match(out, /Tes PR ouvertes/);
   assert.doesNotMatch(out, /Activité sur les PR des autres/);
+});
+
+// ── renderShell (page + polling) ───────────────────────────────────────────
+test('renderShell : page HTML complète avec polling de /fragment', () => {
+  const out = renderShell({ intervalMs: 10000 });
+  assert.ok(out.startsWith('<!doctype html'), 'commence par le doctype');
+  assert.ok(out.includes('id="content"'), 'conteneur rafraîchi');
+  assert.ok(out.includes('/fragment'), 'endpoint poll');
+  assert.ok(out.includes('10000'), 'intervalle injecté dans le JS');
+});
+
+test('renderShell : aucun asset externe (tout inline)', () => {
+  const out = renderShell({ intervalMs: 10000 });
+  assert.ok(!/src="https?:/.test(out), 'pas de script externe');
+  assert.ok(!/href="https?:[^"]*\.css/.test(out), 'pas de feuille de style externe');
+});
+
+test('renderShell : intervalMs par défaut si absent', () => {
+  const out = renderShell();
+  assert.ok(out.startsWith('<!doctype html'));
 });
