@@ -9,6 +9,7 @@ import { sendNotification, watchEventLine } from './src/notify.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './src/state.js';
 import { startSpinner } from './src/spinner.js';
 import { hiddenPath, loadHidden, saveHidden, toggleHidden, assignLabels, isHidden, keyOf } from './src/hidden.js';
+import { serve } from './src/serve.js';
 
 const POLL_SECONDS = 60;
 const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
@@ -218,6 +219,7 @@ Usage:
   gh notif --all             Inclut les notifications déjà lues
   gh notif --watch           Tableaux rafraîchis en continu + notifs desktop
   gh notif --watch -v        + journal des évènements détectés sous les tableaux
+  gh notif --serve [--port N]  Page web locale auto-rafraîchie (défaut :7777)
   gh notif --org <org>       Limite à une organisation
   gh notif --repo [o/r]      Limite à un dépôt (sans valeur = dépôt courant)
   gh notif --show-hidden     Affiche aussi les PR masquées (grisées, 🙈)
@@ -234,7 +236,7 @@ Touches (terminal interactif) : h = masquer/restaurer une PR des autres ·
 // (erreur, valeur requise), string=valeur.
 function parseArgs(argv) {
   const args = argv.slice(2);
-  const flags = { all: false, watch: false, help: false, verbose: false, showHidden: false, org: undefined, repo: undefined };
+  const flags = { all: false, watch: false, serve: false, port: undefined, help: false, verbose: false, showHidden: false, org: undefined, repo: undefined };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     const takeValue = () => {
@@ -245,6 +247,9 @@ function parseArgs(argv) {
     if (a === '--help' || a === '-h') flags.help = true;
     else if (a === '--all') flags.all = true;
     else if (a === '--watch') flags.watch = true;
+    else if (a === '--serve') flags.serve = true;
+    else if (a.startsWith('--port=')) flags.port = Number(a.slice(7));
+    else if (a === '--port') { const v = takeValue(); flags.port = v === null ? null : Number(v); }
     else if (a === '--verbose' || a === '-v') flags.verbose = true;
     else if (a === '--show-hidden') flags.showHidden = true;
     else if (a.startsWith('--org=')) flags.org = a.slice(6);
@@ -312,7 +317,13 @@ async function main(argv) {
   const gh = makeGh();
   try {
     const scope = await resolveScope(gh, flags);
-    if (flags.watch) {
+    if (flags.serve) {
+      if (flags.port !== undefined && flags.port !== null && !Number.isInteger(flags.port)) {
+        throw new Error('--port requiert un entier (ex. --port 7777)');
+      }
+      const me = await gh.getCurrentUser();
+      serve({ gh, me, scope, all: flags.all, port: flags.port ?? 7777 });
+    } else if (flags.watch) {
       await runWatch(gh, { scope, verbose: flags.verbose, showHidden: flags.showHidden });
     } else {
       await runList(gh, { all: flags.all, scope, showHidden: flags.showHidden });

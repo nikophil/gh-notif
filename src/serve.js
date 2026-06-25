@@ -5,6 +5,7 @@
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { collectPRs } from './collect.js';
+import { hiddenPath, loadHidden, saveHidden } from './hidden.js';
 import { renderShell, renderFragment, escapeHtml } from './html.js';
 
 const POLL_SECONDS = 60;
@@ -43,10 +44,17 @@ function openBrowser(url) {
 // Ctrl-C). Renvoie le server pour permettre une fermeture propre en test.
 export function serve({ gh, me, scope, all = false, port = 7777, intervalSeconds = POLL_SECONDS } = {}) {
   const snapshot = { data: { mine: [], others: [] }, updatedAt: null, error: null };
+  // Respecte la liste des PR masquées (même vue que `gh notif` par défaut). Pas
+  // de masquage interactif côté web ; on reflète juste l'état persisté et on
+  // sauvegarde le dé-masquage automatique (reconcile) sur nouveau trigger.
+  const hiddenFile = hiddenPath();
+  const hidden = loadHidden(hiddenFile);
 
   const refresh = async () => {
     try {
-      snapshot.data = await collectPRs(gh, me, { all, scope });
+      const data = await collectPRs(gh, me, { all, scope, hidden });
+      if (data.hiddenChanged) saveHidden(hiddenFile, hidden);
+      snapshot.data = data;
       snapshot.updatedAt = Date.now();
       snapshot.error = null;
     } catch (err) {
