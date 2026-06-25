@@ -46,8 +46,8 @@ function rowIndexForInput(rows, buffer) {
 // `quitHint` ajoute la touche de sortie propre au contexte (q en one-shot).
 function helpBanner(hideMode, buffer, quitHint = '') {
   return hideMode
-    ? `\n\x1b[2mn° de la PR à masquer : \x1b[0m#${buffer}\x1b[2m_  ·  Entrée valide · Esc annule\x1b[0m\n`
-    : `\n\x1b[2m↳ appuie sur \x1b[0mh\x1b[2m pour masquer une PR des autres${quitHint}\x1b[0m\n`;
+    ? `\n\x1b[2mn° de la PR à masquer/restaurer : \x1b[0m#${buffer}\x1b[2m_  ·  Entrée valide · Esc annule\x1b[0m\n`
+    : `\n\x1b[2m↳ appuie sur \x1b[0mh\x1b[2m pour masquer/restaurer une PR des autres${quitHint}\x1b[0m\n`;
 }
 
 // Ligne de journal (--watch -v) quand une PR est masquée/restaurée à la main.
