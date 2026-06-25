@@ -16,6 +16,10 @@ function resolveOpts(opts) {
     color: opts?.color ?? (tty && !process.env.NO_COLOR),
     hyperlinks: opts?.hyperlinks ?? tty,
     now: opts?.now ?? Date.now(),
+    hideMode: !!opts?.hideMode,
+    showHidden: !!opts?.showHidden,
+    labels: opts?.labels ?? [],
+    hiddenFlags: opts?.hiddenFlags ?? [],
   };
 }
 
@@ -176,7 +180,10 @@ function mineTable(rows, opts) {
 }
 
 function othersTable(rows, opts) {
+  // Colonne de marqueur en tête : numéro (mode masquage) ou 🙈 (vue masquées).
+  const withMarker = opts.hideMode || opts.showHidden;
   const columns = [
+    ...(withMarker ? [{ header: '#' }] : []),
     { header: 'Dépôt', max: REPO_MAX },
     { header: 'PR' },
     { header: 'Titre', max: TITLE_MAX },
@@ -188,20 +195,25 @@ function othersTable(rows, opts) {
     { header: 'Triggers' },
     { header: 'CI' },
   ];
-  const cells = rows.map((r) => {
+  const cells = rows.map((r, i) => {
     const diff = diffStat(r.additions, r.deletions);
-    return [
-      { text: r.repo, color: C.cyan, url: r.url },
-      { text: `#${r.number}`, color: C.yellow, url: r.url },
-      { text: r.title, url: r.url },
-      { text: r.author ? `@${r.author}` : '?', color: C.magenta },
+    const isHid = !!opts.hiddenFlags[i];
+    // marqueur : numéro en mode masquage, sinon 🙈 si masquée, sinon vide
+    const marker = opts.hideMode ? (opts.labels[i] || '') : (isHid ? '🙈' : '');
+    const col = (color) => (isHid ? C.dim : color); // lignes masquées : grisées
+    const row = [
+      { text: r.repo, color: col(C.cyan), url: r.url },
+      { text: `#${r.number}`, color: col(C.yellow), url: r.url },
+      { text: r.title, color: col(undefined), url: r.url },
+      { text: r.author ? `@${r.author}` : '?', color: col(C.magenta) },
       { text: relativeDate(r.createdAt, opts.now), color: C.dim },
       { text: diff.text, render: diff.render },
       { text: stateIcon(r.state) },
-      { text: r.approvals ? String(r.approvals) : '·', color: C.green },
+      { text: r.approvals ? String(r.approvals) : '·', color: col(C.green) },
       { text: triggersLabel(r.triggers) },
       { text: ciIcon(r.ci) },
     ];
+    return withMarker ? [{ text: marker, color: C.dim }, ...row] : row;
   });
   return buildTable(columns, cells, opts);
 }
@@ -214,7 +226,13 @@ export function renderList(data, opts) {
     blocks.push(`${heading}\n${mineTable(data.mine, o)}`);
   }
   if (data.others && data.others.length > 0) {
-    const heading = `👥 ${paint('Activité sur les PR des autres', C.bold, o)} ${paint(`(${data.others.length})`, C.dim, o)}`;
+    const hiddenInView = o.hiddenFlags.filter(Boolean).length;
+    const visible = data.others.length - hiddenInView;
+    const hiddenCount = data.hiddenCount ?? hiddenInView;
+    const count = hiddenCount > 0
+      ? `(${visible}, ${hiddenCount} masquée${hiddenCount > 1 ? 's' : ''})`
+      : `(${data.others.length})`;
+    const heading = `👥 ${paint('Activité sur les PR des autres', C.bold, o)} ${paint(count, C.dim, o)}`;
     blocks.push(`${heading}\n${othersTable(data.others, o)}`);
   }
   if (blocks.length === 0) return 'Rien à signaler ✨\n';

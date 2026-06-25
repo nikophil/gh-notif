@@ -137,3 +137,35 @@ test('couleur: ANSI absent si color:false, présent si color:true', () => {
   assert.ok(!renderList(data, { color: false, hyperlinks: false, now: NOW }).includes('\x1b['));
   assert.ok(renderList(data, { color: true, hyperlinks: false, now: NOW }).includes('\x1b['));
 });
+
+// ── masquage (hidden) ────────────────────────────────────────────────────────
+const tableLines = (out) => out.split('\n').filter((l) => /^[┌├└│]/.test(l));
+
+test('renderList: mode masquage affiche une colonne de numéros alignée', () => {
+  const others = [otherRow(), otherRow({ number: 7, repo: 'o/x', title: 'autre' })];
+  const out = renderList({ others }, { color: false, hyperlinks: false, now: NOW, hideMode: true, labels: ['1', '2'], hiddenFlags: [false, false] });
+  const lines = tableLines(out);
+  const widths = new Set(lines.map(displayWidth));
+  assert.equal(widths.size, 1, `largeurs incohérentes (${[...widths].join(',')})`);
+  assert.match(out, /\b1\b/);
+  assert.match(out, /\b2\b/);
+});
+
+test('renderList: vue masquées affiche 🙈 + compteur « N masquées » + reste aligné', () => {
+  const others = [
+    otherRow(),
+    otherRow({ number: 7, repo: 'o/x', title: 'autre' }),
+    otherRow({ number: 9, repo: 'o/h', title: 'cachée' }), // masquée (flag true)
+  ];
+  const out = renderList({ others, hiddenCount: 1 }, { color: false, hyperlinks: false, now: NOW, showHidden: true, hiddenFlags: [false, false, true] });
+  assert.match(out, /🙈/);
+  assert.match(out, /2, 1 masquée/); // 2 visibles, 1 masquée
+  const widths = new Set(tableLines(out).map(displayWidth));
+  assert.equal(widths.size, 1, `largeurs incohérentes (${[...widths].join(',')})`);
+});
+
+test('renderList: sans flags, rendu inchangé (pas de colonne de numéros)', () => {
+  const out = renderList({ others: [otherRow()] }, { color: false, hyperlinks: false, now: NOW });
+  assert.match(out, /Activité sur les PR des autres \(1\)/);
+  assert.ok(!out.includes(' # ')); // pas d'en-tête de colonne marqueur
+});
