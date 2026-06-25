@@ -25,12 +25,12 @@ alt-screen, de façon à préserver scroll et liens hors interaction.
 
 Mode **modal**, déclenché à la demande — pas d'écoute permanente intrusive :
 
-- `h` → entre en **mode masquage**. Une colonne de **lettres** (`a`, `b`, `c`…) apparaît devant
+- `h` → entre en **mode masquage**. Une colonne de **numéros** (`1`, `2`, `3`…) apparaît devant
   chaque ligne de la table « autres », l'écran se redessine, un bandeau d'aide s'affiche.
-- Appui sur une lettre → la PR correspondante est **masquée** (ou **restaurée** si elle était
-  affichée en vue « cachées »). L'écran se redessine et **on reste en mode masquage** pour en
-  enchaîner plusieurs.
-- `Esc` ou `q` → sort du mode masquage (retour à l'affichage normal).
+- Tu **tapes le numéro puis `Entrée`** → la PR correspondante est **masquée** (ou **restaurée** si
+  elle était affichée en vue « cachées »). L'écran se redessine et **on reste en mode masquage**
+  pour en enchaîner plusieurs. `Backspace` corrige la saisie en cours.
+- `Esc` → sort du mode masquage (retour à l'affichage normal).
 
 Disponible dans **`gh notif --watch`** et **`gh notif` one-shot** :
 
@@ -49,12 +49,13 @@ exactement comme aujourd'hui — les scripts ne changent pas de comportement.
 stdin en *raw mode* que pendant l'écoute des touches. Hors mode masquage, scroll et liens
 cliquables fonctionnent normalement.
 
-### Alphabet des lettres
+### Numéros
 
-Les lettres sont attribuées dans l'ordre d'affichage de la table « autres ». Alphabet :
-`a`–`z` privé de `h` et `q` (réservés : `h` n'a pas de sens en mode masquage, `q` quitte), étendu
-à `A`–`Z` privé de `H` et `Q` si besoin (soit ~48 labels). Au-delà, les lignes excédentaires sont
-affichées **sans lettre** (non masquables au clavier — cas rare, documenté).
+Les numéros sont attribués dans l'ordre d'affichage de la table « autres » : `1`, `2`, `3`…
+Comme un chiffre unique ne couvre que 1–9 et que la table peut être plus longue, la saisie est
+**bufferisée** : en mode masquage, les chiffres s'accumulent (affichés dans le bandeau), `Entrée`
+valide le numéro saisi (toggle de la PR), `Backspace` efface le dernier chiffre, `Esc` sort. Un
+numéro hors plage est ignoré (buffer remis à zéro).
 
 ## Affichage des PR masquées
 

@@ -40,8 +40,7 @@
   - `isHidden(map, key) : boolean`
   - `toggleHidden(map, key, items, nowIso?) : boolean` (mute ; renvoie `true` si désormais masquée)
   - `reconcile(map, entries, items) : boolean` (mute ; renvoie `true` si la map a changé)
-  - `assignLabels(rows) : string[]` — lettre par ligne (`''` si au-delà de l'alphabet)
-  - `LABEL_ALPHABET : string[]`
+  - `assignLabels(rows) : string[]` — numéro (`'1'`, `'2'`…) par ligne, dans l'ordre d'affichage
 
 **Pourquoi déplacer `TRIGGER_FOR` :** `hidden.js` doit savoir quels items portent un trigger pour calculer la signature ; `collect.js` importe `hidden.js`. Mettre `TRIGGER_FOR` dans `filter.js` (où vit déjà `CATEGORY`) évite le cycle `collect ↔ hidden`.
 
@@ -72,13 +71,14 @@ import { classify, CATEGORY, TRIGGER_FOR } from './filter.js';
 ```js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { keyOf, signatureOf, isHidden, toggleHidden, reconcile, assignLabels, LABEL_ALPHABET } from '../src/hidden.js';
+import { keyOf, signatureOf, isHidden, toggleHidden, reconcile, assignLabels } from '../src/hidden.js';
 
+// NB : `category` porte les valeurs de CATEGORY (filter.js) : thread_reply / on_my_pr / mention.
 const items = [
-  { category: 'reply', repo: 'o/r', number: 42, url: 'u1' },
+  { category: 'thread_reply', repo: 'o/r', number: 42, url: 'u1' },
   { category: 'mention', repo: 'o/r', number: 42, url: 'u2' },
   { category: 'review_request', repo: 'o/r', number: 42, url: 'pr-url' }, // ignoré (pas un trigger)
-  { category: 'comment', repo: 'o/x', number: 7, url: 'u3' },
+  { category: 'on_my_pr', repo: 'o/x', number: 7, url: 'u3' },
 ];
 
 test('keyOf', () => {
@@ -127,15 +127,13 @@ test('reconcile : élague une clé absente des entrées courantes', () => {
   assert.equal(isHidden(map, 'o/r#99'), false);
 });
 
-test('assignLabels : lettres a..z sans h ni q, vide au-delà de l’alphabet', () => {
-  const rows = Array.from({ length: 3 }, (_, i) => ({ repo: 'o/r', number: i }));
-  assert.deepEqual(assignLabels(rows), ['a', 'b', 'c']);
-  assert.equal(LABEL_ALPHABET.includes('h'), false);
-  assert.equal(LABEL_ALPHABET.includes('q'), false);
-  const many = Array.from({ length: LABEL_ALPHABET.length + 2 }, (_, i) => ({ repo: 'o/r', number: i }));
-  const labels = assignLabels(many);
-  assert.equal(labels[LABEL_ALPHABET.length], '');     // au-delà → pas de lettre
-  assert.equal(labels[LABEL_ALPHABET.length + 1], '');
+test('assignLabels : numéros 1..N dans l’ordre d’affichage', () => {
+  const rows = Array.from({ length: 12 }, (_, i) => ({ repo: 'o/r', number: i }));
+  const labels = assignLabels(rows);
+  assert.equal(labels[0], '1');
+  assert.equal(labels[8], '9');
+  assert.equal(labels[9], '10');   // scale au-delà de 9
+  assert.equal(labels[11], '12');
 });
 ```
 
@@ -205,15 +203,10 @@ export function reconcile(map, entries, items) {
   return changed;
 }
 
-// Alphabet des lettres de masquage : a-z sans h ni q (réservés), puis A-Z sans H ni Q.
-export const LABEL_ALPHABET = [
-  ...'abcdefghijklmnopqrstuvwxyz'.split('').filter((c) => c !== 'h' && c !== 'q'),
-  ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').filter((c) => c !== 'H' && c !== 'Q'),
-];
-
-// Lettre par ligne (dans l'ordre d'affichage), '' au-delà de l'alphabet.
+// Numéro par ligne (dans l'ordre d'affichage) : '1', '2', '3'…  Saisi au clavier
+// (buffer + Entrée) dans l'entrypoint, donc multi-chiffres OK — aucune limite.
 export function assignLabels(rows) {
-  return rows.map((_, i) => LABEL_ALPHABET[i] ?? '');
+  return rows.map((_, i) => String(i + 1));
 }
 ```
 
@@ -412,15 +405,13 @@ const others = [
   { repo: 'o/x', number: 7, url: 'v', title: 'Autre', triggers: ['reply'], author: 'bob', createdAt: '2026-06-19T09:00:00Z', additions: 2, deletions: 0, ci: 'none', state: 'open', approvals: 1 },
 ];
 
-test('renderList: mode masquage affiche une colonne de lettres alignée', () => {
-  const out = renderList({ others }, { color: false, hyperlinks: false, now: Date.parse('2026-06-25T00:00:00Z'), hideMode: true, labels: ['a', 'b'], hiddenFlags: [false, false] });
-  const lines = strip(out).split('\n').filter((l) => l.includes('│'));
-  // toutes les lignes du tableau (bordures incluses via ┌…) ont la même largeur
-  const tableLines = strip(out).split('\n').filter((l) => /[│┌├└]/.test(l));
+test('renderList: mode masquage affiche une colonne de numéros alignée', () => {
+  const out = renderList({ others }, { color: false, hyperlinks: false, now: Date.parse('2026-06-25T00:00:00Z'), hideMode: true, labels: ['1', '2'], hiddenFlags: [false, false] });
+  const tableLines = strip(out).split('\n').filter((l) => /^[│┌├└]/.test(l));
   const w = displayWidth(tableLines[0]);
   for (const l of tableLines) assert.equal(displayWidth(l), w, `largeur: ${JSON.stringify(l)}`);
-  assert.match(strip(out), /\ba\b/);
-  assert.match(strip(out), /\bb\b/);
+  assert.match(strip(out), /\b1\b/);
+  assert.match(strip(out), /\b2\b/);
 });
 
 test('renderList: vue masquées affiche 🙈 + compteur « N masquées »', () => {
@@ -467,7 +458,7 @@ Remplacer `othersTable` pour accepter la colonne de marqueur :
 function othersTable(rows, opts) {
   const withMarker = opts.hideMode || opts.showHidden;
   const columns = [
-    ...(withMarker ? [{ header: '' }] : []),
+    ...(withMarker ? [{ header: '#' }] : []),
     { header: 'Dépôt', max: REPO_MAX },
     { header: 'PR' },
     { header: 'Titre', max: TITLE_MAX },
@@ -558,7 +549,7 @@ git commit -m "feat(hidden): colonne de lettres et vue grisée des masquées (re
 
 **Conception du clavier (sans dépendance) :**
 - `readline.emitKeypressEvents(process.stdin)` + `process.stdin.setRawMode(true)` **uniquement** si `process.stdin.isTTY && process.stdout.isTTY`.
-- Un état partagé `view = { hideMode: false }`. Hors `hideMode`, on n'intercepte que `h` (entrer) et `q`/Ctrl-C (quitter). En `hideMode`, une lettre toggle, `Esc`/`q` sortent.
+- Un état partagé `hideMode`/`buffer`. Hors `hideMode`, on n'intercepte que `h` (entrer) et `q`/Ctrl-C (quitter). En `hideMode`, les chiffres alimentent `buffer`, `Entrée` valide le toggle, `Backspace` efface, `Esc` sort.
 - On **ne met pas** d'alt-screen ; on réutilise le clear existant `\x1b[2J\x1b[3J\x1b[H` au redraw.
 - Restauration terminal sur sortie (`setRawMode(false)`), y compris `SIGINT`.
 
@@ -579,7 +570,7 @@ Dans `HELP`, ajouter une ligne :
 Et une ligne dans la section interactive :
 
 ```
-Touches : h = masquer une PR des autres · (en mode masquage) lettre = masquer/restaurer · Esc/q = sortir.
+Touches : h = masquer une PR des autres · (en mode masquage) numéro + Entrée = masquer/restaurer · Esc = sortir.
 ```
 
 - [ ] **Step 2 : helper de rendu interactif partagé**
@@ -624,16 +615,15 @@ async function runList(gh, { all, scope, showHidden }) {
   if (!interactive()) { process.stdout.write(renderList(data, { showHidden })); return; }
 
   await runInteractive({
-    showHidden,
-    draw: (hideMode) => {
+    draw: (hideMode, buffer) => {
       const vm = viewModel(data, { hideMode, showHidden });
       process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
       process.stdout.write(renderList({ mine: data.mine, others: vm.rows, hiddenCount: data.hiddenCount },
         { hideMode, showHidden, labels: vm.labels, hiddenFlags: vm.hiddenFlags }));
-      if (hideMode) process.stdout.write(`\n\x1b[2mappuie sur une lettre pour masquer/restaurer · Esc/q pour sortir\x1b[0m\n`);
+      if (hideMode) process.stdout.write(`\n\x1b[2mn° à masquer/restaurer : \x1b[0m${buffer}\x1b[2m_  ·  Entrée valide · Esc sort\x1b[0m\n`);
       else process.stdout.write(`\n\x1b[2mh = masquer · q = quitter\x1b[0m\n`);
     },
-    rowsFor: (hideMode) => viewModel(data, { hideMode, showHidden }).rows,
+    rowsFor: () => viewModel(data, { hideMode: true, showHidden }).rows,
     onToggle: (key) => { toggleHidden(hidden, key, data.notifications); saveHidden(hiddenPath(), hidden); data = recompute(data, hidden); },
   });
 }
@@ -653,11 +643,14 @@ function recompute(data, hidden) {
 
 - [ ] **Step 4 : boucle clavier générique `runInteractive`**
 
+`draw(hideMode, buffer)` reçoit le buffer de saisie courant pour l'afficher dans le bandeau.
+
 ```js
-// Boucle clavier partagée (one-shot). Résout quand l'utilisateur quitte (q).
-function runInteractive({ showHidden, draw, rowsFor, onToggle }) {
+// Boucle clavier partagée (one-shot). Résout quand l'utilisateur quitte (q hors mode masquage).
+function runInteractive({ draw, rowsFor, onToggle }) {
   return new Promise((resolve) => {
     let hideMode = false;
+    let buffer = ''; // chiffres saisis en mode masquage
     readline.emitKeypressEvents(process.stdin);
     process.stdin.setRawMode(true);
     process.stdin.resume();
@@ -665,19 +658,25 @@ function runInteractive({ showHidden, draw, rowsFor, onToggle }) {
     const onKey = (str, key) => {
       if (key.ctrl && key.name === 'c') { cleanup(); process.stdout.write('\n'); resolve(); return; }
       if (!hideMode) {
-        if (str === 'h') { hideMode = true; draw(true); }
+        if (str === 'h') { hideMode = true; buffer = ''; draw(true, buffer); }
         else if (str === 'q') { cleanup(); resolve(); }
         return;
       }
-      // mode masquage
-      if (key.name === 'escape' || str === 'q') { hideMode = false; draw(false); return; }
-      const rows = rowsFor(true);
-      const labels = assignLabels(rows);
-      const idx = labels.indexOf(str);
-      if (idx >= 0) { onToggle(keyOf(rows[idx])); draw(true); }
+      // mode masquage : buffer de chiffres, Entrée valide, Backspace efface, Esc sort
+      if (key.name === 'escape') { hideMode = false; buffer = ''; draw(false, ''); return; }
+      if (key.name === 'return' || key.name === 'enter') {
+        const rows = rowsFor();
+        const idx = assignLabels(rows).indexOf(buffer);
+        if (idx >= 0) onToggle(keyOf(rows[idx]));
+        buffer = '';
+        draw(true, buffer);
+        return;
+      }
+      if (key.name === 'backspace') { buffer = buffer.slice(0, -1); draw(true, buffer); return; }
+      if (str && /[0-9]/.test(str)) { buffer += str; draw(true, buffer); return; }
     };
     process.stdin.on('keypress', onKey);
-    draw(false);
+    draw(false, '');
   });
 }
 ```
@@ -697,6 +696,7 @@ async function runWatch(gh, { scope, verbose, showHidden }) {
   const recent = [];
   let data = null;
   let hideMode = false;
+  let buffer = '';
 
   const redraw = () => {
     if (!data) return;
@@ -705,7 +705,7 @@ async function runWatch(gh, { scope, verbose, showHidden }) {
     process.stdout.write(`\x1b[2m🔄 gh notif --watch · maj ${now()} · toutes les ${POLL_SECONDS}s · Ctrl-C pour arrêter\x1b[0m\n\n`);
     process.stdout.write(renderList({ mine: data.mine, others: vm.rows, hiddenCount: data.hiddenCount },
       { hideMode, showHidden, labels: vm.labels, hiddenFlags: vm.hiddenFlags }));
-    if (hideMode) process.stdout.write(`\n\x1b[2mappuie sur une lettre pour masquer/restaurer · Esc pour sortir\x1b[0m\n`);
+    if (hideMode) process.stdout.write(`\n\x1b[2mn° à masquer/restaurer : \x1b[0m${buffer}\x1b[2m_  ·  Entrée valide · Esc sort\x1b[0m\n`);
     if (verbose && recent.length > 0) {
       process.stdout.write(`\n\x1b[1m🔔 Évènements détectés (session)\x1b[0m\n`);
       for (const line of recent) process.stdout.write(`${line}\n`);
@@ -717,11 +717,16 @@ async function runWatch(gh, { scope, verbose, showHidden }) {
     process.stdin.setRawMode(true);
     process.stdin.on('keypress', (str, key) => {
       if (key.ctrl && key.name === 'c') { try { process.stdin.setRawMode(false); } catch {} process.stdout.write('\n'); process.exit(0); }
-      if (!hideMode) { if (str === 'h') { hideMode = true; redraw(); } return; }
-      if (key.name === 'escape' || str === 'q') { hideMode = false; redraw(); return; }
-      const rows = viewModel(data, { hideMode: true, showHidden }).rows;
-      const idx = assignLabels(rows).indexOf(str);
-      if (idx >= 0) { toggleHidden(hidden, keyOf(rows[idx]), data.notifications); saveHidden(hiddenFile, hidden); data = recompute(data, hidden); redraw(); }
+      if (!hideMode) { if (str === 'h') { hideMode = true; buffer = ''; redraw(); } return; }
+      if (key.name === 'escape') { hideMode = false; buffer = ''; redraw(); return; }
+      if (key.name === 'return' || key.name === 'enter') {
+        const rows = viewModel(data, { hideMode: true, showHidden }).rows;
+        const idx = assignLabels(rows).indexOf(buffer);
+        if (idx >= 0) { toggleHidden(hidden, keyOf(rows[idx]), data.notifications); saveHidden(hiddenFile, hidden); data = recompute(data, hidden); }
+        buffer = ''; redraw(); return;
+      }
+      if (key.name === 'backspace') { buffer = buffer.slice(0, -1); redraw(); return; }
+      if (str && /[0-9]/.test(str)) { buffer += str; redraw(); }
     });
   }
 
@@ -807,9 +812,9 @@ Ajouter une sous-section après « Ce qui est volontairement ignoré » :
 ```markdown
 ### Masquer une PR des autres
 
-Dans un terminal interactif, appuie sur **`h`** pour entrer en *mode masquage* : une lettre
-apparaît devant chaque PR de la table « autres ». Appuie sur la lettre pour **masquer** la PR
-(jamais les tiennes). `Esc` ou `q` sort du mode.
+Dans un terminal interactif, appuie sur **`h`** pour entrer en *mode masquage* : un numéro
+apparaît devant chaque PR de la table « autres ». Tape le **numéro puis `Entrée`** pour **masquer**
+la PR (jamais les tiennes ; `Backspace` corrige). `Esc` sort du mode.
 
 Une PR masquée **réapparaît automatiquement dès qu'un nouveau trigger arrive** (réponse à ton
 fil, mention, commentaire). Une review demandée que tu masques reste cachée jusqu'à une vraie
@@ -844,7 +849,7 @@ Ajouter un piège (§10) :
     (`signatureOf`, review_request exclu) au moment du masquage ; `reconcile` dé-masque dès qu'une
     URL nouvelle apparaît et élague les clés absentes des entrées courantes. Conséquence : une
     review demandée (signature vide) reste cachée jusqu'à une vraie interaction. L'interaction est
-    **100 % clavier** (`h`, lettres, `Esc`/`q`), sans capture souris ni alt-screen, et **seulement**
+    **100 % clavier** (`h`, puis numéro + Entrée, `Esc`), sans capture souris ni alt-screen, et **seulement**
     si stdin+stdout sont des TTY — sinon comportement « affiche puis rend la main ».
 ```
 
