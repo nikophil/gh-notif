@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findReplyToMe, classify, prHtmlUrl, CATEGORY } from '../src/filter.js';
+import { findReplyToMe, latestOtherComment, classify, prHtmlUrl, CATEGORY } from '../src/filter.js';
 
 const ME = 'nikophil';
 
@@ -134,6 +134,37 @@ test('author avec commentaire d\'un autre → ON_MY_PR', () => {
 test('author SANS nouveau commentaire (push/CI/merge) → null', () => {
   const insp = { latestComment: null, reviewComments: [] };
   assert.equal(classify(prThread({ reason: 'author' }), ME, insp), null);
+});
+
+test('latestOtherComment : dernier commentaire d\'un autre, filtré par since', () => {
+  const comments = [
+    { id: 1, user: { login: 'alice' }, created_at: '2026-06-25T10:00:00Z', html_url: 'a' },
+    { id: 2, user: { login: ME }, created_at: '2026-06-25T11:00:00Z', html_url: 'mine' },
+    { id: 3, user: { login: 'bob' }, created_at: '2026-06-25T12:00:00Z', html_url: 'b' },
+  ];
+  assert.equal(latestOtherComment(comments, ME)?.id, 3);                          // le plus récent d'un autre
+  assert.equal(latestOtherComment(comments, ME, '2026-06-25T11:30:00Z')?.id, 3);  // après since
+  assert.equal(latestOtherComment(comments, ME, '2026-06-25T23:00:00Z'), null);   // tous déjà lus
+});
+
+test('author : commentaire de review (inline) d\'un autre sur ma PR → ON_MY_PR (#7015)', () => {
+  // Cas réel #7015 : pas de latest_comment_url, mais un review-comment racine de
+  // lnahiro. La branche author doit le détecter via les review-comments.
+  const insp = { latestComment: null, reviewComments: [
+    { id: 1, user: { login: 'lnahiro' }, created_at: '2026-06-25T12:06:59Z', html_url: 'https://github.com/o/r/pull/7015#discussion_r9' },
+  ] };
+  const item = classify(prThread({ reason: 'author' }), ME, insp);
+  assert.equal(item.category, CATEGORY.ON_MY_PR);
+  assert.equal(item.actor, 'lnahiro');
+  assert.equal(item.url, 'https://github.com/o/r/pull/7015#discussion_r9');
+});
+
+test('author : review-comment déjà lu (< last_read_at) → null', () => {
+  const insp = { latestComment: null, reviewComments: [
+    { id: 1, user: { login: 'lnahiro' }, created_at: '2026-06-25T12:06:00Z', html_url: 'x' },
+  ] };
+  const t = prThread({ reason: 'author', last_read_at: '2026-06-25T12:09:00Z' });
+  assert.equal(classify(t, ME, insp), null);
 });
 
 test('author mais dernier acteur = moi → null', () => {

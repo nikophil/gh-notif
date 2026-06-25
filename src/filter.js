@@ -60,14 +60,36 @@ export function classify(thread, me, inspection) {
   }
 
   if (reason === 'author') {
+    // Commentaire principal d'un autre sur ma PR.
     const c = inspection?.latestComment;
-    if (!c) return null;                       // pas de nouveau commentaire => mise à jour de PR
-    if (c.user?.login === me) return null;     // ma propre action
-    return baseItem(thread, { category: CATEGORY.ON_MY_PR, actor: c.user.login, url: c.html_url });
+    if (c && c.user?.login !== me) {
+      return baseItem(thread, { category: CATEGORY.ON_MY_PR, actor: c.user.login, url: c.html_url });
+    }
+    // Sinon : commentaire de review (inline) d'un autre sur ma PR. La notif n'a pas
+    // toujours de `latest_comment_url` pour ces commentaires → on inspecte les
+    // review-comments (les réponses à MON fil sont déjà captées plus haut).
+    const rc = latestOtherComment(inspection?.reviewComments ?? [], me, thread.last_read_at);
+    if (rc) {
+      return baseItem(thread, { category: CATEGORY.ON_MY_PR, actor: rc.user.login, url: rc.html_url });
+    }
+    return null; // ma propre action / mise à jour de PR (push, CI…)
   }
 
   // comment / subscribed / manual sans réponse à moi → bruit
   return null;
+}
+
+// Commentaire de review le plus récent d'un AUTRE que `me`, postérieur à `since`
+// (= last_read_at). Sert à détecter un commentaire (inline) sur MA PR quand la notif
+// n'a pas de latest_comment_url. null si aucun.
+export function latestOtherComment(reviewComments, me, since = null) {
+  let best = null;
+  for (const c of reviewComments) {
+    if (c.user?.login === me) continue;
+    if (since && c.created_at <= since) continue;
+    if (!best || c.created_at > best.created_at) best = c;
+  }
+  return best;
 }
 
 // Regroupe les review-comments par fil (racine = remontée des in_reply_to_id).
