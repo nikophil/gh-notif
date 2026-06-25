@@ -72,7 +72,7 @@ const TRIGGER_ICON = {
   review: '🔍',
   mention: '💬',
   reply: '↩️',
-  comment: '🗨',
+  comment: '🗨️', // U+1F5E8 + U+FE0F : sans le sélecteur, présentation texte (largeur 1) → décalage
 };
 
 // Emojis seuls (espace pour gagner de la place). Légende : 🔍 review · 💬 mention

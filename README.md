@@ -43,7 +43,7 @@ la bonne cible.
 | 🔍 | review | on t'a demandé une review (ou elle est encore en attente) |
 | 💬 | mention | on t'a `@`-mentionné |
 | ↩️ | réponse | quelqu'un a répondu dans un fil de review où tu as participé |
-| 🗨 | commentaire | quelqu'un a commenté **ta** PR |
+| 🗨️ | commentaire | quelqu'un a commenté **ta** PR |
 
 Dans les tableaux, seul l'emoji est affiché (pour gagner de la place) ; cette légende en donne le
 sens. Une même PR peut cumuler plusieurs triggers.

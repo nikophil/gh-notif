@@ -72,7 +72,7 @@ test('alignement : chaque tableau a toutes ses lignes de même largeur (emojis i
 test('triggersLabel : ordonné, emojis seuls séparés par un espace', () => {
   assert.equal(triggersLabel(['mention', 'review']), '🔍 💬');
   assert.equal(triggersLabel(['reply']), '↩️');
-  assert.equal(triggersLabel(['comment', 'reply', 'mention', 'review']), '🔍 💬 ↩️ 🗨');
+  assert.equal(triggersLabel(['comment', 'reply', 'mention', 'review']), '🔍 💬 ↩️ 🗨️');
   assert.equal(triggersLabel([]), '');
 });
 
@@ -116,6 +116,7 @@ test('displayWidth : ASCII=1, emoji simple=2, emoji+VS16 (↩️)=2, box=1', () 
   assert.equal(displayWidth('🔍'), 2);
   assert.equal(displayWidth('↩️'), 2);   // base U+21A9 + VS16 U+FE0F
   assert.equal(displayWidth('🗨'), 2);
+  assert.equal(displayWidth('🗨️'), 2);  // U+1F5E8 + VS16 → toujours 2
   assert.equal(displayWidth('─┌│'), 3);   // box-drawing : 1 chacun
   assert.equal(displayWidth('−'), 1);     // signe moins U+2212
 });
