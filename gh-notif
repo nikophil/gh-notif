@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { existsSync } from 'node:fs';
+import readline from 'node:readline';
 import { makeGh } from './src/github.js';
 import { collectPRs } from './src/collect.js';
 import { CATEGORY } from './src/filter.js';
@@ -7,80 +8,181 @@ import { renderList } from './src/render.js';
 import { sendNotification, watchEventLine } from './src/notify.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './src/state.js';
 import { startSpinner } from './src/spinner.js';
+import { hiddenPath, loadHidden, saveHidden, toggleHidden, assignLabels, isHidden, keyOf } from './src/hidden.js';
 
 const POLL_SECONDS = 60;
 const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
 const now = () => new Date().toLocaleTimeString('fr-FR');
 
-// Compte à rebours réécrit en place jusqu'au prochain poll (uniquement en TTY).
-async function countdown(seconds) {
-  if (!process.stdout.isTTY) {
-    await sleep(seconds);
-    return;
-  }
-  for (let n = seconds; n > 0; n--) {
-    process.stdout.write(`\r\x1b[2m⏳ prochain check dans ${String(n).padStart(2)}s…\x1b[0m\x1b[K`);
-    await sleep(1);
-  }
-  process.stdout.write('\r\x1b[K'); // efface la ligne du compteur avant le poll
+// Interactivité seulement en vrai terminal (stdin ET stdout TTY) : en
+// pipe/redirection, on garde le comportement « affiche puis rend la main ».
+const interactive = () => process.stdin.isTTY && process.stdout.isTTY;
+
+// Lignes « autres » à afficher (+ flags/numéros) selon le mode courant.
+function viewModel(data, { hideMode, showHidden }) {
+  const rows = showHidden ? [...data.others, ...data.hidden] : data.others;
+  const hiddenFlags = showHidden
+    ? [...data.others.map(() => false), ...data.hidden.map(() => true)]
+    : data.others.map(() => false);
+  const labels = hideMode ? assignLabels(rows) : [];
+  return { rows, hiddenFlags, labels };
 }
+
+// Re-filtre others/hidden depuis les données déjà en mémoire (pas de refetch)
+// après un toggle interactif.
+function recompute(data, hidden) {
+  const all = [...data.others, ...data.hidden];
+  const others = all.filter((r) => !isHidden(hidden, keyOf(r)));
+  const hiddenRows = all.filter((r) => isHidden(hidden, keyOf(r)));
+  return { ...data, others, hidden: hiddenRows, hiddenCount: hiddenRows.length };
+}
+
+// Bandeau d'aide sous les tableaux selon le mode.
+function helpBanner(hideMode, buffer) {
+  return hideMode
+    ? `\n\x1b[2mn° à masquer/restaurer : \x1b[0m${buffer}\x1b[2m_  ·  Entrée valide · Esc sort\x1b[0m\n`
+    : `\n\x1b[2mh = masquer une PR des autres · q = quitter\x1b[0m\n`;
+}
+
+// Boucle clavier partagée (one-shot). Résout quand l'utilisateur quitte (q hors
+// mode masquage). `draw(hideMode, buffer)` redessine ; `rowsFor()` renvoie les
+// lignes « autres » courantes ; `onToggle(key)` masque/restaure.
+function runInteractive({ draw, rowsFor, onToggle }) {
+  return new Promise((resolve) => {
+    let hideMode = false;
+    let buffer = ''; // chiffres saisis en mode masquage
+    readline.emitKeypressEvents(process.stdin);
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    const cleanup = () => {
+      try { process.stdin.setRawMode(false); } catch {}
+      process.stdin.pause();
+      process.stdin.removeListener('keypress', onKey);
+    };
+    const onKey = (str, key) => {
+      if (key.ctrl && key.name === 'c') { cleanup(); process.stdout.write('\n'); resolve(); return; }
+      if (!hideMode) {
+        if (str === 'h') { hideMode = true; buffer = ''; draw(true, buffer); }
+        else if (str === 'q') { cleanup(); resolve(); }
+        return;
+      }
+      // mode masquage : buffer de chiffres, Entrée valide, Backspace efface, Esc sort
+      if (key.name === 'escape') { hideMode = false; buffer = ''; draw(false, ''); return; }
+      if (key.name === 'return' || key.name === 'enter') {
+        const rows = rowsFor();
+        const idx = assignLabels(rows).indexOf(buffer);
+        if (idx >= 0) onToggle(keyOf(rows[idx]));
+        buffer = '';
+        draw(true, buffer);
+        return;
+      }
+      if (key.name === 'backspace') { buffer = buffer.slice(0, -1); draw(true, buffer); return; }
+      if (str && /[0-9]/.test(str)) { buffer += str; draw(true, buffer); }
+    };
+    process.stdin.on('keypress', onKey);
+    draw(false, '');
+  });
+}
+
 
 const RECENT_MAX = 8; // évènements de session affichés sous les tableaux
 
-// Redessine l'écran : en-tête + les deux tableaux (comme `gh notif`) + journal
-// des évènements détectés depuis le démarrage. Efface l'écran en TTY.
-function drawWatch(data, recent, verbose) {
-  if (process.stdout.isTTY) process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
-  process.stdout.write(`\x1b[2m🔄 gh notif --watch · maj ${now()} · toutes les ${POLL_SECONDS}s · Ctrl-C pour arrêter\x1b[0m\n\n`);
-  process.stdout.write(renderList(data));
-  if (verbose && recent.length > 0) {
-    process.stdout.write(`\n\x1b[1m🔔 Évènements détectés (session)\x1b[0m\n`);
-    for (const line of recent) process.stdout.write(`${line}\n`);
-  }
-}
-
-async function runWatch(gh, { scope, verbose }) {
+async function runWatch(gh, { scope, verbose, showHidden }) {
   const me = await gh.getCurrentUser();
   const path = statePath();
+  const hiddenFile = hiddenPath();
+  const hidden = loadHidden(hiddenFile);
   let primed = existsSync(path); // un état existe déjà : on notifie normalement
   const state = loadState(path);
   const recent = []; // lignes d'évènements (plus récent en tête)
-  for (;;) {
-    try {
-      const stop = startSpinner('Mise à jour…');
-      let data;
-      try {
-        data = await collectPRs(gh, me, { all: false, scope });
-      } finally {
-        stop();
-      }
-      const items = data.notifications ?? [];
-      if (!primed) {
-        // Premier run : on enregistre le backlog existant sans alerter,
-        // pour ne notifier que les évènements survenant après le démarrage.
-        for (const item of items) markSeen(state, item);
-        saveState(path, state);
-        primed = true;
-      } else {
-        // PR encore ouvertes/pending (présentes dans les tableaux) : sert à ne pas
-        // notifier une demande de review sur une PR déjà fermée/mergée (cf. #7004).
-        const openKeys = new Set([...data.mine, ...data.others].map((r) => `${r.repo}#${r.number}`));
-        const fresh = items.filter((i) => isNew(state, i));
-        for (const item of fresh) {
-          markSeen(state, item);
-          // une demande de review n'a de sens que sur une PR ouverte
-          if (item.category === CATEGORY.REVIEW_REQUEST && !openKeys.has(`${item.repo}#${item.number}`)) continue;
-          sendNotification(item);
-          recent.unshift(watchEventLine(item, now(), { hyperlinks: process.stdout.isTTY }));
-        }
-        if (fresh.length > 0) saveState(path, state);
-      }
-      while (recent.length > RECENT_MAX) recent.pop();
-      drawWatch(data, recent, verbose);
-    } catch (err) {
-      process.stderr.write(`gh notif --watch: ${err.message}\n`);
+  let data = null;
+  let hideMode = false;
+  let buffer = '';
+
+  // Redessine : en-tête + les deux tableaux + (mode masquage) bandeau + journal.
+  const redraw = () => {
+    if (!data) return;
+    const vm = viewModel(data, { hideMode, showHidden });
+    if (process.stdout.isTTY) process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
+    process.stdout.write(`\x1b[2m🔄 gh notif --watch · maj ${now()} · toutes les ${POLL_SECONDS}s · Ctrl-C pour arrêter\x1b[0m\n\n`);
+    process.stdout.write(renderList({ mine: data.mine, others: vm.rows, hiddenCount: data.hiddenCount },
+      { hideMode, showHidden, labels: vm.labels, hiddenFlags: vm.hiddenFlags }));
+    if (hideMode) process.stdout.write(helpBanner(true, buffer));
+    if (verbose && recent.length > 0) {
+      process.stdout.write(`\n\x1b[1m🔔 Évènements détectés (session)\x1b[0m\n`);
+      for (const line of recent) process.stdout.write(`${line}\n`);
     }
-    await countdown(POLL_SECONDS);
+  };
+
+  if (interactive()) {
+    readline.emitKeypressEvents(process.stdin);
+    process.stdin.setRawMode(true);
+    process.stdin.on('keypress', (str, key) => {
+      if (key.ctrl && key.name === 'c') { try { process.stdin.setRawMode(false); } catch {} process.stdout.write('\n'); process.exit(0); }
+      if (!hideMode) { if (str === 'h' && data) { hideMode = true; buffer = ''; redraw(); } return; }
+      if (key.name === 'escape') { hideMode = false; buffer = ''; redraw(); return; }
+      if (key.name === 'return' || key.name === 'enter') {
+        const rows = viewModel(data, { hideMode: true, showHidden }).rows;
+        const idx = assignLabels(rows).indexOf(buffer);
+        if (idx >= 0) { toggleHidden(hidden, keyOf(rows[idx]), data.notifications); saveHidden(hiddenFile, hidden); data = recompute(data, hidden); }
+        buffer = ''; redraw(); return;
+      }
+      if (key.name === 'backspace') { buffer = buffer.slice(0, -1); redraw(); return; }
+      if (str && /[0-9]/.test(str)) { buffer += str; redraw(); }
+    });
+  }
+
+  // Attente paçant les polls. Gelée pendant le mode masquage (ni écriture ni
+  // décompte) pour ne pas écraser l'écran sous l'utilisateur.
+  const waitNextPoll = async () => {
+    for (let n = POLL_SECONDS; n > 0; ) {
+      if (hideMode) { await sleep(0.2); continue; }
+      if (process.stdout.isTTY) process.stdout.write(`\r\x1b[2m⏳ prochain check dans ${String(n).padStart(2)}s…\x1b[0m\x1b[K`);
+      await sleep(1);
+      n--;
+    }
+    if (process.stdout.isTTY) process.stdout.write('\r\x1b[K');
+  };
+
+  for (;;) {
+    if (!hideMode) {
+      try {
+        const stop = startSpinner('Mise à jour…');
+        try {
+          data = await collectPRs(gh, me, { all: false, scope, hidden });
+        } finally {
+          stop();
+        }
+        if (data.hiddenChanged) saveHidden(hiddenFile, hidden);
+        const items = data.notifications ?? [];
+        if (!primed) {
+          // Premier run : on enregistre le backlog existant sans alerter,
+          // pour ne notifier que les évènements survenant après le démarrage.
+          for (const item of items) markSeen(state, item);
+          saveState(path, state);
+          primed = true;
+        } else {
+          // PR encore ouvertes/pending (visibles, masquées ou miennes) : sert à ne pas
+          // notifier une demande de review sur une PR déjà fermée/mergée (cf. #7004).
+          // On inclut data.hidden : une PR masquée reste « ouverte ».
+          const openKeys = new Set([...data.mine, ...data.others, ...data.hidden].map((r) => `${r.repo}#${r.number}`));
+          const fresh = items.filter((i) => isNew(state, i));
+          for (const item of fresh) {
+            markSeen(state, item);
+            // une demande de review n'a de sens que sur une PR ouverte
+            if (item.category === CATEGORY.REVIEW_REQUEST && !openKeys.has(`${item.repo}#${item.number}`)) continue;
+            sendNotification(item);
+            recent.unshift(watchEventLine(item, now(), { hyperlinks: process.stdout.isTTY }));
+          }
+          if (fresh.length > 0) saveState(path, state);
+        }
+        while (recent.length > RECENT_MAX) recent.pop();
+        redraw();
+      } catch (err) {
+        process.stderr.write(`gh notif --watch: ${err.message}\n`);
+      }
+    }
+    await waitNextPoll();
   }
 }
 
@@ -93,9 +195,13 @@ Usage:
   gh notif --watch -v        + journal des évènements détectés sous les tableaux
   gh notif --org <org>       Limite à une organisation
   gh notif --repo [o/r]      Limite à un dépôt (sans valeur = dépôt courant)
+  gh notif --show-hidden     Affiche aussi les PR masquées (grisées, 🙈)
   gh notif --help            Affiche cette aide
 
 --org et --repo sont mutuellement exclusifs. Ils s'appliquent aussi à --watch.
+
+Touches (terminal interactif) : h = masquer une PR des autres ·
+(en mode masquage) numéro + Entrée = masquer/restaurer · Esc = sortir · q = quitter.
 `;
 
 // Parse les arguments. repo: undefined=absent, null=donné sans valeur (dépôt
@@ -103,7 +209,7 @@ Usage:
 // (erreur, valeur requise), string=valeur.
 function parseArgs(argv) {
   const args = argv.slice(2);
-  const flags = { all: false, watch: false, help: false, verbose: false, org: undefined, repo: undefined };
+  const flags = { all: false, watch: false, help: false, verbose: false, showHidden: false, org: undefined, repo: undefined };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     const takeValue = () => {
@@ -115,6 +221,7 @@ function parseArgs(argv) {
     else if (a === '--all') flags.all = true;
     else if (a === '--watch') flags.watch = true;
     else if (a === '--verbose' || a === '-v') flags.verbose = true;
+    else if (a === '--show-hidden') flags.showHidden = true;
     else if (a.startsWith('--org=')) flags.org = a.slice(6);
     else if (a === '--org') flags.org = takeValue();
     else if (a.startsWith('--repo=')) flags.repo = a.slice(7);
@@ -139,16 +246,37 @@ async function resolveScope(gh, flags) {
   return null;
 }
 
-async function runList(gh, { all, scope }) {
+async function runList(gh, { all, scope, showHidden }) {
+  const hiddenFile = hiddenPath();
+  const hidden = loadHidden(hiddenFile);
   const stop = startSpinner('Récupération des PRs et notifications…');
   let data;
   try {
     const me = await gh.getCurrentUser();
-    data = await collectPRs(gh, me, { all, scope });
+    data = await collectPRs(gh, me, { all, scope, hidden });
   } finally {
     stop();
   }
-  process.stdout.write(renderList(data));
+  if (data.hiddenChanged) saveHidden(hiddenFile, hidden);
+
+  // Hors TTY (pipe/redirection) : affiche puis rend la main, sans interaction.
+  if (!interactive()) {
+    process.stdout.write(renderList(data, { showHidden }));
+    return;
+  }
+
+  // Terminal interactif : on reste vivant pour permettre le masquage au clavier.
+  await runInteractive({
+    draw: (hideMode, buffer) => {
+      const vm = viewModel(data, { hideMode, showHidden });
+      process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
+      process.stdout.write(renderList({ mine: data.mine, others: vm.rows, hiddenCount: data.hiddenCount },
+        { hideMode, showHidden, labels: vm.labels, hiddenFlags: vm.hiddenFlags }));
+      process.stdout.write(helpBanner(hideMode, buffer));
+    },
+    rowsFor: () => viewModel(data, { hideMode: true, showHidden }).rows,
+    onToggle: (key) => { toggleHidden(hidden, key, data.notifications); saveHidden(hiddenFile, hidden); data = recompute(data, hidden); },
+  });
 }
 
 async function main(argv) {
@@ -158,9 +286,9 @@ async function main(argv) {
   try {
     const scope = await resolveScope(gh, flags);
     if (flags.watch) {
-      await runWatch(gh, { scope, verbose: flags.verbose });
+      await runWatch(gh, { scope, verbose: flags.verbose, showHidden: flags.showHidden });
     } else {
-      await runList(gh, { all: flags.all, scope });
+      await runList(gh, { all: flags.all, scope, showHidden: flags.showHidden });
     }
   } catch (err) {
     process.stderr.write(`gh notif: ${err.message}\n`);
