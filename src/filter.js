@@ -5,6 +5,16 @@ export const CATEGORY = {
   THREAD_REPLY: 'thread_reply',
 };
 
+// Triggers dérivés des notifications (volontairement SANS review_request : la
+// `reason` review_requested est collante, cf. ARCHITECTURE §1). Défini ici — où
+// vit déjà CATEGORY — pour être partagé entre collect.js et hidden.js sans cycle
+// d'import (collect → hidden → filter).
+export const TRIGGER_FOR = {
+  [CATEGORY.MENTION]: 'mention',
+  [CATEGORY.THREAD_REPLY]: 'reply',
+  [CATEGORY.ON_MY_PR]: 'comment',
+};
+
 const ALLOWED_REASONS = new Set([
   'review_requested', 'mention', 'team_mention',
   'author', 'comment', 'subscribed', 'manual',

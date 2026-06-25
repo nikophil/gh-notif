@@ -1,18 +1,9 @@
-import { classify, CATEGORY } from './filter.js';
+import { classify, CATEGORY, TRIGGER_FOR } from './filter.js';
+import { reconcile, isHidden, keyOf } from './hidden.js';
 
 // Concurrence max des appels `gh` (évite de spawner des dizaines de process
 // d'un coup / de heurter le rate-limit secondaire de GitHub).
 const CONCURRENCY = 10;
-
-// Triggers dérivés des notifications. Volontairement SANS review_request : en mode
-// liste, le trigger « review » provient exclusivement de collectPending (recherche
-// `review-requested:@me`, fiable car GitHub t'en retire dès que tu reviews). La
-// `reason: review_requested` d'une notif est collante et resterait après ta review.
-const TRIGGER_FOR = {
-  [CATEGORY.MENTION]: 'mention',
-  [CATEGORY.THREAD_REPLY]: 'reply',
-  [CATEGORY.ON_MY_PR]: 'comment',
-};
 
 // scope : null (tout) | { type:'org', value } | { type:'repo', value:'owner/name' }
 export function scopeMatches(scope, fullName) {
