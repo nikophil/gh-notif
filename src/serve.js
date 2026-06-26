@@ -17,7 +17,6 @@ import { startSpinner } from './spinner.js';
 import { renderShell, renderFragment, renderLoading, escapeHtml } from './html.js';
 
 const POLL_SECONDS = 60;
-const CLIENT_POLL_MS = 10000; // rythme de re-fetch du fragment côté navigateur
 const BACKOFF_CAP = 600; // plafond du recul en cas de rate-limit (10 min)
 
 // Valeur du champ de scope → objet scope (même sémantique que --org/--repo).
@@ -182,7 +181,9 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
 
     const { status, type, body } = handleRequest(pathname, snapshot, {
       now: Date.now(),
-      intervalMs: CLIENT_POLL_MS,
+      // Le rafraîchissement de la page suit le vrai intervalle de poll GitHub
+      // (le re-fetch ne fait que relire le snapshot du serveur, 0 appel GitHub).
+      intervalMs: intervalSeconds * 1000,
       showHidden,
       scope,
     });
