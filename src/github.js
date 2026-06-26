@@ -71,8 +71,17 @@ export function makeGh(runner = defaultRunner) {
       const path = apiUrl.replace('https://api.github.com', '');
       return parseJson(await runner(['api', path]));
     },
-    async getReviewComments(repoFullName, number) {
-      return parseJson(await runner(['api', '--paginate', `repos/${repoFullName}/pulls/${number}/comments`])) ?? [];
+    // `since` (ISO) → ne récupère que les commentaires créés/édités après ce
+    // point (sort=updated&direction=asc), pour la récupération incrémentale du
+    // cache d'inspection. Sans `since` : page complète (per_page=100).
+    async getReviewComments(repoFullName, number, { since = null } = {}) {
+      const params = new URLSearchParams({ per_page: '100' });
+      if (since) {
+        params.set('sort', 'updated');
+        params.set('direction', 'asc');
+        params.set('since', since);
+      }
+      return parseJson(await runner(['api', '--paginate', `repos/${repoFullName}/pulls/${number}/comments?${params}`])) ?? [];
     },
     // Détails de N PR en un minimum de requêtes (GraphQL batch, chunks de 30 en
     // parallèle). Renvoie un tableau aligné sur `prs` ([{repo, number}]) ; null

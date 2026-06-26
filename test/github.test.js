@@ -33,12 +33,24 @@ test('getComment renvoie null sur stdout vide', async () => {
   assert.equal(await gh.getComment('https://api.github.com/repos/o/r/issues/comments/1'), null);
 });
 
-test('getReviewComments construit le bon chemin', async () => {
+test('getReviewComments construit le bon chemin (per_page, sans since)', async () => {
   const runner = fakeRunner([['/pulls/42/comments', JSON.stringify([{ id: 1 }])]]);
   const gh = makeGh(runner);
   const out = await gh.getReviewComments('o/r', 42);
   assert.equal(out[0].id, 1);
-  assert.ok(runner.calls[0].join(' ').includes('repos/o/r/pulls/42/comments'));
+  const q = runner.calls[0].join(' ');
+  assert.ok(q.includes('repos/o/r/pulls/42/comments?per_page=100'));
+  assert.ok(!q.includes('since='));
+});
+
+test('getReviewComments incrémental : since + sort=updated&direction=asc', async () => {
+  const runner = fakeRunner([['/pulls/42/comments', JSON.stringify([])]]);
+  const gh = makeGh(runner);
+  await gh.getReviewComments('o/r', 42, { since: '2026-06-26T00:00:00Z' });
+  const q = runner.calls[0].join(' ');
+  assert.ok(q.includes('since='), 'contient le param since');
+  assert.ok(q.includes('sort=updated'));
+  assert.ok(q.includes('direction=asc'));
 });
 
 test('searchAuthored interroge author:@me et accepte un qualifier', async () => {
