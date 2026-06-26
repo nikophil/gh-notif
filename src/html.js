@@ -124,38 +124,62 @@ export function renderShell({ intervalMs = 10000, scopeLabel = '' } = {}) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>gh notif</title>
 <style>
-  :root { color-scheme: light dark; }
+  /* Palette GitHub Primer (light par défaut, dark via prefers-color-scheme). */
+  :root {
+    color-scheme: light dark;
+    --canvas: #ffffff; --canvas-subtle: #f6f8fa; --canvas-inset: #f6f8fa;
+    --fg: #1f2328; --fg-muted: #59636e; --border: #d1d9e0; --border-muted: #d1d9e0b3;
+    --accent: #0969da; --success: #1a7f37; --danger: #cf222e;
+    --btn-bg: #f6f8fa; --btn-border: #1f23280f; --btn-hover: #eef1f4; --shadow: 0 1px 0 #1f23280a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --canvas: #0d1117; --canvas-subtle: #151b23; --canvas-inset: #010409;
+      --fg: #e6edf3; --fg-muted: #9198a1; --border: #3d444d; --border-muted: #3d444db3;
+      --accent: #4493f8; --success: #3fb950; --danger: #f85149;
+      --btn-bg: #212830; --btn-border: #f0f6fc1a; --btn-hover: #2a313c; --shadow: 0 0 transparent;
+    }
+  }
   * { box-sizing: border-box; }
-  body { font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; padding: 1.5rem;
-         background: Canvas; color: CanvasText; }
-  header { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; margin-bottom: 1rem; }
-  header h1 { font-size: 1.1rem; margin: 0; }
-  #stamp { font-size: .85rem; opacity: .6; }
+  body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+         margin: 0; padding: 1.5rem; max-width: 1280px; margin: 0 auto;
+         background: var(--canvas); color: var(--fg); }
+  header { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; margin-bottom: 1.25rem;
+           padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+  header h1 { font-size: 1rem; font-weight: 600; margin: 0; }
+  #stamp { font-size: .8rem; color: var(--fg-muted); }
   .spacer { flex: 1; }
-  .controls { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+  .controls { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
   button, input { font: inherit; }
-  button { cursor: pointer; border: 1px solid color-mix(in srgb, CanvasText 25%, transparent);
-           background: color-mix(in srgb, CanvasText 6%, transparent); color: inherit;
-           border-radius: 6px; padding: .25rem .6rem; }
-  button:hover { background: color-mix(in srgb, CanvasText 14%, transparent); }
-  button.on { background: color-mix(in srgb, CanvasText 22%, transparent); }
-  #scope { width: 12rem; padding: .25rem .5rem; border-radius: 6px;
-           border: 1px solid color-mix(in srgb, CanvasText 25%, transparent); background: Canvas; color: inherit; }
-  section { margin: 0 0 1.75rem; }
-  h2 { font-size: 1rem; margin: 0 0 .5rem; }
+  button { cursor: pointer; border: 1px solid var(--btn-border); background: var(--btn-bg); color: var(--fg);
+           border-radius: 6px; padding: .3rem .75rem; font-size: .8125rem; font-weight: 500; box-shadow: var(--shadow); }
+  button:hover { background: var(--btn-hover); }
+  button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #scope { width: 13rem; padding: .3rem .65rem; border-radius: 6px; font-size: .8125rem;
+           border: 1px solid var(--border); background: var(--canvas); color: var(--fg); }
+  #scope:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+  /* Section = « Box » GitHub : bordure arrondie, en-tête sur fond subtle. */
+  section { margin: 0 0 1.5rem; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  h2 { font-size: .875rem; font-weight: 600; margin: 0; padding: .65rem 1rem;
+       background: var(--canvas-subtle); border-bottom: 1px solid var(--border); }
   table { border-collapse: collapse; width: 100%; }
-  th, td { text-align: left; padding: .35rem .6rem; border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
-           white-space: nowrap; }
-  th { font-weight: 600; opacity: .7; font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; }
-  td:nth-child(3) { white-space: normal; max-width: 32rem; }
-  tr:hover td { background: color-mix(in srgb, CanvasText 5%, transparent); }
-  tr.hid td { opacity: .45; }
-  a { color: inherit; text-decoration: none; }
+  th, td { text-align: left; padding: .5rem 1rem; border-bottom: 1px solid var(--border-muted); white-space: nowrap; }
+  tbody tr:last-child td { border-bottom: 0; }
+  th { font-weight: 600; color: var(--fg-muted); font-size: .75rem; }
+  td:nth-child(3) { white-space: normal; max-width: 34rem; }
+  tbody tr:hover { background: var(--canvas-subtle); }
+  tr.hid td { opacity: .5; }
+  a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
-  .act { padding: .1rem .45rem; line-height: 1; }
-  .add { color: #3fb950; } .del { color: #f85149; }
-  .empty { opacity: .6; font-size: 1.1rem; }
-  .offline { color: #f85149 !important; }
+  td a { color: var(--fg); }
+  td:nth-child(2) a, td:nth-child(3) a { color: var(--accent); }
+  .act { padding: .15rem .5rem; line-height: 1; color: var(--fg-muted); }
+  .act:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
+  .add { color: var(--success); font-variant-numeric: tabular-nums; }
+  .del { color: var(--danger); font-variant-numeric: tabular-nums; }
+  .empty { color: var(--fg-muted); font-size: 1rem; padding: 2rem; text-align: center;
+           border: 1px solid var(--border); border-radius: 6px; }
+  .offline { color: var(--danger) !important; }
 </style>
 </head>
 <body>
