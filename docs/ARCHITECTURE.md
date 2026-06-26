@@ -183,6 +183,15 @@ sequenceDiagram
    #7015). Les réponses à MON fil restent captées avant (THREAD_REPLY). Rappel : une notif déjà lue
    n'est pas récupérée par `gh notif` (all=false), donc un commentaire lu ne réapparaît pas.
 
+   **Mention (collante aussi).** `reason: mention` reste à vie ; un re-bump du thread par un évènement
+   **non-commentaire** (merge → réel #7014) ou par un **commentaire tiers** sans `@moi` ni réponse à
+   mon fil (réel #6431) rendait la notif non-lue et ré-émettait une ligne « mention » à tort. La
+   branche `mention` est donc durcie comme `author` : si `last_read_at` est défini (déjà lue), elle
+   n'émet que s'il existe une **vraie `@moi`, par un autre, postérieure à ma lecture**
+   (`latestMentionOfMe` / `mentionsMe`, sur `latestComment` + review-comments) ; sinon → bruit. Une
+   notif **jamais lue** (`last_read_at` nul) reste émise telle quelle (mention réellement neuve).
+   Limite connue : une mention dans le **corps de la PR** (non fetché) n'est pas détectée — marginal.
+
 2. **GitHub aplatit les fils de review.** Toutes les réponses d'un fil pointent vers le commentaire
    **racine** (`in_reply_to_id` = racine), pas vers le commentaire précédent. `findReplyToMe`
    regroupe par racine, puis renvoie le commentaire d'un autre auteur **postérieur à mon dernier
