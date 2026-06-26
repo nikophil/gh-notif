@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { collectNotifications, collectPending, collectPRs, ciFromState, prState, countApprovals, scopeMatches, scopeQualifier } from '../src/collect.js';
+import { collectNotifications, collectPending, collectPRs, ciFromState, prState, countApprovals, scopeMatches, scopeQualifier, mergeReviewComments, watermarkOf } from '../src/collect.js';
 
 const ME = 'nikophil';
 
@@ -349,4 +349,98 @@ test('collectPRs: dé-masquage au nouveau trigger (reconcile) + hiddenChanged', 
   assert.equal(hiddenCount, 0);
   assert.equal(hiddenChanged, true); // reconcile a modifié la map
   assert.equal('o/r#50' in hidden, false);
+});
+
+// ── cache d'inspection + commentaires incrémentaux ─────────────────────────
+test('mergeReviewComments : fusion par id (fresh gagne), ordre created_at', () => {
+  const merged = mergeReviewComments(
+    [{ id: 1, created_at: 'a', x: 'old' }, { id: 3, created_at: 'c' }],
+    [{ id: 1, created_at: 'a', x: 'new' }, { id: 2, created_at: 'b' }],
+  );
+  assert.deepEqual(merged.map((c) => c.id), [1, 2, 3]);
+  assert.equal(merged.find((c) => c.id === 1).x, 'new'); // fresh écrase
+});
+
+test('watermarkOf : max updated_at (fallback created_at), null si vide', () => {
+  assert.equal(watermarkOf([{ updated_at: '2026-06-01' }, { updated_at: '2026-06-03' }]), '2026-06-03');
+  assert.equal(watermarkOf([{ created_at: '2026-06-02' }]), '2026-06-02');
+  assert.equal(watermarkOf([]), null);
+});
+
+// gh stub comptant les appels getReviewComments + capturant `since`.
+function countingGh(thread, comments) {
+  const calls = [];
+  return {
+    gh: {
+      async getCurrentUser() { return ME; },
+      async listNotifications() { return [thread]; },
+      async getComment() { return null; },
+      async getReviewComments(repo, number, opts = {}) { calls.push(opts.since ?? null); return comments; },
+      async searchReviewRequested() { return []; },
+      async searchAuthored() { return []; },
+      async getPullDetailsBatch(prs) { return prs.map(() => null); },
+    },
+    calls,
+  };
+}
+
+test('collectNotifications : cache → thread inchangé = 0 requête getReviewComments', async () => {
+  const thread = {
+    id: 't1', reason: 'review_requested', updated_at: '2026-06-24T12:00:00Z',
+    subject: { title: 'PR', url: 'https://api.github.com/repos/o/r/pulls/42', latest_comment_url: null, type: 'PullRequest' },
+    repository: { full_name: 'o/r' },
+  };
+  const { gh, calls } = countingGh(thread, [{ id: 1, created_at: '2026-06-24T10:00:00Z', updated_at: '2026-06-24T10:00:00Z' }]);
+  const cache = new Map();
+  await collectNotifications(gh, ME, { cache });   // 1er poll : inspecte
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0], null);                     // 1re fois : pas de since
+  await collectNotifications(gh, ME, { cache });   // 2e poll, même updated_at
+  assert.equal(calls.length, 1, 'pas de nouvel appel : cache hit');
+});
+
+test('collectNotifications : thread modifié → ré-inspection avec since = watermark', async () => {
+  const base = {
+    id: 't1', reason: 'review_requested',
+    subject: { title: 'PR', url: 'https://api.github.com/repos/o/r/pulls/42', latest_comment_url: null, type: 'PullRequest' },
+    repository: { full_name: 'o/r' },
+  };
+  const { gh, calls } = countingGh(
+    { ...base, updated_at: '2026-06-24T12:00:00Z' },
+    [{ id: 1, created_at: '2026-06-24T10:00:00Z', updated_at: '2026-06-24T11:00:00Z' }],
+  );
+  const cache = new Map();
+  await collectNotifications(gh, ME, { cache });   // inspecte, watermark = 11:00
+  // thread bumpé : nouvel updated_at → ré-inspection incrémentale
+  gh.listNotifications = async () => [{ ...base, updated_at: '2026-06-24T13:00:00Z' }];
+  await collectNotifications(gh, ME, { cache });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1], '2026-06-24T11:00:00Z', 'since = watermark précédent');
+});
+
+test('collectNotifications : cache élagué quand le thread disparaît', async () => {
+  const thread = {
+    id: 't1', reason: 'review_requested', updated_at: '2026-06-24T12:00:00Z',
+    subject: { title: 'PR', url: 'https://api.github.com/repos/o/r/pulls/42', latest_comment_url: null, type: 'PullRequest' },
+    repository: { full_name: 'o/r' },
+  };
+  const { gh } = countingGh(thread, []);
+  const cache = new Map();
+  await collectNotifications(gh, ME, { cache });
+  assert.equal(cache.has('t1'), true);
+  gh.listNotifications = async () => []; // thread disparu
+  await collectNotifications(gh, ME, { cache });
+  assert.equal(cache.has('t1'), false, 'entrée élaguée');
+});
+
+test('collectNotifications : sans cache, comportement inchangé (toujours ré-inspecter)', async () => {
+  const thread = {
+    id: 't1', reason: 'review_requested', updated_at: '2026-06-24T12:00:00Z',
+    subject: { title: 'PR', url: 'https://api.github.com/repos/o/r/pulls/42', latest_comment_url: null, type: 'PullRequest' },
+    repository: { full_name: 'o/r' },
+  };
+  const { gh, calls } = countingGh(thread, []);
+  await collectNotifications(gh, ME, {});
+  await collectNotifications(gh, ME, {});
+  assert.equal(calls.length, 2, 'sans cache : ré-inspection à chaque fois');
 });

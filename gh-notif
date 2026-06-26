@@ -9,8 +9,11 @@ import { sendNotification, watchEventLine } from './src/notify.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './src/state.js';
 import { startSpinner } from './src/spinner.js';
 import { hiddenPath, loadHidden, saveHidden, toggleHidden, assignLabels, isHidden, keyOf } from './src/hidden.js';
+import { serve } from './src/serve.js';
+import { isRateLimitError, nextBackoffSeconds } from './src/ratelimit.js';
 
 const POLL_SECONDS = 60;
+const BACKOFF_CAP = 600; // plafond du recul en cas de rate-limit (10 min)
 const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
 const now = () => new Date().toLocaleTimeString('fr-FR');
 
@@ -103,7 +106,7 @@ function runInteractive({ draw, rowsFor, onToggle }) {
 
 const RECENT_MAX = 8; // évènements de session affichés sous les tableaux
 
-async function runWatch(gh, { scope, verbose, showHidden }) {
+async function runWatch(gh, { scope, verbose, showHidden, intervalSeconds = POLL_SECONDS }) {
   const me = await gh.getCurrentUser();
   const path = statePath();
   const hiddenFile = hiddenPath();
@@ -111,6 +114,8 @@ async function runWatch(gh, { scope, verbose, showHidden }) {
   let primed = existsSync(path); // un état existe déjà : on notifie normalement
   const state = loadState(path);
   const recent = []; // lignes d'évènements (plus récent en tête)
+  const inspectCache = new Map(); // thread inchangé entre polls = 0 requête
+  let backoff = 0; // secondes ajoutées à l'intervalle après un rate-limit
   let data = null;
   let hideMode = false;
   let buffer = '';
@@ -120,7 +125,7 @@ async function runWatch(gh, { scope, verbose, showHidden }) {
     if (!data) return;
     const vm = viewModel(data, { showHidden });
     if (process.stdout.isTTY) process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
-    process.stdout.write(`\x1b[2m🔄 gh notif --watch · maj ${now()} · toutes les ${POLL_SECONDS}s · Ctrl-C pour arrêter\x1b[0m\n\n`);
+    process.stdout.write(`\x1b[2m🔄 gh notif --watch · maj ${now()} · toutes les ${intervalSeconds}s · Ctrl-C pour arrêter\x1b[0m\n\n`);
     process.stdout.write(renderList({ mine: data.mine, others: vm.rows, hiddenCount: data.hiddenCount },
       { showHidden, hiddenFlags: vm.hiddenFlags }));
     // indice « h » en permanence (mode normal) ou invite de saisie (mode masquage)
@@ -160,7 +165,8 @@ async function runWatch(gh, { scope, verbose, showHidden }) {
   // Attente paçant les polls. Gelée pendant le mode masquage (ni écriture ni
   // décompte) pour ne pas écraser l'écran sous l'utilisateur.
   const waitNextPoll = async () => {
-    for (let n = POLL_SECONDS; n > 0; ) {
+    const total = intervalSeconds + backoff; // recul en cas de rate-limit
+    for (let n = total; n > 0; ) {
       if (hideMode) { await sleep(0.2); continue; }
       if (process.stdout.isTTY) process.stdout.write(`\r\x1b[2m⏳ prochain check dans ${String(n).padStart(2)}s…\x1b[0m\x1b[K`);
       await sleep(1);
@@ -174,10 +180,11 @@ async function runWatch(gh, { scope, verbose, showHidden }) {
       try {
         const stop = startSpinner('Mise à jour…');
         try {
-          data = await collectPRs(gh, me, { all: false, scope, hidden });
+          data = await collectPRs(gh, me, { all: false, scope, hidden, cache: inspectCache });
         } finally {
           stop();
         }
+        backoff = 0; // succès : on repart à l'intervalle normal
         if (data.hiddenChanged) saveHidden(hiddenFile, hidden);
         const items = data.notifications ?? [];
         if (!primed) {
@@ -204,7 +211,19 @@ async function runWatch(gh, { scope, verbose, showHidden }) {
         while (recent.length > RECENT_MAX) recent.pop();
         redraw();
       } catch (err) {
-        process.stderr.write(`gh notif --watch: ${err.message}\n`);
+        if (isRateLimitError(err.message)) {
+          backoff = nextBackoffSeconds(backoff, intervalSeconds, BACKOFF_CAP);
+          const msg = `⏳ rate-limité par GitHub — reprise dans ${intervalSeconds + backoff}s`;
+          if (verbose) {
+            recent.unshift(`\x1b[2m${now()}\x1b[0m  ${msg}`);
+            while (recent.length > RECENT_MAX) recent.pop();
+            redraw();
+          } else {
+            process.stderr.write(`gh notif --watch: ${msg}\n`);
+          }
+        } else {
+          process.stderr.write(`gh notif --watch: ${err.message}\n`);
+        }
       }
     }
     await waitNextPoll();
@@ -218,6 +237,8 @@ Usage:
   gh notif --all             Inclut les notifications déjà lues
   gh notif --watch           Tableaux rafraîchis en continu + notifs desktop
   gh notif --watch -v        + journal des évènements détectés sous les tableaux
+  gh notif --serve [--port N]  Page web locale auto-rafraîchie (défaut :7777)
+  gh notif --interval N      Secondes entre deux polls (--watch/--serve, plancher 60)
   gh notif --org <org>       Limite à une organisation
   gh notif --repo [o/r]      Limite à un dépôt (sans valeur = dépôt courant)
   gh notif --show-hidden     Affiche aussi les PR masquées (grisées, 🙈)
@@ -234,7 +255,7 @@ Touches (terminal interactif) : h = masquer/restaurer une PR des autres ·
 // (erreur, valeur requise), string=valeur.
 function parseArgs(argv) {
   const args = argv.slice(2);
-  const flags = { all: false, watch: false, help: false, verbose: false, showHidden: false, org: undefined, repo: undefined };
+  const flags = { all: false, watch: false, serve: false, port: undefined, interval: undefined, help: false, verbose: false, showHidden: false, org: undefined, repo: undefined };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     const takeValue = () => {
@@ -245,6 +266,11 @@ function parseArgs(argv) {
     if (a === '--help' || a === '-h') flags.help = true;
     else if (a === '--all') flags.all = true;
     else if (a === '--watch') flags.watch = true;
+    else if (a === '--serve') flags.serve = true;
+    else if (a.startsWith('--port=')) flags.port = Number(a.slice(7));
+    else if (a === '--port') { const v = takeValue(); flags.port = v === null ? null : Number(v); }
+    else if (a.startsWith('--interval=')) flags.interval = Number(a.slice(11));
+    else if (a === '--interval') { const v = takeValue(); flags.interval = v === null ? null : Number(v); }
     else if (a === '--verbose' || a === '-v') flags.verbose = true;
     else if (a === '--show-hidden') flags.showHidden = true;
     else if (a.startsWith('--org=')) flags.org = a.slice(6);
@@ -253,6 +279,20 @@ function parseArgs(argv) {
     else if (a === '--repo') flags.repo = takeValue();
   }
   return flags;
+}
+
+// Intervalle de poll effectif : plancher GitHub à 60 s. Une valeur fournie plus
+// basse est ramenée à 60 (message informatif sur stderr).
+function effectiveInterval(flags) {
+  if (flags.interval === undefined) return POLL_SECONDS;
+  if (!Number.isInteger(flags.interval)) {
+    throw new Error('--interval requiert un entier (secondes, ex. --interval 120)');
+  }
+  if (flags.interval < POLL_SECONDS) {
+    process.stderr.write(`gh notif: --interval ${flags.interval}s sous le plancher GitHub, ramené à ${POLL_SECONDS}s\n`);
+    return POLL_SECONDS;
+  }
+  return flags.interval;
 }
 
 async function resolveScope(gh, flags) {
@@ -312,8 +352,15 @@ async function main(argv) {
   const gh = makeGh();
   try {
     const scope = await resolveScope(gh, flags);
-    if (flags.watch) {
-      await runWatch(gh, { scope, verbose: flags.verbose, showHidden: flags.showHidden });
+    const intervalSeconds = effectiveInterval(flags);
+    if (flags.serve) {
+      if (flags.port !== undefined && flags.port !== null && !Number.isInteger(flags.port)) {
+        throw new Error('--port requiert un entier (ex. --port 7777)');
+      }
+      const me = await gh.getCurrentUser();
+      serve({ gh, me, scope, all: flags.all, port: flags.port ?? 7777, intervalSeconds });
+    } else if (flags.watch) {
+      await runWatch(gh, { scope, verbose: flags.verbose, showHidden: flags.showHidden, intervalSeconds });
     } else {
       await runList(gh, { all: flags.all, scope, showHidden: flags.showHidden });
     }

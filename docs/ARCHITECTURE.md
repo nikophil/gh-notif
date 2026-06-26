@@ -14,7 +14,7 @@ qui réutilise l'auth de l'utilisateur. Tests avec le runner natif `node:test` (
 
 | Fichier | Rôle | Pur / testable ? |
 |---------|------|------------------|
-| `gh-notif` | Entrypoint : parse les args, résout le scope, dispatch `runList` / `runWatch`. | non (I/O, boucle) |
+| `gh-notif` | Entrypoint : parse les args, résout le scope, dispatch `runList` / `runWatch` / `serve`. | non (I/O, boucle) |
 | `src/github.js` | Wrapper fin autour de `gh` (`makeGh(runner)`), `runner` injectable. Renvoie du JSON brut. | oui via runner stub |
 | `src/filter.js` | **Cœur** : `classify()` (règles de filtrage), `findReplyToMe()`, helpers. Fonctions pures. | oui |
 | `src/collect.js` | Orchestration : agrège notifications + recherches en PRs, récupère les détails, scope. | oui via gh stub |
@@ -23,6 +23,9 @@ qui réutilise l'auth de l'utilisateur. Tests avec le runner natif `node:test` (
 | `src/render.js` | Tableaux encadrés alignés, couleur, liens OSC 8, helpers d'affichage. | oui |
 | `src/spinner.js` | Spinner pendant les requêtes (stderr, no-op hors TTY). | oui via stream stub |
 | `src/hidden.js` | Masquage des PR des autres : persistance, signatures d'évènements, réconciliation, numéros. | oui |
+| `src/html.js` | Rendu **HTML pur** du mode `--serve` (`escapeHtml`, `renderFragment`, `renderShell`). Réutilise les helpers de `render.js`. | oui |
+| `src/serve.js` | Serveur HTTP local (`node:http`) + boucle de poll : `handleRequest` (pur) + `serve` (I/O). | `handleRequest` oui ; `serve` non (I/O) |
+| `src/ratelimit.js` | Détection rate-limit (`isRateLimitError`) + backoff (`nextBackoffSeconds`). Purs. | oui |
 
 Chaque module a une responsabilité claire ; la logique difficile vit dans des **fonctions pures**
 testées sur fixtures (pas d'appel réseau en test).
@@ -48,6 +51,27 @@ via `state.js` ; chaque nouvel item déclenche `sendNotification` + une ligne `w
 empilée dans un journal de session (max 8) affiché sous les tableaux. Puis `countdown` jusqu'au
 prochain poll. Les reviews en attente / PR authored (issues de recherche) n'émettent **pas** de
 notif desktop : seuls les items de `data.notifications` le font.
+
+`--serve` : `serve` (`src/serve.js`) lance **une seule boucle de poll** (`collectPRs`, mêmes
+données que `gh notif`, respecte la liste `hidden` persistée) alimentant un **snapshot en mémoire**
+`{ data, updatedAt, error }`, et monte un serveur `node:http`. Les **lectures** (GET) sont routées
+par `handleRequest(pathname, snapshot, {now, intervalMs, showHidden, scope})` (**pur**, testable
+sans socket) : `GET /` → `renderShell` (page + JS de polling, champ de scope prérempli), `GET
+/fragment` → `renderFragment` du snapshot (ou message d'erreur échappé ; `?hidden=1` ajoute les
+lignes masquées), `GET /api/state` → JSON brut, sinon 404. Les **actions** (POST, effets de bord,
+dans le handler I/O) : `POST /refresh` (force un poll), `POST /hide?key=repo#n`
+(`toggleHidden`+`saveHidden`, puis **recompute local** sans refetch), `POST /scope?value=` (scope
+**mutable** : `parseScope` → re-fetch ciblé — le serveur ne charge que le scope choisi). Toutes
+renvoient le fragment courant que le client injecte dans `#content`.
+
+Le rendu HTML (`src/html.js`) **réutilise** les helpers de présentation de `render.js`
+(`triggersLabel`, `ciIcon`, `stateIcon`, `relativeDate`) : seul le médium (terminal vs HTML)
+diffère. Le navigateur re-fetch `/fragment` toutes les ~10 s (rythme client **découplé** du poll
+GitHub à 60 s → plusieurs onglets ne multiplient pas les appels) avec compte à rebours. Comme
+`--watch`, la boucle détecte les nouveautés (`state.js` + `sendNotification`, seed silencieux au
+1er run, gating `REVIEW_REQUEST` sur les PR ouvertes). Style aux couleurs GitHub (Primer), tout
+inline (aucun asset externe). ⚠️ `renderFragment` **échappe** toute donnée GitHub (titre, repo,
+auteur, clé de masquage) via `escapeHtml` — un titre de PR peut contenir `<`/`&` (anti-injection).
 
 ## Formes de données
 
@@ -131,9 +155,10 @@ notif desktop : seuls les items de `data.notifications` le font.
    run) : `gh pr view` séquentiel ≈ 11,4 s → parallèle ≈ 5,8 s → **GraphQL batch ≈ 3,0 s**. Les 3
    sources (`collectNotifications`/`collectPending`/`collectAuthored`) tournent en `Promise.all` ;
    l'**inspection des notifications** (review-comments par thread) reste en `mapLimit` (avant :
-   `await` séquentiel = goulot). `CONCURRENCY = 10` plafonne l'inspection pour ne pas heurter le
-   **rate-limit secondaire** de GitHub. Le scope filtre **avant** ces appels. Spinner
-   (`src/spinner.js`, stderr, no-op hors TTY) pendant l'attente.
+   `await` séquentiel = goulot). `CONCURRENCY = 6` plafonne l'inspection pour ne pas heurter le
+   **rate-limit secondaire** de GitHub (abaissé de 10→6 pour lisser le pic à froid). Le scope filtre
+   **avant** ces appels. Spinner (`src/spinner.js`, stderr, no-op hors TTY) pendant l'attente. Voir
+   le piège §11 pour le coût en **régime stable** (cache d'inspection) — ce §8 décrit le **cold run**.
 
    Le CI vient du `statusCheckRollup.state` du dernier commit (un seul état agrégé côté GitHub →
    `ciFromState`), et les approbations de `latestReviews`/`latestOpinionatedReviews` (→
@@ -161,6 +186,26 @@ notif desktop : seuls les items de `data.notifications` le font.
     (`waitNextPoll` ne décompte ni n'écrit) pour ne pas redessiner sous l'utilisateur. État
     persisté dans `~/.local/state/gh-notif/hidden-v1.json`. ⚠️ `TRIGGER_FOR` vit dans `filter.js`
     (pas `collect.js`) pour être partagé avec `hidden.js` sans cycle d'import.
+
+11. **Coût du poll & rate-limit (boucles longues).** Une collègue a été rate-limitée : un poll
+    « naïf » émet ~50–70 requêtes, dominé à ~90 % par l'inspection par thread (`getComment` +
+    `getReviewComments` paginé, pour *chaque* notification). En boucle longue (`serve.js`, `runWatch`),
+    on injecte un **cache d'inspection** (`Map`, clé = `thread.id`) dans `collectPRs(..., { cache })` :
+    - **thread inchangé** (même `thread.updated_at` que l'entrée de cache) ⇒ `inspectThread` renvoie
+      l'inspection mémorisée, **0 requête** ;
+    - **thread modifié** ⇒ on ne re-pagine pas : `getReviewComments(repo, n, { since: watermark })`
+      ne ramène que le delta (`since` = max `updated_at` vu, via `watermarkOf`), fusionné avec le cache
+      (`mergeReviewComments`, dédup par `id`, `fresh` gagne) ;
+    - le cache est **élagué** des threads disparus de `/notifications`.
+    Sans `cache` (le `gh notif` one-shot), comportement inchangé : toujours ré-inspecter. Forme d'une
+    entrée : `{ threadUpdatedAt, since, inspection:{ latestComment, reviewComments } }`.
+    **Backoff** (`src/ratelimit.js`, pur) : sur message d'erreur `gh` ressemblant à un rate-limit
+    (`isRateLimitError` : `rate limit`/`secondary`/`abuse`/`403`/`429`), le prochain poll recule
+    (`nextBackoffSeconds` : double, plafond 10 min) ; reset sur succès. `serve.js` reprogramme par
+    **`setTimeout`** (pas `setInterval`) pour intégrer ce délai ; `runWatch` l'ajoute à `waitNextPoll`.
+    Intervalle réglable par `--interval N`, **plancher 60 s** (`effectiveInterval`). ⚠️ Limite connue
+    (hors périmètre) : l'incrémental `since` ne détecte pas un commentaire **supprimé** d'un fil déjà
+    en cache.
 
 ## Conventions de test
 
