@@ -99,6 +99,15 @@ les tableaux (le compte à rebours et le spinner restent dans tous les cas) :
 Au tout premier lancement, le backlog existant est marqué « vu » **sans alerter** : les tableaux
 s'affichent, mais tu n'es notifié (desktop) que des évènements survenant **après** le démarrage.
 
+### Coût des requêtes (boucles longues)
+
+`--watch` et `--serve` tournent longtemps : pour ménager le **rate-limit** GitHub, un poll ne
+ré-inspecte que les fils de notification **qui ont changé** depuis le dernier (un cache par thread) ;
+les autres coûtent **0 requête**. Un poll « calme » se réduit donc à quelques requêtes (liste des
+notifications + recherches + un batch GraphQL) au lieu de plusieurs dizaines. Si GitHub renvoie
+malgré tout un rate-limit (403/429), le prochain poll **recule automatiquement** (backoff, jusqu'à
+10 min) et une bannière l'indique. `--interval N` règle la cadence (plancher **60 s**).
+
 ## `--serve` (page web)
 
 `gh notif --serve` lance un petit **serveur HTTP local** et ouvre une **page web** présentant les
@@ -153,6 +162,7 @@ gh notif --watch              # surveille et pousse des notifs desktop (~60s)
 gh notif --watch -v           # + journal des évènements sous les tableaux
 gh notif --serve              # page web locale auto-rafraîchie (http://localhost:7777)
 gh notif --serve --port 8080  # page web sur un autre port
+gh notif --watch --interval 120  # poll toutes les 120s (plancher 60s)
 gh notif --show-hidden        # affiche aussi les PR masquées (grisées, 🙈)
 gh notif --org mapado         # limite à une organisation
 gh notif --repo mapado/web    # limite à un dépôt

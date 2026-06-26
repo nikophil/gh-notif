@@ -25,6 +25,7 @@ qui réutilise l'auth de l'utilisateur. Tests avec le runner natif `node:test` (
 | `src/hidden.js` | Masquage des PR des autres : persistance, signatures d'évènements, réconciliation, numéros. | oui |
 | `src/html.js` | Rendu **HTML pur** du mode `--serve` (`escapeHtml`, `renderFragment`, `renderShell`). Réutilise les helpers de `render.js`. | oui |
 | `src/serve.js` | Serveur HTTP local (`node:http`) + boucle de poll : `handleRequest` (pur) + `serve` (I/O). | `handleRequest` oui ; `serve` non (I/O) |
+| `src/ratelimit.js` | Détection rate-limit (`isRateLimitError`) + backoff (`nextBackoffSeconds`). Purs. | oui |
 
 Chaque module a une responsabilité claire ; la logique difficile vit dans des **fonctions pures**
 testées sur fixtures (pas d'appel réseau en test).
@@ -154,9 +155,10 @@ auteur, clé de masquage) via `escapeHtml` — un titre de PR peut contenir `<`/
    run) : `gh pr view` séquentiel ≈ 11,4 s → parallèle ≈ 5,8 s → **GraphQL batch ≈ 3,0 s**. Les 3
    sources (`collectNotifications`/`collectPending`/`collectAuthored`) tournent en `Promise.all` ;
    l'**inspection des notifications** (review-comments par thread) reste en `mapLimit` (avant :
-   `await` séquentiel = goulot). `CONCURRENCY = 10` plafonne l'inspection pour ne pas heurter le
-   **rate-limit secondaire** de GitHub. Le scope filtre **avant** ces appels. Spinner
-   (`src/spinner.js`, stderr, no-op hors TTY) pendant l'attente.
+   `await` séquentiel = goulot). `CONCURRENCY = 6` plafonne l'inspection pour ne pas heurter le
+   **rate-limit secondaire** de GitHub (abaissé de 10→6 pour lisser le pic à froid). Le scope filtre
+   **avant** ces appels. Spinner (`src/spinner.js`, stderr, no-op hors TTY) pendant l'attente. Voir
+   le piège §11 pour le coût en **régime stable** (cache d'inspection) — ce §8 décrit le **cold run**.
 
    Le CI vient du `statusCheckRollup.state` du dernier commit (un seul état agrégé côté GitHub →
    `ciFromState`), et les approbations de `latestReviews`/`latestOpinionatedReviews` (→
@@ -184,6 +186,26 @@ auteur, clé de masquage) via `escapeHtml` — un titre de PR peut contenir `<`/
     (`waitNextPoll` ne décompte ni n'écrit) pour ne pas redessiner sous l'utilisateur. État
     persisté dans `~/.local/state/gh-notif/hidden-v1.json`. ⚠️ `TRIGGER_FOR` vit dans `filter.js`
     (pas `collect.js`) pour être partagé avec `hidden.js` sans cycle d'import.
+
+11. **Coût du poll & rate-limit (boucles longues).** Une collègue a été rate-limitée : un poll
+    « naïf » émet ~50–70 requêtes, dominé à ~90 % par l'inspection par thread (`getComment` +
+    `getReviewComments` paginé, pour *chaque* notification). En boucle longue (`serve.js`, `runWatch`),
+    on injecte un **cache d'inspection** (`Map`, clé = `thread.id`) dans `collectPRs(..., { cache })` :
+    - **thread inchangé** (même `thread.updated_at` que l'entrée de cache) ⇒ `inspectThread` renvoie
+      l'inspection mémorisée, **0 requête** ;
+    - **thread modifié** ⇒ on ne re-pagine pas : `getReviewComments(repo, n, { since: watermark })`
+      ne ramène que le delta (`since` = max `updated_at` vu, via `watermarkOf`), fusionné avec le cache
+      (`mergeReviewComments`, dédup par `id`, `fresh` gagne) ;
+    - le cache est **élagué** des threads disparus de `/notifications`.
+    Sans `cache` (le `gh notif` one-shot), comportement inchangé : toujours ré-inspecter. Forme d'une
+    entrée : `{ threadUpdatedAt, since, inspection:{ latestComment, reviewComments } }`.
+    **Backoff** (`src/ratelimit.js`, pur) : sur message d'erreur `gh` ressemblant à un rate-limit
+    (`isRateLimitError` : `rate limit`/`secondary`/`abuse`/`403`/`429`), le prochain poll recule
+    (`nextBackoffSeconds` : double, plafond 10 min) ; reset sur succès. `serve.js` reprogramme par
+    **`setTimeout`** (pas `setInterval`) pour intégrer ce délai ; `runWatch` l'ajoute à `waitNextPoll`.
+    Intervalle réglable par `--interval N`, **plancher 60 s** (`effectiveInterval`). ⚠️ Limite connue
+    (hors périmètre) : l'incrémental `since` ne détecte pas un commentaire **supprimé** d'un fil déjà
+    en cache.
 
 ## Conventions de test
 
