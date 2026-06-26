@@ -2,8 +2,34 @@ import { classify, CATEGORY, TRIGGER_FOR } from './filter.js';
 import { reconcile, isHidden, keyOf } from './hidden.js';
 
 // Concurrence max des appels `gh` (évite de spawner des dizaines de process
-// d'un coup / de heurter le rate-limit secondaire de GitHub).
-const CONCURRENCY = 10;
+// d'un coup / de heurter le rate-limit secondaire de GitHub). Abaissée pour
+// lisser le pic à froid et ménager le secondary rate limit.
+const CONCURRENCY = 6;
+
+// Fusionne deux listes de review-comments par `id` (la version `fresh` gagne),
+// triées par `created_at`. Sert à la récupération incrémentale (`since`) : on
+// ne re-pagine pas tout un fil, on fusionne le delta avec le cache.
+export function mergeReviewComments(prev, fresh) {
+  const byId = new Map();
+  for (const c of prev || []) byId.set(c.id, c);
+  for (const c of fresh || []) byId.set(c.id, c);
+  return [...byId.values()].sort((a, b) => {
+    const x = a.created_at || '';
+    const y = b.created_at || '';
+    return x < y ? -1 : x > y ? 1 : 0;
+  });
+}
+
+// Borne haute des `updated_at` (fallback `created_at`) d'une liste de
+// commentaires — prochain `since` pour la récupération incrémentale. null si vide.
+export function watermarkOf(comments) {
+  let max = null;
+  for (const c of comments || []) {
+    const t = c.updated_at || c.created_at;
+    if (t && (max === null || t > max)) max = t;
+  }
+  return max;
+}
 
 // scope : null (tout) | { type:'org', value } | { type:'repo', value:'owner/name' }
 export function scopeMatches(scope, fullName) {
@@ -18,21 +44,32 @@ export function scopeQualifier(scope) {
   return scope.type === 'org' ? ` org:${scope.value}` : ` repo:${scope.value}`;
 }
 
-export async function inspectThread(gh, thread, me) {
+export async function inspectThread(gh, thread, me, cacheEntry = null) {
+  // Cache hit : le thread n'a pas bougé depuis le dernier poll (même
+  // `updated_at`) → on réutilise l'inspection précédente, **0 requête**.
+  if (cacheEntry && cacheEntry.threadUpdatedAt === thread.updated_at) {
+    return cacheEntry.inspection;
+  }
   // On récupère le dernier commentaire (acteur des mention/author) ET les
   // review-comments (détection de réponse à mon fil), car la `reason` est
   // « collante » : une réponse réelle peut arriver sous une reason=mention OU
   // review_requested (d'où la récupération même pour les demandes de review).
+  // Récupération incrémentale : seulement les commentaires postérieurs au
+  // dernier vu (`since`), fusionnés avec ceux du cache.
   const number = Number(thread.subject.url.split('/').pop());
   const url = thread.subject?.latest_comment_url;
-  const [latestComment, reviewComments] = await Promise.all([
+  const since = cacheEntry?.since ?? null;
+  const [latestComment, fresh] = await Promise.all([
     url ? gh.getComment(url) : Promise.resolve(null),
-    gh.getReviewComments(thread.repository.full_name, number),
+    gh.getReviewComments(thread.repository.full_name, number, { since }),
   ]);
+  const reviewComments = since
+    ? mergeReviewComments(cacheEntry?.inspection?.reviewComments ?? [], fresh)
+    : fresh;
   return { latestComment, reviewComments };
 }
 
-export async function collectNotifications(gh, me, { all = false, scope = null } = {}) {
+export async function collectNotifications(gh, me, { all = false, scope = null, cache = null } = {}) {
   const threads = await gh.listNotifications({ all });
   // Ne garde que les PR du scope avant toute requête (filtre = gratuit).
   const prThreads = threads.filter(
@@ -40,9 +77,26 @@ export async function collectNotifications(gh, me, { all = false, scope = null }
   );
   // Inspection en parallèle (au lieu d'un await séquentiel par thread) : c'est le
   // gros gain de temps. `mapLimit` préserve l'ordre ; un thread en échec → null.
-  const inspections = await mapLimit(prThreads, CONCURRENCY, (t) =>
-    inspectThread(gh, t, me).catch(() => null),
-  );
+  // Avec `cache` (boucle longue) : un thread inchangé coûte 0 requête, sinon on
+  // récupère seulement le delta de commentaires et on met à jour l'entrée.
+  const inspections = await mapLimit(prThreads, CONCURRENCY, (t) => {
+    const prev = cache?.get(t.id) ?? null;
+    return inspectThread(gh, t, me, prev)
+      .then((inspection) => {
+        if (cache && inspection) {
+          const hit = prev && prev.threadUpdatedAt === t.updated_at;
+          const since = hit ? prev.since : watermarkOf(inspection.reviewComments);
+          cache.set(t.id, { threadUpdatedAt: t.updated_at, since, inspection });
+        }
+        return inspection;
+      })
+      .catch(() => null);
+  });
+  // Élague le cache des threads qui ne sont plus dans la liste de notifications.
+  if (cache) {
+    const present = new Set(prThreads.map((t) => t.id));
+    for (const id of cache.keys()) if (!present.has(id)) cache.delete(id);
+  }
   const items = [];
   prThreads.forEach((thread, i) => {
     const item = classify(thread, me, inspections[i]);
@@ -126,9 +180,9 @@ export function prState(d) {
 // Regroupe notifications + reviews en attente par PR, agrège les triggers,
 // récupère les détails de chaque PR (auteur / date / diff / CI) en parallèle,
 // puis sépare selon que la PR est de moi ou d'un autre.
-export async function collectPRs(gh, me, { all = false, scope = null, hidden = {} } = {}) {
+export async function collectPRs(gh, me, { all = false, scope = null, hidden = {}, cache = null } = {}) {
   const [items, pending, authored] = await Promise.all([
-    collectNotifications(gh, me, { all, scope }),
+    collectNotifications(gh, me, { all, scope, cache }),
     collectPending(gh, scope),
     collectAuthored(gh, scope),
   ]);
