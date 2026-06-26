@@ -46,6 +46,27 @@ test('tableau « autres PR » : Auteur, Ouverte, Diff (sans barre), État, ✅',
   assert.ok(out.includes('4'));          // nombre d'approbations
 });
 
+test('badge 🎉 prête à merger : PR à moi ouverte avec ≥2 approbations', () => {
+  const out = renderList({ mine: [myRow({ state: 'open', approvals: 2 })], others: [] }, PLAIN);
+  assert.ok(out.includes('🎉'), 'badge présent à 2 approbations sur une PR ouverte');
+});
+
+test('pas de badge 🎉 sous le seuil, ni sur draft/mergée', () => {
+  const under = renderList({ mine: [myRow({ state: 'open', approvals: 1 })], others: [] }, PLAIN);
+  assert.ok(!under.includes('🎉'), 'pas de badge à 1 approbation');
+  const draft = renderList({ mine: [myRow({ state: 'draft', approvals: 3 })], others: [] }, PLAIN);
+  assert.ok(!draft.includes('🎉'), 'pas de badge sur un draft');
+  const merged = renderList({ mine: [myRow({ state: 'merged', approvals: 3 })], others: [] }, PLAIN);
+  assert.ok(!merged.includes('🎉'), 'pas de badge sur une PR mergée');
+});
+
+test('badge 🎉 : les lignes du tableau restent alignées', () => {
+  const out = renderList({ mine: [myRow({ state: 'open', approvals: 2 }), myRow({ number: 7, approvals: 0 })], others: [] }, PLAIN);
+  const lines = out.split('\n').filter((l) => /^[┌├└│]/.test(l));
+  const widths = new Set(lines.map(displayWidth));
+  assert.equal(widths.size, 1, `largeurs incohérentes (${[...widths].join(',')})`);
+});
+
 test('les deux tableaux peuvent coexister', () => {
   const out = renderList({ mine: [myRow()], others: [otherRow()] }, PLAIN);
   assert.match(out, /Tes PR ouvertes \(1\)/);

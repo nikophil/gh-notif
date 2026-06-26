@@ -3,6 +3,7 @@
 // stateIcon, relativeDate) : seule la mise en forme (terminal vs HTML) diffère,
 // la logique d'affichage reste mutualisée.
 import { ciIcon, stateIcon, relativeDate } from './render.js';
+import { isReady } from './approvals.js';
 
 // Libellés affichés au survol (title="") des icônes — donnent le sens.
 const STATE_LABEL = { draft: 'Brouillon', open: 'Ouverte', merged: 'Mergée', closed: 'Fermée' };
@@ -44,8 +45,12 @@ const triggersCell = (keys) => {
     .map(([, icon, label]) => titled(label, icon))
     .join(' ');
 };
-const approvalsCell = (n) =>
-  n ? titled(`${n} approbation${n > 1 ? 's' : ''}`, String(n)) : titled('Aucune approbation', '·');
+// `ready` (PR à moi ouverte & ≥ seuil) ajoute le badge 🎉 « prête à merger ».
+const approvalsCell = (n, ready = false) => {
+  if (!n) return titled('Aucune approbation', '·');
+  const count = titled(`${n} approbation${n > 1 ? 's' : ''}`, String(n));
+  return ready ? `${count} ${titled('Prête à merger', '🎉')}` : count;
+};
 
 const tableRow = (cells, cls = '') => `<tr${cls ? ` class="${cls}"` : ''}>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`;
 
@@ -63,7 +68,7 @@ function mineTable(rows) {
       link(r.url, `#${r.number}`),
       link(r.url, r.title),
       stateCell(r.state),
-      approvalsCell(r.approvals),
+      approvalsCell(r.approvals, r.state === 'open' && isReady(r.approvals)),
       triggersCell(r.triggers),
       ciCell(r.ci),
     ]),

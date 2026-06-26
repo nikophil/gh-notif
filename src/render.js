@@ -1,5 +1,6 @@
 // Couleur & liens (désactivés hors TTY ou si NO_COLOR), construction de tableaux
 // encadrés alignés, et helpers d'affichage (triggers, CI, date relative, diff).
+import { isReady } from './approvals.js';
 
 const REPO_MAX = 26;
 const TITLE_MAX = 46;
@@ -170,11 +171,19 @@ function mineTable(rows, opts) {
     { text: `#${r.number}`, color: C.yellow, url: r.url },
     { text: r.title, url: r.url },
     { text: stateIcon(r.state) },
-    { text: r.approvals ? String(r.approvals) : '·', color: C.green },
+    { text: approvalsText(r), color: C.green },
     { text: triggersLabel(r.triggers) },
     { text: ciIcon(r.ci) },
   ]);
   return buildTable(columns, cells, opts);
+}
+
+// Cellule « approbations » de mes PR : compteur, suffixé de 🎉 quand la PR est
+// OUVERTE et atteint le seuil (« prête à merger »). `·` si aucune approbation.
+function approvalsText(r) {
+  if (!r.approvals) return '·';
+  const ready = r.state === 'open' && isReady(r.approvals);
+  return ready ? `${r.approvals} 🎉` : String(r.approvals);
 }
 
 function othersTable(rows, opts) {

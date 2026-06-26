@@ -67,6 +67,18 @@ test('renderFragment : tooltip « Aucune approbation » quand 0', () => {
   assert.match(out, /title="Aucune approbation"/);
 });
 
+test('renderFragment : badge 🎉 prête à merger si PR à moi ouverte & ≥2 approbations', () => {
+  const out = renderFragment({ mine: [myRow({ state: 'open', approvals: 2 })], others: [] }, { now: NOW });
+  assert.ok(out.includes('🎉'), 'badge présent');
+  assert.match(out, /title="Prête à merger"/);
+});
+
+test('renderFragment : pas de badge 🎉 sous le seuil ni sur draft/mergée', () => {
+  assert.ok(!renderFragment({ mine: [myRow({ state: 'open', approvals: 1 })], others: [] }, { now: NOW }).includes('🎉'));
+  assert.ok(!renderFragment({ mine: [myRow({ state: 'draft', approvals: 3 })], others: [] }, { now: NOW }).includes('🎉'));
+  assert.ok(!renderFragment({ mine: [myRow({ state: 'merged', approvals: 3 })], others: [] }, { now: NOW }).includes('🎉'));
+});
+
 test('renderFragment : approbations (nombre, · si zéro)', () => {
   const out = renderFragment({ mine: [myRow({ approvals: 3 })], others: [myRow({ number: 7, approvals: 0 })] }, { now: NOW });
   assert.ok(out.includes('3'));
