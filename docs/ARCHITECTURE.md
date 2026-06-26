@@ -23,7 +23,7 @@ qui réutilise l'auth de l'utilisateur. Tests avec le runner natif `node:test` (
 | `src/render.js` | Tableaux encadrés alignés, couleur, liens OSC 8, helpers d'affichage. | oui |
 | `src/spinner.js` | Spinner pendant les requêtes (stderr, no-op hors TTY). | oui via stream stub |
 | `src/hidden.js` | Masquage des PR des autres : persistance, signatures d'évènements, réconciliation, numéros. | oui |
-| `src/html.js` | Rendu **HTML pur** du mode `--serve` (`escapeHtml`, `renderFragment`, `renderShell`). Réutilise les helpers de `render.js`. | oui |
+| `src/html.js` | Rendu **HTML pur** du mode `--serve` (`escapeHtml`, `renderFragment`, `renderShell`, `renderDebug`/`renderDebugShell`). Réutilise les helpers de `render.js`. | oui |
 | `src/serve.js` | Serveur HTTP local (`node:http`) + boucle de poll : `handleRequest` (pur) + `serve` (I/O). | `handleRequest` oui ; `serve` non (I/O) |
 | `src/ratelimit.js` | Détection rate-limit (`isRateLimitError`) + backoff (`nextBackoffSeconds`). Purs. | oui |
 
@@ -282,6 +282,20 @@ sequenceDiagram
     Intervalle réglable par `--interval N`, **plancher 60 s** (`effectiveInterval`). ⚠️ Limite connue
     (hors périmètre) : l'incrémental `since` ne détecte pas un commentaire **supprimé** d'un fil déjà
     en cache.
+
+12. **Mode debug = verdict du pipeline (coût nul).** `classify` délègue à
+    **`classifyVerdict(thread, me, inspection) → { item, reason }`** (un `reason` à chacun des points
+    de sortie) ; `classify` n'en garde que `item` (rétro-compatible). `collectNotifications` accepte
+    un **sink** optionnel `debug` (array) et y pousse une entrée **compacte** par thread (reason GH,
+    dates, `commentsCount`, `latestCommentAuthor`, `verdict {kept, category, reason}`) — **sans corps
+    de commentaire** (coût + vie privée). `collectPRs` fournit **toujours** ce sink et renvoie
+    `data.debug` : c'est gratuit (donnée déjà fetchée/calculée), donc **toujours capturé** ; seul
+    l'affichage est gaté. Rendus : terminal `renderDebugText` (render.js, gaté par `--debug` dans
+    `runList`/`runWatch`) ; web `renderDebug` + page autonome `renderDebugShell` (html.js), servies
+    **always-on** en `--serve` via `/debug` (page), `/debug-fragment` (poll), `/api/debug` (JSON), avec
+    un lien 🐛 dans l'en-tête. ⚠️ Contrainte produit : GitHub ne notifie **pas** tes propres actions →
+    le debug montre le raisonnement, pas « tes messages ». ⚠️ `renderDebug` **échappe** toute donnée
+    GitHub (titre, repo, raison) via `escapeHtml`.
 
 ## Conventions de test
 
