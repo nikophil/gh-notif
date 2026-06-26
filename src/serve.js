@@ -12,10 +12,12 @@ import { CATEGORY } from './filter.js';
 import { hiddenPath, loadHidden, saveHidden, toggleHidden, isHidden, keyOf } from './hidden.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './state.js';
 import { sendNotification } from './notify.js';
+import { isRateLimitError, nextBackoffSeconds } from './ratelimit.js';
 import { renderShell, renderFragment, escapeHtml } from './html.js';
 
 const POLL_SECONDS = 60;
 const CLIENT_POLL_MS = 10000; // rythme de re-fetch du fragment côté navigateur
+const BACKOFF_CAP = 600; // plafond du recul en cas de rate-limit (10 min)
 
 // Valeur du champ de scope → objet scope (même sémantique que --org/--repo).
 // Vide → null (tout). Contient « / » → repo (owner/name). Sinon → org.
@@ -75,6 +77,10 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   let scope = initialScope;
   const snapshot = { data: { mine: [], others: [] }, updatedAt: null, error: null };
 
+  // Cache d'inspection réutilisé entre polls (thread inchangé = 0 requête).
+  const inspectCache = new Map();
+  let backoff = 0; // secondes ajoutées à l'intervalle après un rate-limit
+
   // Masquage : reflète l'état persisté (même vue que `gh notif`).
   const hiddenFile = hiddenPath();
   const hidden = loadHidden(hiddenFile);
@@ -107,18 +113,31 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
 
   const refresh = async () => {
     try {
-      const data = await collectPRs(gh, me, { all, scope, hidden });
+      const data = await collectPRs(gh, me, { all, scope, hidden, cache: inspectCache });
       if (data.hiddenChanged) saveHidden(hiddenFile, hidden);
       notifyNew(data);
       snapshot.data = data;
       snapshot.updatedAt = Date.now();
       snapshot.error = null;
+      backoff = 0; // succès : on repart à l'intervalle normal
     } catch (err) {
-      snapshot.error = err.message;
+      if (isRateLimitError(err.message)) {
+        backoff = nextBackoffSeconds(backoff, intervalSeconds, BACKOFF_CAP);
+        snapshot.error = `⏳ rate-limité par GitHub — reprise dans ${backoff}s`;
+      } else {
+        snapshot.error = err.message;
+      }
     }
   };
-  refresh();
-  const timer = setInterval(refresh, intervalSeconds * 1000);
+
+  // Boucle reprogrammée par setTimeout (et non setInterval) pour intégrer le
+  // backoff : le prochain poll est différé de `intervalSeconds + backoff`.
+  let timer = null;
+  const loop = async () => {
+    await refresh();
+    timer = setTimeout(loop, (intervalSeconds + backoff) * 1000);
+  };
+  loop();
 
   // Réponse standard après une action : le fragment courant (le client remplace
   // #content). `showHidden` est porté par la query pour préserver le mode.
@@ -164,7 +183,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
     send(status, type, body);
   });
 
-  server.on('close', () => clearInterval(timer));
+  server.on('close', () => clearTimeout(timer));
   server.listen(port, () => {
     const url = `http://localhost:${port}`;
     process.stderr.write(`🔔 gh notif --serve · ${url} · Ctrl-C pour arrêter\n`);
