@@ -35,38 +35,64 @@ testées sur fixtures (pas d'appel réseau en test).
 Les trois modes (`gh notif`, `--watch`, `--serve`) partagent **le même cœur** `collectPRs` ; seule
 la sortie diffère (tableaux terminal, boucle qui notifie, ou serveur web).
 
-```mermaid
-flowchart TD
-  CLI["gh-notif<br/>parse args · scope · --interval"] --> Mode{"mode ?"}
-  Mode -->|"défaut"| List["runList<br/>one-shot → tableaux"]
-  Mode -->|"--watch"| Watch["runWatch<br/>boucle + notif desktop"]
-  Mode -->|"--serve"| Serve["serve<br/>serveur HTTP + boucle"]
+### Appels à GitHub (par poll)
 
+Tous les accès passent par `gh` (auth réutilisée). Le schéma ci-dessous montre **chaque appel**,
+sa **cardinalité** et son **coût** : en **vert** le *socle* (toujours émis, ~4 requêtes), en
+**ambre** le coût *variable* (uniquement pour les threads de notification **modifiés** ; un thread
+inchangé coûte **0 requête** grâce au cache).
+
+```mermaid
+flowchart LR
+  CLI["gh-notif · scope · --interval"] --> Mode{"mode"}
+  Mode -->|"défaut"| List[runList]
+  Mode -->|"--watch"| Watch[runWatch]
+  Mode -->|"--serve"| Serve[serve]
   List --> Collect
   Watch --> Collect
   Serve --> Collect
 
-  subgraph Collect["collectPRs — orchestration"]
+  subgraph Collect["collectPRs (1 poll)"]
     direction TB
-    N["collectNotifications<br/>/notifications → inspectThread → classify"]
-    P["collectPending<br/>search review-requested:@me"]
-    A["collectAuthored<br/>search author:@me"]
-    B["getPullDetailsBatch<br/>GraphQL · lots de 30"]
-    S["split mine / others<br/>+ reconcile masquage"]
-    N --> S
-    P --> S
-    A --> S
-    B --> S
+    N[collectNotifications] --> INS["inspectThread<br/>threads PR modifiés"]
+    P[collectPending]
+    A[collectAuthored]
+    B[getPullDetailsBatch]
   end
 
-  Cache[("cache d'inspection<br/>Map par thread.id")] -. "0 requête si updated_at inchangé" .-> N
-  Collect <-->|"gh CLI (auth réutilisée)"| GH[("GitHub API")]
+  subgraph GH["Appels GitHub (gh api)"]
+    direction TB
+    E1["GET /notifications<br/>×1"]
+    E2["GET /search/issues<br/>is:open is:pr review-requested:@me · ×1"]
+    E3["GET /search/issues<br/>is:open is:pr author:@me · ×1"]
+    E4["POST graphql<br/>détails PR · 1 par lot de 30"]
+    E5["GET latest_comment_url<br/>1 par thread modifié"]
+    E6["GET /repos/.../pulls/N/comments<br/>per_page=100 (+since) · 1 par thread modifié"]
+  end
 
-  Collect --> Data["données :<br/>mine · others · hidden · notifications"]
-  Data --> RT["render.js<br/>2 tableaux terminal"]
-  Data --> HT["html.js<br/>page web (style GitHub)"]
-  Data --> ST["state.js → notify.js<br/>notif desktop (watch / serve)"]
+  N --> E1
+  P --> E2
+  A --> E3
+  B --> E4
+  INS --> E5
+  INS --> E6
+  Cache[("cache d'inspection<br/>Map par thread.id")] -. "thread inchangé → 0 requête" .-> INS
+
+  Collect --> Out["mine · others · hidden · notifications"]
+  Out --> RT[render.js]
+  Out --> HT[html.js]
+  Out --> ST["state.js → notify.js"]
+
+  classDef socle fill:#dafbe1,stroke:#1a7f37,color:#0a3d1a;
+  classDef variable fill:#fff8c5,stroke:#9a6700,color:#4d3800;
+  class E1,E2,E3,E4 socle;
+  class E5,E6 variable;
 ```
+
+`getCurrentUser` (`GET /user`) est appelé **une seule fois** au démarrage, hors boucle. Les trois
+sources (`collectNotifications` / `collectPending` / `collectAuthored`) partent en `Promise.all` ;
+l'inspection des threads tourne en `mapLimit(CONCURRENCY=6)`. Détail du cache, de l'incrémental
+`since` et du backoff : cf. piège §11.
 
 `--watch` : `runWatch` appelle `collectPRs` à chaque poll (mêmes données que `gh notif`) et
 **redessine les deux tableaux** (`drawWatch` : efface l'écran en TTY puis `renderList`). La détection
