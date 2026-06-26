@@ -2,7 +2,20 @@
 // helpers de présentation déjà exportés par render.js (triggersLabel, ciIcon,
 // stateIcon, relativeDate) : seule la mise en forme (terminal vs HTML) diffère,
 // la logique d'affichage reste mutualisée.
-import { triggersLabel, ciIcon, stateIcon, relativeDate } from './render.js';
+import { ciIcon, stateIcon, relativeDate } from './render.js';
+
+// Libellés affichés au survol (title="") des icônes — donnent le sens.
+const STATE_LABEL = { draft: 'Brouillon', open: 'Ouverte', merged: 'Mergée', closed: 'Fermée' };
+const CI_LABEL = { pass: 'CI : succès', fail: 'CI : échec', pending: 'CI : en cours', none: 'CI : aucune' };
+// Ordre + sens des triggers (mêmes emojis que render.js).
+const TRIGGER_META = [
+  ['review', '🔍', 'Review demandée'],
+  ['mention', '💬', 'Mention'],
+  ['reply', '↩️', 'Réponse à ton fil'],
+  ['comment', '🗨️', 'Commentaire sur ta PR'],
+];
+// En-tête de la colonne « approbations » (icône cryptique → title au survol).
+const APPROVALS_TH = '<abbr title="Approbations" style="text-decoration:none;cursor:help">✅</abbr>';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
@@ -21,7 +34,18 @@ const link = (url, text) =>
 const diffCell = (additions, deletions) =>
   `<span class="add">+${additions || 0}</span> <span class="del">−${deletions || 0}</span>`;
 
-const approvals = (n) => (n ? String(n) : '·');
+// Cellules « icône » avec title="" explicatif au survol.
+const titled = (title, content) => `<span title="${escapeHtml(title)}">${content}</span>`;
+const stateCell = (state) => titled(STATE_LABEL[state] || state || '', stateIcon(state));
+const ciCell = (ci) => titled(CI_LABEL[ci] || 'CI : aucune', ciIcon(ci));
+const triggersCell = (keys) => {
+  const set = new Set(keys || []);
+  return TRIGGER_META.filter(([k]) => set.has(k))
+    .map(([, icon, label]) => titled(label, icon))
+    .join(' ');
+};
+const approvalsCell = (n) =>
+  n ? titled(`${n} approbation${n > 1 ? 's' : ''}`, String(n)) : titled('Aucune approbation', '·');
 
 const tableRow = (cells, cls = '') => `<tr${cls ? ` class="${cls}"` : ''}>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`;
 
@@ -32,16 +56,16 @@ function table(headers, rows) {
 }
 
 function mineTable(rows) {
-  const headers = ['Dépôt', 'PR', 'Titre', 'État', '✅', 'Triggers', 'CI'];
+  const headers = ['Dépôt', 'PR', 'Titre', 'État', APPROVALS_TH, 'Triggers', 'CI'];
   const trs = rows.map((r) =>
     tableRow([
       link(r.url, r.repo),
       link(r.url, `#${r.number}`),
       link(r.url, r.title),
-      stateIcon(r.state),
-      approvals(r.approvals),
-      escapeHtml(triggersLabel(r.triggers || [])),
-      ciIcon(r.ci),
+      stateCell(r.state),
+      approvalsCell(r.approvals),
+      triggersCell(r.triggers),
+      ciCell(r.ci),
     ]),
   );
   return table(headers, trs);
@@ -62,12 +86,12 @@ function otherRow(r, now, hidden) {
       link(r.url, `#${r.number}`),
       link(r.url, r.title),
       r.author ? `@${escapeHtml(r.author)}` : '?',
-      escapeHtml(relativeDate(r.createdAt, now)),
+      titled('Ouverte ' + relativeDate(r.createdAt, now), escapeHtml(relativeDate(r.createdAt, now))),
       diffCell(r.additions, r.deletions),
-      stateIcon(r.state),
-      approvals(r.approvals),
-      escapeHtml(triggersLabel(r.triggers || [])),
-      ciIcon(r.ci),
+      stateCell(r.state),
+      approvalsCell(r.approvals),
+      triggersCell(r.triggers),
+      ciCell(r.ci),
       actionButton(r, hidden),
     ],
     hidden ? 'hid' : '',
@@ -75,7 +99,7 @@ function otherRow(r, now, hidden) {
 }
 
 function othersTable(others, hiddenRows, now, showHidden) {
-  const headers = ['Dépôt', 'PR', 'Titre', 'Auteur', 'Ouverte', 'Diff', 'État', '✅', 'Triggers', 'CI', ''];
+  const headers = ['Dépôt', 'PR', 'Titre', 'Auteur', 'Ouverte', 'Diff', 'État', APPROVALS_TH, 'Triggers', 'CI', ''];
   const trs = [
     ...others.map((r) => otherRow(r, now, false)),
     ...(showHidden ? hiddenRows.map((r) => otherRow(r, now, true)) : []),
@@ -148,8 +172,7 @@ export function renderShell({ intervalMs = 10000, scopeLabel = '' } = {}) {
   }
   * { box-sizing: border-box; }
   body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
-         margin: 0; padding: 1.5rem; max-width: 1280px; margin: 0 auto;
-         background: var(--canvas); color: var(--fg); }
+         margin: 0; padding: 1rem 1.5rem; background: var(--canvas); color: var(--fg); }
   header { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; margin-bottom: 1.25rem;
            padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
   header h1 { font-size: 1rem; font-weight: 600; margin: 0; }
@@ -172,7 +195,9 @@ export function renderShell({ intervalMs = 10000, scopeLabel = '' } = {}) {
   th, td { text-align: left; padding: .5rem 1rem; border-bottom: 1px solid var(--border-muted); white-space: nowrap; }
   tbody tr:last-child td { border-bottom: 0; }
   th { font-weight: 600; color: var(--fg-muted); font-size: .75rem; }
-  td:nth-child(3) { white-space: normal; max-width: 34rem; }
+  /* Colonne Titre : absorbe la largeur restante et tronque sur une seule ligne
+     (astuce width:100% + max-width:0 + ellipsis sur un tableau auto-layout). */
+  td:nth-child(3) { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
   tbody tr:hover { background: var(--canvas-subtle); }
   tr.hid td { opacity: .5; }
   a { color: var(--accent); text-decoration: none; }
