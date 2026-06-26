@@ -136,7 +136,22 @@ Depuis la page, tu peux :
 
 Le **look & feel** reprend les couleurs GitHub (Primer, clair/sombre selon ton système). Zéro
 dépendance : servi par le module HTTP natif de Node, tout est inline (aucun asset externe).
-`Ctrl-C` arrête le serveur.
+`Ctrl-C` arrête le serveur. Un lien **🐛** dans l'en-tête mène à la page de debug (voir ci-dessous).
+
+## Debug — vérifier la détection
+
+Pour comprendre *pourquoi* une PR remonte (ou pas), le mode debug expose le **verdict du pipeline**
+par thread de notification : la `reason` GitHub, le nombre de commentaires, et la décision de
+classification — **gardé** (en trigger X) ou **droppé** (avec la raison).
+
+- **`gh notif --debug`** (et `gh notif --watch --debug`) : ajoute ce dump sous les tableaux, en terminal.
+- **`gh notif --serve`** : la page **`/debug`** (lien 🐛 dans l'en-tête) est **toujours disponible**
+  et s'auto-rafraîchit ; **`/api/debug`** renvoie le même diagnostic en JSON.
+
+> ⚠️ GitHub **ne crée pas de notification pour tes propres actions** : commenter toi-même une PR
+> au calme ne la fera pas remonter (il n'y a rien à détecter). Le debug montre donc le raisonnement
+> du pipeline sur les données réelles, pas « tes messages ». La capture du diagnostic est **toujours
+> active** (coût nul : la donnée est déjà récupérée par le poll) ; seul l'affichage est gaté.
 
 ## Prérequis
 
@@ -164,6 +179,7 @@ gh notif --serve              # page web locale auto-rafraîchie (http://localho
 gh notif --serve --port 8080  # page web sur un autre port
 gh notif --watch --interval 120  # poll toutes les 120s (plancher 60s)
 gh notif --show-hidden        # affiche aussi les PR masquées (grisées, 🙈)
+gh notif --debug              # dump du verdict du pipeline (terminal ; /debug en --serve)
 gh notif --org mapado         # limite à une organisation
 gh notif --repo mapado/web    # limite à un dépôt
 gh notif --repo               # limite au dépôt courant (gh repo view)

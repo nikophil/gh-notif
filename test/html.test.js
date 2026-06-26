@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { escapeHtml, renderFragment, renderShell, renderLoading } from '../src/html.js';
+import { escapeHtml, renderFragment, renderShell, renderLoading, renderDebug, renderDebugShell } from '../src/html.js';
 
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
 
@@ -161,4 +161,38 @@ test('renderLoading : spinner + libellé + sentinelle data-loading', () => {
   assert.match(out, /class="spinner"/);
   assert.match(out, /Chargement/);
   assert.match(out, /data-loading/);
+});
+
+test('renderShell : lien 🐛 vers /debug dans l’en-tête', () => {
+  const out = renderShell({ intervalMs: 10000 });
+  assert.match(out, /href="\/debug"/);
+});
+
+// ── renderDebug / renderDebugShell ─────────────────────────────────────────
+test('renderDebug : verdict gardé/droppé, PR liée, échappement', () => {
+  const debug = [
+    { repo: 'o/r', number: 42, title: '[X] <script>alert(1)</script>', ghReason: 'review_requested', commentsCount: 3, verdict: { kept: true, category: 'review_request', reason: 'demande de review' } },
+    { repo: 'o/x', number: 7, title: 'Ma PR', ghReason: 'author', commentsCount: 0, verdict: { kept: false, category: null, reason: 'ta propre action' } },
+  ];
+  const out = renderDebug(debug, { now: NOW });
+  assert.match(out, /1\/2 threads gardés/);
+  assert.match(out, /href="https:\/\/github.com\/o\/r\/pull\/42"/);
+  assert.match(out, /✓ review_request/);
+  assert.match(out, /✗ droppé/);
+  assert.match(out, /ta propre action/);
+  assert.match(out, /&lt;script&gt;/);            // titre dangereux échappé
+  assert.ok(!out.includes('<script>alert(1)'), 'pas d’injection');
+});
+
+test('renderDebug : vide → message neutre', () => {
+  assert.match(renderDebug([], {}), /Aucun thread/);
+});
+
+test('renderDebugShell : page autonome qui poll /debug-fragment, lien retour, sans asset externe', () => {
+  const out = renderDebugShell({ intervalMs: 9000 });
+  assert.ok(out.startsWith('<!doctype html'));
+  assert.match(out, /\/debug-fragment/);
+  assert.match(out, /9000/);
+  assert.match(out, /href="\/"/);                 // retour aux tableaux
+  assert.ok(!/src="https?:/.test(out), 'pas de script externe');
 });

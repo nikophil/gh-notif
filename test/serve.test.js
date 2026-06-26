@@ -56,6 +56,34 @@ test('chemin inconnu → 404', () => {
   assert.equal(res.status, 404);
 });
 
+// ── debug (always-on) ──────────────────────────────────────────────────────
+test('GET /debug → page autonome qui poll /debug-fragment', () => {
+  const res = handleRequest('/debug', okSnapshot(), OPTS);
+  assert.equal(res.status, 200);
+  assert.equal(res.type, 'text/html; charset=utf-8');
+  assert.ok(res.body.startsWith('<!doctype html'));
+  assert.match(res.body, /\/debug-fragment/);
+});
+
+test('GET /debug-fragment → verdicts (et message échappé si erreur)', () => {
+  const snap = okSnapshot();
+  snap.data.debug = [{ repo: 'o/r', number: 42, title: 't', ghReason: 'review_requested', commentsCount: 0, verdict: { kept: true, category: 'review_request', reason: 'r' } }];
+  const res = handleRequest('/debug-fragment', snap, OPTS);
+  assert.equal(res.status, 200);
+  assert.match(res.body, /o\/r#42/);
+  const err = handleRequest('/debug-fragment', { data: null, updatedAt: null, error: 'boom <x>' }, OPTS);
+  assert.match(err.body, /boom &lt;x&gt;/);
+});
+
+test('GET /api/debug → JSON du tableau debug', () => {
+  const snap = okSnapshot();
+  snap.data.debug = [{ repo: 'o/r', number: 42, verdict: { kept: false, category: null, reason: 'bruit' } }];
+  const res = handleRequest('/api/debug', snap, OPTS);
+  assert.equal(res.status, 200);
+  assert.equal(res.type, 'application/json; charset=utf-8');
+  assert.equal(JSON.parse(res.body)[0].number, 42);
+});
+
 test('GET / préremplit le champ de scope avec le scope courant', () => {
   const res = handleRequest('/', okSnapshot(), { ...OPTS, scope: { type: 'org', value: 'mapado' } });
   assert.match(res.body, /id="scope"[^>]*value="mapado"/);

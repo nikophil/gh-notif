@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  renderList, hyperlink, truncate, displayWidth,
+  renderList, renderDebugText, hyperlink, truncate, displayWidth,
   triggersLabel, ciIcon, stateIcon, relativeDate, diffStat,
 } from '../src/render.js';
 
@@ -167,4 +167,24 @@ test('renderList: sans flags, rendu inchangé (pas de colonne de numéros)', () 
   const out = renderList({ others: [otherRow()] }, { color: false, hyperlinks: false, now: NOW });
   assert.match(out, /Activité sur les PR des autres \(1\)/);
   assert.ok(!out.includes(' # ')); // pas d'en-tête de colonne marqueur
+});
+
+// ── renderDebugText (mode --debug) ─────────────────────────────────────────
+test('renderDebugText : une ligne par thread, gardé/droppé + raison', () => {
+  const debug = [
+    { repo: 'o/r', number: 42, ghReason: 'review_requested', commentsCount: 3, verdict: { kept: true, category: 'review_request', reason: 'demande de review (watch)' } },
+    { repo: 'o/x', number: 7, ghReason: 'author', commentsCount: 0, verdict: { kept: false, category: null, reason: 'ta propre action / maj de PR' } },
+  ];
+  const out = renderDebugText(debug, { color: false });
+  assert.match(out, /1\/2 gardés/);
+  assert.match(out, /o\/r#42/);
+  assert.match(out, /✓ review_request/);
+  assert.match(out, /o\/x#7/);
+  assert.match(out, /✗ droppé/);
+  assert.match(out, /ta propre action/);
+  assert.match(out, /GH:author/);
+});
+
+test('renderDebugText : vide → message neutre', () => {
+  assert.match(renderDebugText([], { color: false }), /aucun thread/);
 });

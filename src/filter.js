@@ -39,17 +39,27 @@ function baseItem(thread, extra) {
   };
 }
 
-export function classify(thread, me, inspection) {
-  if (thread.subject?.type !== 'PullRequest') return null;
+// Verdict du pipeline pour un thread : { item, reason }. `item` est l'élément
+// classifié (ou null s'il est écarté), `reason` explique la décision (gardé /
+// pourquoi droppé) — utilisé par le mode debug. `classify` n'en garde que `item`.
+export function classifyVerdict(thread, me, inspection) {
+  if (thread.subject?.type !== 'PullRequest') {
+    return { item: null, reason: 'pas une Pull Request' };
+  }
   const reason = thread.reason;
-  if (!ALLOWED_REASONS.has(reason)) return null;
+  if (!ALLOWED_REASONS.has(reason)) {
+    return { item: null, reason: `reason GitHub ignorée (${reason})` };
+  }
 
   // Une vraie réponse dans un fil où j'ai participé est le signal le plus précis :
   // elle prime sur la `reason` (qui reste « collante » sur review_requested/mention/
   // author/subscribed même quand l'évènement réel est une réponse de quelqu'un d'autre).
   const reply = findReplyToMe(inspection?.reviewComments ?? [], me, thread.last_read_at);
   if (reply) {
-    return baseItem(thread, { category: CATEGORY.THREAD_REPLY, actor: reply.user.login, url: reply.html_url });
+    return {
+      item: baseItem(thread, { category: CATEGORY.THREAD_REPLY, actor: reply.user.login, url: reply.html_url }),
+      reason: `réponse de @${reply.user.login} à ton fil`,
+    };
   }
 
   // Fallback review_requested : sert UNIQUEMENT au `--watch` (notification desktop
@@ -57,36 +67,52 @@ export function classify(thread, me, inspection) {
   // fiable (reste après ta review) ; le trigger « review » y vient exclusivement de la
   // recherche `review-requested:@me` (collectPending), pas de cet item. Voir collect.js.
   if (reason === 'review_requested') {
-    return baseItem(thread, { category: CATEGORY.REVIEW_REQUEST, actor: null, url: prHtmlUrl(thread) });
+    return {
+      item: baseItem(thread, { category: CATEGORY.REVIEW_REQUEST, actor: null, url: prHtmlUrl(thread) }),
+      reason: 'demande de review (signalée en --watch uniquement)',
+    };
   }
 
   if (reason === 'mention' || reason === 'team_mention') {
     const c = inspection?.latestComment;
-    return baseItem(thread, {
-      category: CATEGORY.MENTION,
-      actor: c?.user?.login ?? null,
-      url: c?.html_url ?? prHtmlUrl(thread),
-    });
+    return {
+      item: baseItem(thread, {
+        category: CATEGORY.MENTION,
+        actor: c?.user?.login ?? null,
+        url: c?.html_url ?? prHtmlUrl(thread),
+      }),
+      reason: c?.user?.login ? `mention (@${c.user.login})` : 'mention',
+    };
   }
 
   if (reason === 'author') {
     // Commentaire principal d'un autre sur ma PR.
     const c = inspection?.latestComment;
     if (c && c.user?.login !== me) {
-      return baseItem(thread, { category: CATEGORY.ON_MY_PR, actor: c.user.login, url: c.html_url });
+      return {
+        item: baseItem(thread, { category: CATEGORY.ON_MY_PR, actor: c.user.login, url: c.html_url }),
+        reason: `commentaire de @${c.user.login} sur ta PR`,
+      };
     }
     // Sinon : commentaire de review (inline) d'un autre sur ma PR. La notif n'a pas
     // toujours de `latest_comment_url` pour ces commentaires → on inspecte les
     // review-comments (les réponses à MON fil sont déjà captées plus haut).
     const rc = latestOtherComment(inspection?.reviewComments ?? [], me, thread.last_read_at);
     if (rc) {
-      return baseItem(thread, { category: CATEGORY.ON_MY_PR, actor: rc.user.login, url: rc.html_url });
+      return {
+        item: baseItem(thread, { category: CATEGORY.ON_MY_PR, actor: rc.user.login, url: rc.html_url }),
+        reason: `review-comment de @${rc.user.login} sur ta PR`,
+      };
     }
-    return null; // ma propre action / mise à jour de PR (push, CI…)
+    return { item: null, reason: 'ta propre action / maj de PR (aucune activité d’un autre)' };
   }
 
   // comment / subscribed / manual sans réponse à moi → bruit
-  return null;
+  return { item: null, reason: 'pas de réponse à ton fil → bruit' };
+}
+
+export function classify(thread, me, inspection) {
+  return classifyVerdict(thread, me, inspection).item;
 }
 
 // Commentaire de review le plus récent d'un AUTRE que `me`, postérieur à `since`

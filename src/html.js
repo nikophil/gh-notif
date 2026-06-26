@@ -228,6 +228,7 @@ export function renderShell({ intervalMs = 10000, scopeLabel = '' } = {}) {
     <button id="scope-all" title="Tout afficher">Tout</button>
     <button id="toggle-hidden" title="Afficher/masquer les PR cachées">🙈 masquées</button>
     <button id="refresh" title="Rafraîchir maintenant">🔄</button>
+    <a id="debug-link" href="/debug" title="Debug : verdict du pipeline">🐛</a>
   </span>
 </header>
 <main id="content"></main>
@@ -298,6 +299,91 @@ export function renderShell({ intervalMs = 10000, scopeLabel = '' } = {}) {
   }, 1000);
 
   load();
+</script>
+</body>
+</html>`;
+}
+
+// Fragment HTML du debug : un tableau « verdict du pipeline » par thread de
+// notification. Toute donnée GitHub (titre, repo, raison, reason brute) est
+// échappée (anti-injection). `now` accepté pour symétrie/déterminisme.
+export function renderDebug(debug, opts = {}) {
+  const rows = debug ?? [];
+  if (rows.length === 0) return '<p class="empty">Aucun thread de notification.</p>';
+  const kept = rows.filter((d) => d.verdict.kept).length;
+  const headers = ['Verdict', 'PR', 'Titre', 'Raison', 'reason GitHub', 'Comm.'];
+  const trs = rows.map((d) => {
+    const v = d.verdict;
+    const url = `https://github.com/${d.repo}/pull/${d.number}`;
+    const verdict = v.kept
+      ? `<span class="ok">✓ ${escapeHtml(v.category)}</span>`
+      : '<span class="ko">✗ droppé</span>';
+    return tableRow(
+      [
+        verdict,
+        link(url, `${d.repo}#${d.number}`),
+        escapeHtml(d.title ?? ''),
+        escapeHtml(v.reason),
+        `<code>${escapeHtml(d.ghReason)}</code>`,
+        String(d.commentsCount ?? 0),
+      ],
+      v.kept ? '' : 'hid',
+    );
+  });
+  return `<p class="summary">${kept}/${rows.length} threads gardés</p>${table(headers, trs)}`;
+}
+
+// Page autonome `/debug` (CSS inline minimal, zéro asset externe) : poll de
+// `/debug-fragment` toutes les `intervalMs`, lien retour vers `/`.
+export function renderDebugShell({ intervalMs = 10000 } = {}) {
+  return `<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gh notif · debug</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+         margin: 0; padding: 1rem 1.5rem; background: Canvas; color: CanvasText; }
+  header { display: flex; align-items: center; gap: .75rem; margin-bottom: 1rem;
+           padding-bottom: .75rem; border-bottom: 1px solid #8884; }
+  header h1 { font-size: 1rem; margin: 0; }
+  #stamp { font-size: .8rem; opacity: .7; }
+  .spacer { flex: 1; }
+  a { color: #4493f8; text-decoration: none; } a:hover { text-decoration: underline; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: .4rem .8rem; border-bottom: 1px solid #8883; white-space: nowrap; }
+  th { font-size: .75rem; opacity: .7; }
+  td:nth-child(3) { white-space: normal; }
+  tr.hid td { opacity: .5; }
+  .ok { color: #3fb950; } .ko { opacity: .6; }
+  code { background: #8882; padding: .05rem .35rem; border-radius: 4px; font-size: .85em; }
+  .summary { opacity: .7; font-size: .85rem; margin: .25rem 0 1rem; }
+  .empty { opacity: .6; padding: 2rem; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🐛 gh notif · debug</h1>
+  <span id="stamp">chargement…</span>
+  <span class="spacer"></span>
+  <a href="/">← retour aux tableaux</a>
+</header>
+<main id="content"><p class="empty">chargement…</p></main>
+<script>
+  var INTERVAL = ${Number(intervalMs)};
+  var content = document.getElementById('content');
+  var stamp = document.getElementById('stamp');
+  function load() {
+    fetch('/debug-fragment').then(function (r) { return r.text(); }).then(function (html) {
+      content.innerHTML = html;
+      stamp.textContent = 'maj ' + new Date().toLocaleTimeString('fr-FR');
+    }).catch(function () { stamp.textContent = 'hors ligne — nouvelle tentative…'; });
+  }
+  load();
+  setInterval(load, INTERVAL);
 </script>
 </body>
 </html>`;

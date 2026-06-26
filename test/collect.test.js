@@ -444,3 +444,34 @@ test('collectNotifications : sans cache, comportement inchangé (toujours ré-in
   await collectNotifications(gh, ME, {});
   assert.equal(calls.length, 2, 'sans cache : ré-inspection à chaque fois');
 });
+
+// ── debug : verdict du pipeline (data.debug) ───────────────────────────────
+test('collectPRs : data.debug expose le verdict (gardé/droppé + raison) par thread', async () => {
+  const reviewThread = {
+    id: 't1', reason: 'review_requested', updated_at: '2026-06-24T12:00:00Z',
+    subject: { title: 'PR A', url: 'https://api.github.com/repos/o/r/pulls/42', latest_comment_url: null, type: 'PullRequest' },
+    repository: { full_name: 'o/r' },
+  };
+  const authorThread = {
+    id: 't2', reason: 'author', updated_at: '2026-06-24T12:00:00Z',
+    subject: { title: 'Ma PR', url: 'https://api.github.com/repos/o/x/pulls/7', latest_comment_url: null, type: 'PullRequest' },
+    repository: { full_name: 'o/x' },
+  };
+  const gh = fakeGh({ notifications: [reviewThread, authorThread], reviewComments: [] });
+  const { debug } = await collectPRs(gh, ME, {});
+  assert.ok(Array.isArray(debug));
+  assert.equal(debug.length, 2);
+
+  const a = debug.find((d) => d.number === 42);
+  assert.equal(a.verdict.kept, true);
+  assert.equal(a.verdict.category, 'review_request');
+  assert.match(a.verdict.reason, /watch/);
+  assert.equal(a.ghReason, 'review_requested');
+
+  const b = debug.find((d) => d.number === 7);
+  assert.equal(b.verdict.kept, false);            // ma propre PR sans activité d'un autre → droppée
+  assert.equal(b.verdict.category, null);
+  assert.match(b.verdict.reason, /ta propre action/);
+  assert.equal(b.ghReason, 'author');
+  assert.equal(b.repo, 'o/x');
+});
