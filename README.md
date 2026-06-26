@@ -33,6 +33,10 @@ et un affichage en tableaux, là où l'inbox GitHub native est trop bruyante.
 Colonnes communes : **État** (📝 draft · 🟢 ouverte · 🟣 mergée · 🔴 fermée) et **✅** (nombre
 d'**approbations** — utilisateurs distincts dont la dernière review approuve, `·` si aucune).
 
+Sur **tes** PR ouvertes, dès **2 approbations** la colonne ✅ affiche **`2 🎉`** : la PR est
+**prête à merger**. En `--watch` / `--serve`, chaque nouvelle approbation pousse aussi une
+**notification desktop** (`@bob a approuvé ta PR`, suffixée de `🎉 prête à merger` au-delà de 2).
+
 Le **dépôt / la PR / le titre sont cliquables** (liens de terminal OSC 8) et mènent directement à
 la bonne cible.
 

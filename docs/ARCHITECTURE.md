@@ -19,6 +19,7 @@ qui réutilise l'auth de l'utilisateur. Tests avec le runner natif `node:test` (
 | `src/filter.js` | **Cœur** : `classify()` (règles de filtrage), `findReplyToMe()`, helpers. Fonctions pures. | oui |
 | `src/collect.js` | Orchestration : agrège notifications + recherches en PRs, récupère les détails, scope. | oui via gh stub |
 | `src/state.js` | Persistance + déduplication du `--watch`. | oui |
+| `src/approvals.js` | Approbations sur mes PR : `approvalsOf`, seuil « prête à merger » (`isReady`), diff/seed des évènements (`diffApprovals`). Purs. | oui |
 | `src/notify.js` | Notifs desktop (`notify-send`) + ligne d'évènement terminal. | oui via spawn stub |
 | `src/render.js` | Tableaux encadrés alignés, couleur, liens OSC 8, helpers d'affichage. | oui |
 | `src/spinner.js` | Spinner pendant les requêtes (stderr, no-op hors TTY). | oui via stream stub |
@@ -101,6 +102,18 @@ via `state.js` ; chaque nouvel item déclenche `sendNotification` + une ligne `w
 empilée dans un journal de session (max 8) affiché sous les tableaux. Puis `countdown` jusqu'au
 prochain poll. Les reviews en attente / PR authored (issues de recherche) n'émettent **pas** de
 notif desktop : seuls les items de `data.notifications` le font.
+
+**Approbations sur mes PR** (`src/approvals.js`). Une approbation n'arrive **pas** par un thread
+`/notifications` : elle vit dans les `reviews` GraphQL (déjà récupérées → coût nul). `collectPRs`
+expose donc `data.approvalEvents` (un évènement `{repo,number,title,actor,url,submittedAt,count}`
+par approbation, **seulement sur mes PR à l'état `open`** — pas draft/mergée/fermée). `--watch` et
+`--serve` tiennent chacun un `Set seenApprovals` **en mémoire (par process)** + un flag
+`primedApprovals` : `diffApprovals` fait un **amorçage silencieux au 1er poll** (on mémorise tout
+sans notifier → pas de rafale au démarrage, même si un `seen-v2.json` existe déjà), puis renvoie les
+approbations nouvelles → `sendNotification` (catégorie `APPROVAL`, suffixe `🎉 prête à merger` si
+`count ≥ 2`). Le **badge `🎉`** dans la colonne ✅ (terminal + web) est un **état dérivé** (`isReady`,
+≥ 2 sur PR ouverte) affiché indépendamment des notifs — donc visible aussi en one-shot `gh notif`.
+État disque écarté pour les approbations (le seed mémoire suffit ; un redémarrage ré-amorce).
 
 `--serve` : `serve` (`src/serve.js`) lance **une seule boucle de poll** (`collectPRs`, mêmes
 données que `gh notif`, respecte la liste `hidden` persistée) alimentant un **snapshot en mémoire**
