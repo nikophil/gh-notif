@@ -14,7 +14,7 @@ import { statePath, loadState, saveState, isNew, markSeen } from './state.js';
 import { sendNotification } from './notify.js';
 import { isRateLimitError, nextBackoffSeconds } from './ratelimit.js';
 import { startSpinner } from './spinner.js';
-import { renderShell, renderFragment, renderLoading, escapeHtml } from './html.js';
+import { renderShell, renderFragment, renderLoading, renderDebug, renderDebugShell, escapeHtml } from './html.js';
 
 const POLL_SECONDS = 60;
 const BACKOFF_CAP = 600; // plafond du recul en cas de rate-limit (10 min)
@@ -49,6 +49,13 @@ function fragmentBody(snapshot, { now, showHidden } = {}) {
   return renderFragment(snapshot.data ?? { mine: [], others: [] }, { now, showHidden });
 }
 
+// Corps du fragment de debug (verdict du pipeline) — même gestion erreur/chargement.
+function debugBody(snapshot, { now } = {}) {
+  if (snapshot.error) return `<p class="empty offline">⚠️ Erreur : ${escapeHtml(snapshot.error)}</p>`;
+  if (!snapshot.updatedAt) return renderLoading();
+  return renderDebug(snapshot.data?.debug ?? [], { now });
+}
+
 // Routing des lectures (GET) — pur, aucune I/O. Testable sans socket.
 export function handleRequest(pathname, snapshot, opts = {}) {
   const { now, intervalMs, showHidden, scope } = opts;
@@ -60,6 +67,16 @@ export function handleRequest(pathname, snapshot, opts = {}) {
   }
   if (pathname === '/api/state') {
     return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify(snapshot) };
+  }
+  // Mode debug (always-on) : page autonome + son fragment + JSON brut.
+  if (pathname === '/debug') {
+    return { status: 200, type: 'text/html; charset=utf-8', body: renderDebugShell({ intervalMs }) };
+  }
+  if (pathname === '/debug-fragment') {
+    return { status: 200, type: 'text/html; charset=utf-8', body: debugBody(snapshot, { now }) };
+  }
+  if (pathname === '/api/debug') {
+    return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify(snapshot.data?.debug ?? []) };
   }
   return { status: 404, type: 'text/plain; charset=utf-8', body: 'Not found' };
 }
