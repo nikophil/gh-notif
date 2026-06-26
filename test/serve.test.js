@@ -35,9 +35,11 @@ test('GET /fragment (snapshot en erreur) → 200, message échappé, pas de cras
   assert.ok(!res.body.includes('<x>'), 'message d’erreur échappé');
 });
 
-test('GET /fragment avant le premier poll (data null, pas d’erreur) → ne crash pas', () => {
+test('GET /fragment avant le premier poll (updatedAt null) → spinner de chargement', () => {
   const res = handleRequest('/fragment', { data: null, updatedAt: null, error: null }, OPTS);
   assert.equal(res.status, 200);
+  assert.match(res.body, /data-loading/);
+  assert.match(res.body, /class="spinner"/);
 });
 
 test('GET /api/state → JSON round-trip', () => {

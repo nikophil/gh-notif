@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { escapeHtml, renderFragment, renderShell } from '../src/html.js';
+import { escapeHtml, renderFragment, renderShell, renderLoading } from '../src/html.js';
 
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
 
@@ -131,4 +131,17 @@ test('renderShell : aucun asset externe (tout inline)', () => {
 test('renderShell : intervalMs par défaut si absent', () => {
   const out = renderShell();
   assert.ok(out.startsWith('<!doctype html'));
+});
+
+test('renderShell : embarque le style + l’usage du spinner', () => {
+  const out = renderShell({ intervalMs: 10000 });
+  assert.match(out, /@keyframes ghn-spin/);     // animation définie
+  assert.match(out, /class="spinner"/);          // utilisé (indicateur d'activité)
+});
+
+test('renderLoading : spinner + libellé + sentinelle data-loading', () => {
+  const out = renderLoading();
+  assert.match(out, /class="spinner"/);
+  assert.match(out, /Chargement/);
+  assert.match(out, /data-loading/);
 });
