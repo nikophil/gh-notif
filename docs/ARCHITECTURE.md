@@ -30,18 +30,42 @@ qui réutilise l'auth de l'utilisateur. Tests avec le runner natif `node:test` (
 Chaque module a une responsabilité claire ; la logique difficile vit dans des **fonctions pures**
 testées sur fixtures (pas d'appel réseau en test).
 
-## Flux de données (`gh notif`)
+## Flux de données
 
-```
-gh-notif (parse args → scope)
-  └─ runList → collectPRs(gh, me, {all, scope})
-       ├─ collectNotifications  → /notifications, filtre PR + scope, inspectThread, classify → Items
-       ├─ collectPending        → search review-requested:@me (+ qualifier scope)
-       ├─ collectAuthored       → search author:@me        (+ qualifier scope)
-       ├─ regroupe par PR (repo#number), agrège les triggers
-       ├─ getPullDetailsBatch : 1 requête GraphQL par lot de 30 PR (alias p0,p1,…)
-       └─ split mine / others selon l'auteur de la PR
-  └─ renderList({mine, others}) → deux tableaux
+Les trois modes (`gh notif`, `--watch`, `--serve`) partagent **le même cœur** `collectPRs` ; seule
+la sortie diffère (tableaux terminal, boucle qui notifie, ou serveur web).
+
+```mermaid
+flowchart TD
+  CLI["gh-notif<br/>parse args · scope · --interval"] --> Mode{"mode ?"}
+  Mode -->|"défaut"| List["runList<br/>one-shot → tableaux"]
+  Mode -->|"--watch"| Watch["runWatch<br/>boucle + notif desktop"]
+  Mode -->|"--serve"| Serve["serve<br/>serveur HTTP + boucle"]
+
+  List --> Collect
+  Watch --> Collect
+  Serve --> Collect
+
+  subgraph Collect["collectPRs — orchestration"]
+    direction TB
+    N["collectNotifications<br/>/notifications → inspectThread → classify"]
+    P["collectPending<br/>search review-requested:@me"]
+    A["collectAuthored<br/>search author:@me"]
+    B["getPullDetailsBatch<br/>GraphQL · lots de 30"]
+    S["split mine / others<br/>+ reconcile masquage"]
+    N --> S
+    P --> S
+    A --> S
+    B --> S
+  end
+
+  Cache[("cache d'inspection<br/>Map par thread.id")] -. "0 requête si updated_at inchangé" .-> N
+  Collect <-->|"gh CLI (auth réutilisée)"| GH[("GitHub API")]
+
+  Collect --> Data["données :<br/>mine · others · hidden · notifications"]
+  Data --> RT["render.js<br/>2 tableaux terminal"]
+  Data --> HT["html.js<br/>page web (style GitHub)"]
+  Data --> ST["state.js → notify.js<br/>notif desktop (watch / serve)"]
 ```
 
 `--watch` : `runWatch` appelle `collectPRs` à chaque poll (mêmes données que `gh notif`) et
@@ -65,13 +89,39 @@ dans le handler I/O) : `POST /refresh` (force un poll), `POST /hide?key=repo#n`
 renvoient le fragment courant que le client injecte dans `#content`.
 
 Le rendu HTML (`src/html.js`) **réutilise** les helpers de présentation de `render.js`
-(`triggersLabel`, `ciIcon`, `stateIcon`, `relativeDate`) : seul le médium (terminal vs HTML)
-diffère. Le navigateur re-fetch `/fragment` toutes les ~10 s (rythme client **découplé** du poll
-GitHub à 60 s → plusieurs onglets ne multiplient pas les appels) avec compte à rebours. Comme
-`--watch`, la boucle détecte les nouveautés (`state.js` + `sendNotification`, seed silencieux au
-1er run, gating `REVIEW_REQUEST` sur les PR ouvertes). Style aux couleurs GitHub (Primer), tout
-inline (aucun asset externe). ⚠️ `renderFragment` **échappe** toute donnée GitHub (titre, repo,
-auteur, clé de masquage) via `escapeHtml` — un titre de PR peut contenir `<`/`&` (anti-injection).
+(`ciIcon`, `stateIcon`, `relativeDate`) : seul le médium (terminal vs HTML) diffère. Le navigateur
+re-fetch `/fragment` **au même rythme que le poll** (`intervalSeconds`, 60 s par défaut) ; ce
+re-fetch ne fait que **relire le snapshot en mémoire** (0 appel GitHub), si bien que plusieurs
+onglets ne multiplient pas les requêtes. Comme `--watch`, la boucle détecte les nouveautés
+(`state.js` + `sendNotification`, seed silencieux au 1er run, gating `REVIEW_REQUEST` sur les PR
+ouvertes). Style aux couleurs GitHub (Primer), tout inline (aucun asset externe). ⚠️
+`renderFragment` **échappe** toute donnée GitHub (titre, repo, auteur, clé de masquage) via
+`escapeHtml` — un titre de PR peut contenir `<`/`&` (anti-injection).
+
+```mermaid
+sequenceDiagram
+  participant B as Navigateur
+  participant S as serve (HTTP)
+  participant L as boucle de poll
+  participant G as GitHub (gh)
+
+  Note over L: au lancement, puis toutes les intervalSeconds
+  L->>G: collectPRs (avec cache d'inspection)
+  Note right of G: thread inchangé → 0 requête · 403/429 → backoff
+  G-->>L: PRs + notifications
+  L-->>S: maj snapshot (data, updatedAt, error)
+
+  B->>S: GET /
+  S-->>B: page (shell HTML + JS de polling)
+  loop toutes les intervalSeconds
+    B->>S: GET /fragment
+    S-->>B: tableaux depuis le snapshot (0 appel GitHub)
+  end
+
+  B->>S: POST /hide · /scope · /refresh
+  S->>L: scope/refresh → re-poll ciblé
+  S-->>B: fragment à jour (#content remplacé)
+```
 
 ## Formes de données
 
