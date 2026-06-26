@@ -4,7 +4,7 @@ import readline from 'node:readline';
 import { makeGh } from './src/github.js';
 import { collectPRs } from './src/collect.js';
 import { CATEGORY } from './src/filter.js';
-import { renderList } from './src/render.js';
+import { renderList, renderDebugText } from './src/render.js';
 import { sendNotification, watchEventLine } from './src/notify.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './src/state.js';
 import { startSpinner } from './src/spinner.js';
@@ -106,7 +106,7 @@ function runInteractive({ draw, rowsFor, onToggle }) {
 
 const RECENT_MAX = 8; // évènements de session affichés sous les tableaux
 
-async function runWatch(gh, { scope, verbose, showHidden, intervalSeconds = POLL_SECONDS }) {
+async function runWatch(gh, { scope, verbose, showHidden, debug, intervalSeconds = POLL_SECONDS }) {
   const me = await gh.getCurrentUser();
   const path = statePath();
   const hiddenFile = hiddenPath();
@@ -134,6 +134,7 @@ async function runWatch(gh, { scope, verbose, showHidden, intervalSeconds = POLL
       process.stdout.write(`\n\x1b[1m🔔 Évènements détectés (session)\x1b[0m\n`);
       for (const line of recent) process.stdout.write(`${line}\n`);
     }
+    if (debug) process.stdout.write(`\n${renderDebugText(data.debug)}`);
   };
 
   if (interactive()) {
@@ -242,6 +243,7 @@ Usage:
   gh notif --org <org>       Limite à une organisation
   gh notif --repo [o/r]      Limite à un dépôt (sans valeur = dépôt courant)
   gh notif --show-hidden     Affiche aussi les PR masquées (grisées, 🙈)
+  gh notif --debug           Dump du verdict de classification par thread (terminal)
   gh notif --help            Affiche cette aide
 
 --org et --repo sont mutuellement exclusifs. Ils s'appliquent aussi à --watch.
@@ -255,7 +257,7 @@ Touches (terminal interactif) : h = masquer/restaurer une PR des autres ·
 // (erreur, valeur requise), string=valeur.
 function parseArgs(argv) {
   const args = argv.slice(2);
-  const flags = { all: false, watch: false, serve: false, port: undefined, interval: undefined, help: false, verbose: false, showHidden: false, org: undefined, repo: undefined };
+  const flags = { all: false, watch: false, serve: false, port: undefined, interval: undefined, help: false, verbose: false, debug: false, showHidden: false, org: undefined, repo: undefined };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     const takeValue = () => {
@@ -272,6 +274,7 @@ function parseArgs(argv) {
     else if (a.startsWith('--interval=')) flags.interval = Number(a.slice(11));
     else if (a === '--interval') { const v = takeValue(); flags.interval = v === null ? null : Number(v); }
     else if (a === '--verbose' || a === '-v') flags.verbose = true;
+    else if (a === '--debug') flags.debug = true;
     else if (a === '--show-hidden') flags.showHidden = true;
     else if (a.startsWith('--org=')) flags.org = a.slice(6);
     else if (a === '--org') flags.org = takeValue();
@@ -311,7 +314,7 @@ async function resolveScope(gh, flags) {
   return null;
 }
 
-async function runList(gh, { all, scope, showHidden }) {
+async function runList(gh, { all, scope, showHidden, debug }) {
   const hiddenFile = hiddenPath();
   const hidden = loadHidden(hiddenFile);
   const stop = startSpinner('Récupération des PRs et notifications…');
@@ -329,6 +332,7 @@ async function runList(gh, { all, scope, showHidden }) {
     const vm = viewModel(data, { showHidden });
     process.stdout.write(renderList({ mine: data.mine, others: vm.rows, hiddenCount: data.hiddenCount },
       { showHidden, hiddenFlags: vm.hiddenFlags }));
+    if (debug) process.stdout.write(`\n${renderDebugText(data.debug)}`);
     return;
   }
 
@@ -340,6 +344,7 @@ async function runList(gh, { all, scope, showHidden }) {
       process.stdout.write(renderList({ mine: data.mine, others: vm.rows, hiddenCount: data.hiddenCount },
         { showHidden, hiddenFlags: vm.hiddenFlags }));
       process.stdout.write(helpBanner(hideMode, buffer, ' · q pour quitter'));
+      if (debug) process.stdout.write(`\n${renderDebugText(data.debug)}`);
     },
     rowsFor: () => viewModel(data, { showHidden }).rows,
     onToggle: (row) => { toggleHidden(hidden, keyOf(row), data.notifications); saveHidden(hiddenFile, hidden); data = recompute(data, hidden); },
@@ -360,9 +365,9 @@ async function main(argv) {
       const me = await gh.getCurrentUser();
       serve({ gh, me, scope, all: flags.all, port: flags.port ?? 7777, intervalSeconds });
     } else if (flags.watch) {
-      await runWatch(gh, { scope, verbose: flags.verbose, showHidden: flags.showHidden, intervalSeconds });
+      await runWatch(gh, { scope, verbose: flags.verbose, showHidden: flags.showHidden, debug: flags.debug, intervalSeconds });
     } else {
-      await runList(gh, { all: flags.all, scope, showHidden: flags.showHidden });
+      await runList(gh, { all: flags.all, scope, showHidden: flags.showHidden, debug: flags.debug });
     }
   } catch (err) {
     process.stderr.write(`gh notif: ${err.message}\n`);

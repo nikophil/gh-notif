@@ -236,3 +236,22 @@ export function renderList(data, opts) {
   if (blocks.length === 0) return 'Rien à signaler ✨\n';
   return blocks.join('\n\n') + '\n';
 }
+
+// Dump terminal du verdict de classification par thread (mode --debug). Une ligne
+// par thread : marque (gardé → catégorie / droppé → ✗), repo#number, raison, et
+// méta (reason GitHub brute + nb de commentaires). Liste libre (pas de tableau).
+export function renderDebugText(debug, opts) {
+  const o = resolveOpts(opts);
+  if (!debug || debug.length === 0) {
+    return `🐛 ${paint('Debug — aucun thread de notification', C.dim, o)}\n`;
+  }
+  const lines = debug.map((d) => {
+    const v = d.verdict;
+    const mark = v.kept ? paint(`✓ ${v.category}`, C.green, o) : paint('✗ droppé', C.dim, o);
+    const meta = paint(`(GH:${d.ghReason}, ${d.commentsCount} comm.)`, C.dim, o);
+    return `  ${mark}  ${d.repo}#${d.number}  ${paint('·', C.dim, o)} ${v.reason}  ${meta}`;
+  });
+  const kept = debug.filter((d) => d.verdict.kept).length;
+  const title = `🐛 ${paint('Debug — verdict du pipeline', C.bold, o)} ${paint(`(${kept}/${debug.length} gardés)`, C.dim, o)}`;
+  return `${title}\n${lines.join('\n')}\n`;
+}
