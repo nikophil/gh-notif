@@ -50,6 +50,23 @@ test('renderFragment : emojis état / CI / triggers', () => {
   assert.ok(out.includes('↩️'));        // trigger reply
 });
 
+test('renderFragment : tooltips (title) sur les icônes', () => {
+  const out = renderFragment(
+    { mine: [myRow({ state: 'merged', ci: 'pass', triggers: ['review', 'comment'], approvals: 2 })], others: [] },
+    { now: NOW },
+  );
+  assert.match(out, /title="Mergée"/);
+  assert.match(out, /title="CI : succès"/);
+  assert.match(out, /title="Review demandée"/);
+  assert.match(out, /title="Commentaire sur ta PR"/);
+  assert.match(out, /title="2 approbations"/);
+});
+
+test('renderFragment : tooltip « Aucune approbation » quand 0', () => {
+  const out = renderFragment({ mine: [myRow({ approvals: 0 })], others: [] }, { now: NOW });
+  assert.match(out, /title="Aucune approbation"/);
+});
+
 test('renderFragment : approbations (nombre, · si zéro)', () => {
   const out = renderFragment({ mine: [myRow({ approvals: 3 })], others: [myRow({ number: 7, approvals: 0 })] }, { now: NOW });
   assert.ok(out.includes('3'));
