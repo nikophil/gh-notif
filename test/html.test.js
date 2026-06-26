@@ -81,6 +81,38 @@ test('renderFragment : seulement « mine » (others vide) n’affiche pas la sec
   assert.doesNotMatch(out, /Activité sur les PR des autres/);
 });
 
+test('renderFragment : liens en nouvel onglet (_blank + noopener)', () => {
+  const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW });
+  assert.match(out, /target="_blank"/);
+  assert.match(out, /rel="noopener"/);
+});
+
+test('renderFragment : bouton de masquage (✕) sur les lignes « autres », pas sur les miennes', () => {
+  const out = renderFragment({ mine: [myRow()], others: [otherRow()] }, { now: NOW });
+  // un bouton d'action ciblant la PR des autres
+  assert.match(out, /class="act"[^>]*data-key="mapado\/api#55"[^>]*data-act="hide"/);
+  // la section « mine » (1re section) n'a pas de bouton act
+  const mineSection = out.split('👥')[0];
+  assert.ok(!mineSection.includes('class="act"'));
+});
+
+test('renderFragment : showHidden affiche les lignes masquées (grisées + restaurer)', () => {
+  const data = {
+    mine: [],
+    others: [otherRow()],
+    hidden: [otherRow({ repo: 'mapado/old', number: 9, title: 'vieille PR' })],
+    hiddenCount: 1,
+  };
+  const shown = renderFragment(data, { now: NOW, showHidden: true });
+  assert.match(shown, /class="hid"/);                       // ligne grisée
+  assert.match(shown, /data-key="mapado\/old#9"[^>]*data-act="show"/); // bouton restaurer
+  assert.match(shown, /1 masquée/);                          // compteur dans le titre
+  // sans showHidden : la ligne masquée n'apparaît pas
+  const hiddenView = renderFragment(data, { now: NOW, showHidden: false });
+  assert.ok(!hiddenView.includes('mapado/old#9'));
+  assert.match(hiddenView, /1 masquée/); // compteur affiché même replié
+});
+
 // ── renderShell (page + polling) ───────────────────────────────────────────
 test('renderShell : page HTML complète avec polling de /fragment', () => {
   const out = renderShell({ intervalMs: 10000 });
