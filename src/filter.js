@@ -3,6 +3,7 @@ export const CATEGORY = {
   MENTION: 'mention',
   ON_MY_PR: 'on_my_pr',
   THREAD_REPLY: 'thread_reply',
+  APPROVAL: 'approval', // approbation reçue sur MA PR (hors threads de notif, cf. approvals.js)
 };
 
 // Triggers dérivés des notifications (volontairement SANS review_request : la

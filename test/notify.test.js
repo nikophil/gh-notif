@@ -27,6 +27,17 @@ test('titre réponse', () => {
   assert.equal(m.title, "@carol t’a répondu");
 });
 
+test('titre approbation inclut l\'auteur, pas de suffixe sous le seuil', () => {
+  const m = notifyMessage({ ...base, category: CATEGORY.APPROVAL, actor: 'dan', count: 1 });
+  assert.equal(m.title, '@dan a approuvé ta PR');
+  assert.ok(!m.title.includes('🎉'));
+});
+
+test('titre approbation : suffixe 🎉 prête à merger dès 2 approbations', () => {
+  const m = notifyMessage({ ...base, category: CATEGORY.APPROVAL, actor: 'dan', count: 2 });
+  assert.equal(m.title, '@dan a approuvé ta PR 🎉 prête à merger');
+});
+
 test('sendNotification appelle spawn avec titre et corps', () => {
   const calls = [];
   const spawn = (cmd, args) => { calls.push({ cmd, args }); return { on() {}, unref() {} }; };
