@@ -1,5 +1,6 @@
 import { classify, classifyVerdict, CATEGORY, TRIGGER_FOR } from './filter.js';
 import { reconcile, isHidden, keyOf } from './hidden.js';
+import { approvalsOf } from './approvals.js';
 
 // Concurrence max des appels `gh` (évite de spawner des dizaines de process
 // d'un coup / de heurter le rate-limit secondaire de GitHub). Abaissée pour
@@ -168,20 +169,9 @@ export function ciFromState(state) {
 }
 
 // Nombre d'approbations : utilisateurs distincts dont la review LA PLUS RÉCENTE
-// est APPROVED (comme l'UI GitHub). Ignore les COMMENTED/CHANGES_REQUESTED, et une
-// approbation annulée par une review ultérieure du même user ne compte plus.
+// est APPROVED (cf. approvalsOf). Conservé pour la colonne ✅ des tableaux.
 export function countApprovals(reviews) {
-  if (!Array.isArray(reviews)) return 0;
-  const latestByUser = new Map();
-  for (const r of reviews) {
-    const login = r.author?.login;
-    if (!login) continue;
-    const prev = latestByUser.get(login);
-    if (!prev || (r.submittedAt || '') >= (prev.submittedAt || '')) latestByUser.set(login, r);
-  }
-  let n = 0;
-  for (const r of latestByUser.values()) if ((r.state || '').toUpperCase() === 'APPROVED') n++;
-  return n;
+  return approvalsOf(reviews).length;
 }
 
 // État affiché d'une PR à partir de `gh pr view` : 'draft' | 'open' | 'merged' | 'closed'.
