@@ -53,16 +53,24 @@ notif desktop : seuls les items de `data.notifications` le font.
 
 `--serve` : `serve` (`src/serve.js`) lance **une seule boucle de poll** (`collectPRs`, mêmes
 données que `gh notif`, respecte la liste `hidden` persistée) alimentant un **snapshot en mémoire**
-`{ data, updatedAt, error }`, et monte un serveur `node:http`. Le routing est isolé dans
-`handleRequest(pathname, snapshot, {now, intervalMs})` (**pur**, testable sans socket) : `GET /` →
-`renderShell` (page + JS de polling), `GET /fragment` → `renderFragment` du snapshot (ou message
-d'erreur échappé), `GET /api/state` → JSON brut (amorce pour de futures interactions), sinon 404.
+`{ data, updatedAt, error }`, et monte un serveur `node:http`. Les **lectures** (GET) sont routées
+par `handleRequest(pathname, snapshot, {now, intervalMs, showHidden, scope})` (**pur**, testable
+sans socket) : `GET /` → `renderShell` (page + JS de polling, champ de scope prérempli), `GET
+/fragment` → `renderFragment` du snapshot (ou message d'erreur échappé ; `?hidden=1` ajoute les
+lignes masquées), `GET /api/state` → JSON brut, sinon 404. Les **actions** (POST, effets de bord,
+dans le handler I/O) : `POST /refresh` (force un poll), `POST /hide?key=repo#n`
+(`toggleHidden`+`saveHidden`, puis **recompute local** sans refetch), `POST /scope?value=` (scope
+**mutable** : `parseScope` → re-fetch ciblé — le serveur ne charge que le scope choisi). Toutes
+renvoient le fragment courant que le client injecte dans `#content`.
+
 Le rendu HTML (`src/html.js`) **réutilise** les helpers de présentation de `render.js`
 (`triggersLabel`, `ciIcon`, `stateIcon`, `relativeDate`) : seul le médium (terminal vs HTML)
 diffère. Le navigateur re-fetch `/fragment` toutes les ~10 s (rythme client **découplé** du poll
-GitHub à 60 s → plusieurs onglets ne multiplient pas les appels). Tout est inline (aucun asset
-externe). ⚠️ `renderFragment` **échappe** toute donnée GitHub (titre, repo, auteur) via `escapeHtml`
-— un titre de PR peut contenir `<`/`&` (anti-injection).
+GitHub à 60 s → plusieurs onglets ne multiplient pas les appels) avec compte à rebours. Comme
+`--watch`, la boucle détecte les nouveautés (`state.js` + `sendNotification`, seed silencieux au
+1er run, gating `REVIEW_REQUEST` sur les PR ouvertes). Style aux couleurs GitHub (Primer), tout
+inline (aucun asset externe). ⚠️ `renderFragment` **échappe** toute donnée GitHub (titre, repo,
+auteur, clé de masquage) via `escapeHtml` — un titre de PR peut contenir `<`/`&` (anti-injection).
 
 ## Formes de données
 

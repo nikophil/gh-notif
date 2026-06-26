@@ -112,11 +112,22 @@ gh notif --serve --org mapado # restreint le scope (comme les autres modes)
 
 Le navigateur s'ouvre automatiquement sur l'URL. Une **unique boucle de poll côté serveur**
 (~60 s) interroge GitHub et alimente la page ; plusieurs onglets ouverts ne multiplient donc pas
-les appels. Les liens dépôt / PR / titre mènent à la bonne cible (le commentaire précis pour les
-triggers mention / réponse / commentaire). Les PR que tu as masquées (touche `h`) restent masquées.
+les appels. La page se rafraîchit toute seule (~10 s) avec un **compte à rebours** ; les liens
+s'ouvrent dans un **nouvel onglet**. Comme `--watch`, chaque nouvel évènement pousse une
+**notification desktop** (`notify-send`).
 
-Zéro dépendance : c'est servi par le module HTTP natif de Node, tout est inline (aucun asset
-externe). `Ctrl-C` arrête le serveur.
+Depuis la page, tu peux :
+
+- **🔄 rafraîchir** immédiatement (sans attendre le prochain poll) ;
+- **masquer / restaurer** une PR des autres via le bouton **✕** sur sa ligne (persisté, même liste
+  que la touche `h` du terminal ; réapparaît sur nouveau trigger), et **🙈 masquées** affiche les
+  PR cachées (grisées, bouton restaurer) ;
+- **filtrer par org/repo** : tape `mapado` ou `mapado/web` dans le champ puis **Filtrer** (le serveur
+  ne charge **que** ce scope) ; **Tout** réaffiche tout.
+
+Le **look & feel** reprend les couleurs GitHub (Primer, clair/sombre selon ton système). Zéro
+dépendance : servi par le module HTTP natif de Node, tout est inline (aucun asset externe).
+`Ctrl-C` arrête le serveur.
 
 ## Prérequis
 
