@@ -111,6 +111,12 @@ export function renderFragment(data, opts = {}) {
   return blocks.join('\n');
 }
 
+// Bloc affiché tant que le serveur n'a pas encore récupéré de données (1er poll
+// à froid). Le `data-loading` sert au client à re-poller vite jusqu'aux données.
+export function renderLoading() {
+  return '<p class="empty" data-loading="1"><span class="spinner"></span> Chargement des notifications…</p>';
+}
+
 // Page complète servie sur `/` : coquille HTML + CSS + JS inline (aucun asset
 // externe). Le JS recharge `/fragment` au démarrage puis toutes les `intervalMs`
 // (avec compte à rebours), gère le bouton « rafraîchir », le mode « voir les
@@ -175,6 +181,10 @@ export function renderShell({ intervalMs = 10000, scopeLabel = '' } = {}) {
   td:nth-child(2) a, td:nth-child(3) a { color: var(--accent); }
   .act { padding: .15rem .5rem; line-height: 1; color: var(--fg-muted); }
   .act:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
+  .spinner { display: inline-block; width: 1em; height: 1em; vertical-align: -2px;
+             border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+             animation: ghn-spin .7s linear infinite; }
+  @keyframes ghn-spin { to { transform: rotate(360deg); } }
   .add { color: var(--success); font-variant-numeric: tabular-nums; }
   .del { color: var(--danger); font-variant-numeric: tabular-nums; }
   .empty { color: var(--fg-muted); font-size: 1rem; padding: 2rem; text-align: center;
@@ -211,20 +221,28 @@ export function renderShell({ intervalMs = 10000, scopeLabel = '' } = {}) {
     if (extra) p.push(extra);
     return p.length ? '?' + p.join('&') : '';
   }
+  function busy() {
+    stamp.classList.remove('offline');
+    stamp.innerHTML = '<span class="spinner"></span> mise à jour…';
+  }
   function setContent(html) {
     content.innerHTML = html;
     left = INTERVAL / 1000;
     stamp.classList.remove('offline');
     stamp.textContent = 'maj ' + new Date().toLocaleTimeString('fr-FR');
+    // Serveur pas encore prêt (1er poll en cours) → on re-poll vite.
+    if (content.querySelector('[data-loading]')) left = 1;
   }
   function fail() {
     stamp.classList.add('offline');
     stamp.textContent = 'hors ligne — nouvelle tentative…';
   }
   function load() {
+    busy();
     fetch('/fragment' + q()).then(function (r) { return r.text(); }).then(setContent).catch(fail);
   }
   function post(path, extra) {
+    busy();
     return fetch(path + q(extra), { method: 'POST' }).then(function (r) { return r.text(); }).then(setContent).catch(fail);
   }
 

@@ -13,7 +13,8 @@ import { hiddenPath, loadHidden, saveHidden, toggleHidden, isHidden, keyOf } fro
 import { statePath, loadState, saveState, isNew, markSeen } from './state.js';
 import { sendNotification } from './notify.js';
 import { isRateLimitError, nextBackoffSeconds } from './ratelimit.js';
-import { renderShell, renderFragment, escapeHtml } from './html.js';
+import { startSpinner } from './spinner.js';
+import { renderShell, renderFragment, renderLoading, escapeHtml } from './html.js';
 
 const POLL_SECONDS = 60;
 const CLIENT_POLL_MS = 10000; // rythme de re-fetch du fragment côté navigateur
@@ -41,6 +42,14 @@ function recompute(data, hidden) {
   return { ...data, others, hidden: hiddenRows, hiddenCount: hiddenRows.length };
 }
 
+// Corps HTML du fragment selon l'état du snapshot : erreur → bannière échappée ;
+// pas encore de données (1er poll en cours) → spinner ; sinon → les tableaux.
+function fragmentBody(snapshot, { now, showHidden } = {}) {
+  if (snapshot.error) return `<p class="empty offline">⚠️ Erreur : ${escapeHtml(snapshot.error)}</p>`;
+  if (!snapshot.updatedAt) return renderLoading();
+  return renderFragment(snapshot.data ?? { mine: [], others: [] }, { now, showHidden });
+}
+
 // Routing des lectures (GET) — pur, aucune I/O. Testable sans socket.
 export function handleRequest(pathname, snapshot, opts = {}) {
   const { now, intervalMs, showHidden, scope } = opts;
@@ -48,10 +57,7 @@ export function handleRequest(pathname, snapshot, opts = {}) {
     return { status: 200, type: 'text/html; charset=utf-8', body: renderShell({ intervalMs, scopeLabel: scopeLabel(scope) }) };
   }
   if (pathname === '/fragment') {
-    const body = snapshot.error
-      ? `<p class="empty offline">⚠️ Erreur : ${escapeHtml(snapshot.error)}</p>`
-      : renderFragment(snapshot.data ?? { mine: [], others: [] }, { now, showHidden });
-    return { status: 200, type: 'text/html; charset=utf-8', body };
+    return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden }) };
   }
   if (pathname === '/api/state') {
     return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify(snapshot) };
@@ -112,6 +118,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   };
 
   const refresh = async () => {
+    const stop = startSpinner('Mise à jour…'); // spinner terminal (no-op hors TTY)
     try {
       const data = await collectPRs(gh, me, { all, scope, hidden, cache: inspectCache });
       if (data.hiddenChanged) saveHidden(hiddenFile, hidden);
@@ -127,6 +134,8 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       } else {
         snapshot.error = err.message;
       }
+    } finally {
+      stop();
     }
   };
 
@@ -141,10 +150,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
 
   // Réponse standard après une action : le fragment courant (le client remplace
   // #content). `showHidden` est porté par la query pour préserver le mode.
-  const fragmentResponse = (showHidden) =>
-    snapshot.error
-      ? `<p class="empty offline">⚠️ Erreur : ${escapeHtml(snapshot.error)}</p>`
-      : renderFragment(snapshot.data ?? { mine: [], others: [] }, { now: Date.now(), showHidden });
+  const fragmentResponse = (showHidden) => fragmentBody(snapshot, { now: Date.now(), showHidden });
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
