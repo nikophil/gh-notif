@@ -219,8 +219,10 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
 
   const mine = [];
   const othersAll = []; // PR des autres (hors draft), avant filtrage du masquage
+  const approvalEvents = []; // une entrée par approbation sur MES PR ouvertes
   entries.forEach((e, i) => {
     const d = details[i];
+    const approvers = approvalsOf(d?.reviews);
     const row = {
       repo: e.repo,
       number: e.number,
@@ -233,10 +235,24 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
       deletions: d?.deletions ?? 0,
       ci: ciFromState(d?.statusCheckRollupState),
       state: prState(d),
-      approvals: countApprovals(d?.reviews),
+      approvals: approvers.length,
     };
-    if (d && d.author?.login === me) mine.push(row); // mes PR : jamais masquées, on garde mes drafts
-    else if (row.state !== 'draft') othersAll.push(row); // PR des autres : on masque les drafts
+    if (d && d.author?.login === me) {
+      mine.push(row); // mes PR : jamais masquées, on garde mes drafts
+      // Évènements d'approbation : seulement sur mes PR OUVERTES (pas draft/mergée/
+      // fermée). « prête à merger » n'a pas de sens autrement (et évite le bruit).
+      if (row.state === 'open') {
+        for (const ap of approvers) {
+          approvalEvents.push({
+            repo: e.repo, number: e.number, title: row.title,
+            actor: ap.login, url: e.url, submittedAt: ap.submittedAt,
+            count: approvers.length,
+          });
+        }
+      }
+    } else if (row.state !== 'draft') {
+      othersAll.push(row); // PR des autres : on masque les drafts
+    }
   });
 
   // Dé-masque sur nouveau trigger + élague les clés obsolètes (mute `hidden`),
@@ -248,5 +264,5 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
   // `notifications` = items de notification déjà classifiés (avec url d'évènement),
   // exposés pour que `--watch` détecte les nouveautés sans refaire le travail.
   // `debug` = verdict du pipeline par thread (mode debug).
-  return { mine, others, hidden: hiddenRows, hiddenCount: hiddenRows.length, hiddenChanged, notifications: items, debug };
+  return { mine, others, hidden: hiddenRows, hiddenCount: hiddenRows.length, hiddenChanged, notifications: items, approvalEvents, debug };
 }
