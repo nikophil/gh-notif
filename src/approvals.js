@@ -38,3 +38,13 @@ export function approvalKey(repo, number, login, submittedAt) {
 export function newApprovals(events, seen) {
   return events.filter((e) => !seen.has(approvalKey(e.repo, e.number, e.actor, e.submittedAt)));
 }
+
+// Traite les approbations d'un poll. Au 1er poll (`primed` faux) : amorçage
+// SILENCIEUX — on mémorise tout dans `seen`, rien n'est renvoyé (pas de rafale de
+// notifs au démarrage, cf. approche A / spec). Aux polls suivants : renvoie les
+// évènements nouveaux (à notifier) et les mémorise. Mute `seen`.
+export function diffApprovals({ events = [], seen, primed }) {
+  const fresh = primed ? newApprovals(events, seen) : [];
+  for (const e of events) seen.add(approvalKey(e.repo, e.number, e.actor, e.submittedAt));
+  return fresh;
+}

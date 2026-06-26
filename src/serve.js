@@ -11,6 +11,7 @@ import { collectPRs } from './collect.js';
 import { CATEGORY } from './filter.js';
 import { hiddenPath, loadHidden, saveHidden, toggleHidden, isHidden, keyOf } from './hidden.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './state.js';
+import { diffApprovals } from './approvals.js';
 import { sendNotification } from './notify.js';
 import { isRateLimitError, nextBackoffSeconds } from './ratelimit.js';
 import { startSpinner } from './spinner.js';
@@ -113,7 +114,18 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   let primed = existsSync(sPath);
   const state = loadState(sPath);
 
+  // Approbations sur mes PR : état en mémoire (par process), indépendant de l'état
+  // disque des notifs. 1er poll = amorçage silencieux (pas de rafale au démarrage).
+  const seenApprovals = new Set();
+  let primedApprovals = false;
+
   const notifyNew = (data) => {
+    // Approbations d'abord (indépendant du seed disque ci-dessous) : un approve
+    // nouveau → notif desktop, comme --watch. Voir approvals.js / spec.
+    const freshApprovals = diffApprovals({ events: data.approvalEvents ?? [], seen: seenApprovals, primed: primedApprovals });
+    primedApprovals = true;
+    for (const e of freshApprovals) sendNotification({ ...e, category: CATEGORY.APPROVAL });
+
     const items = data.notifications ?? [];
     if (!primed) {
       for (const item of items) markSeen(state, item);

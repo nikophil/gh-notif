@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { approvalsOf, approvalKey, isReady, newApprovals, READY_THRESHOLD } from '../src/approvals.js';
+import { approvalsOf, approvalKey, isReady, newApprovals, diffApprovals, READY_THRESHOLD } from '../src/approvals.js';
 
 test('approvalsOf : reviewers dont la dernière review est APPROVED (login + submittedAt)', () => {
   assert.deepEqual(approvalsOf(undefined), []);
@@ -75,4 +75,28 @@ test('newApprovals : tout est nouveau face à un Set vide', () => {
     { repo: 'o/r', number: 1, actor: 'alice', submittedAt: '2026-06-20T10:00:00Z' },
   ];
   assert.deepEqual(newApprovals(events, new Set()), events);
+});
+
+test('diffApprovals : 1er poll (non amorcé) → amorçage silencieux, rien à notifier', () => {
+  const events = [
+    { repo: 'o/r', number: 42, actor: 'alice', submittedAt: '2026-06-20T10:00:00Z' },
+    { repo: 'o/r', number: 42, actor: 'bob', submittedAt: '2026-06-21T12:00:00Z' },
+  ];
+  const seen = new Set();
+  const fresh = diffApprovals({ events, seen, primed: false });
+  assert.deepEqual(fresh, []);       // pas de rafale au démarrage
+  assert.equal(seen.size, 2);        // tout mémorisé
+});
+
+test('diffApprovals : poll suivant → seuls les nouveaux remontent, et sont mémorisés', () => {
+  const events = [
+    { repo: 'o/r', number: 42, actor: 'alice', submittedAt: '2026-06-20T10:00:00Z' },
+    { repo: 'o/r', number: 42, actor: 'bob', submittedAt: '2026-06-21T12:00:00Z' },
+  ];
+  const seen = new Set([approvalKey('o/r', 42, 'alice', '2026-06-20T10:00:00Z')]);
+  const fresh = diffApprovals({ events, seen, primed: true });
+  assert.deepEqual(fresh.map((e) => e.actor), ['bob']);
+  assert.equal(seen.size, 2);        // bob désormais mémorisé
+  // re-poll identique → plus rien
+  assert.deepEqual(diffApprovals({ events, seen, primed: true }), []);
 });

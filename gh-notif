@@ -4,6 +4,7 @@ import readline from 'node:readline';
 import { makeGh } from './src/github.js';
 import { collectPRs } from './src/collect.js';
 import { CATEGORY } from './src/filter.js';
+import { diffApprovals } from './src/approvals.js';
 import { renderList, renderDebugText } from './src/render.js';
 import { sendNotification, watchEventLine } from './src/notify.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './src/state.js';
@@ -115,6 +116,8 @@ async function runWatch(gh, { scope, verbose, showHidden, debug, intervalSeconds
   const state = loadState(path);
   const recent = []; // lignes d'évènements (plus récent en tête)
   const inspectCache = new Map(); // thread inchangé entre polls = 0 requête
+  const seenApprovals = new Set(); // approbations déjà vues (par process)
+  let primedApprovals = false; // 1er poll = amorçage silencieux
   let backoff = 0; // secondes ajoutées à l'intervalle après un rate-limit
   let data = null;
   let hideMode = false;
@@ -187,6 +190,15 @@ async function runWatch(gh, { scope, verbose, showHidden, debug, intervalSeconds
         }
         backoff = 0; // succès : on repart à l'intervalle normal
         if (data.hiddenChanged) saveHidden(hiddenFile, hidden);
+        // Approbations sur mes PR (hors threads de notif) : amorçage silencieux au
+        // 1er poll, puis notif desktop + journal (-v) sur chaque nouvel approve.
+        const freshApprovals = diffApprovals({ events: data.approvalEvents ?? [], seen: seenApprovals, primed: primedApprovals });
+        primedApprovals = true;
+        for (const e of freshApprovals) {
+          const item = { ...e, category: CATEGORY.APPROVAL };
+          sendNotification(item);
+          recent.unshift(watchEventLine(item, now(), { hyperlinks: process.stdout.isTTY }));
+        }
         const items = data.notifications ?? [];
         if (!primed) {
           // Premier run : on enregistre le backlog existant sans alerter,
