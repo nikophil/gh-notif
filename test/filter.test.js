@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findReplyToMe, latestOtherComment, classify, classifyVerdict, prHtmlUrl, CATEGORY } from '../src/filter.js';
+import { findReplyToMe, latestOtherComment, mentionsMe, latestMentionOfMe, classify, classifyVerdict, prHtmlUrl, CATEGORY } from '../src/filter.js';
 
 const ME = 'nikophil';
 
@@ -116,11 +116,54 @@ test('reason=review_requested collante mais réponse dans mon fil → THREAD_REP
   assert.equal(item.url, 'https://github.com/o/r/pull/42#discussion_r2');
 });
 
-test('mention → MENTION avec auteur + URL du commentaire', () => {
+test('mention (jamais lue) → MENTION avec auteur + URL du commentaire', () => {
+  // Pas de last_read_at : notif de mention réellement nouvelle → on fait confiance.
   const insp = { latestComment: { user: { login: 'alice' }, html_url: 'https://github.com/o/r/pull/42#discussion_r9' }, reviewComments: [] };
   const item = classify(prThread({ reason: 'mention' }), ME, insp);
   assert.equal(item.category, CATEGORY.MENTION);
   assert.equal(item.actor, 'alice');
+  assert.equal(item.url, 'https://github.com/o/r/pull/42#discussion_r9');
+});
+
+test('mentionsMe : @login exact, pas @loginXY', () => {
+  assert.equal(mentionsMe('cc @nikophil merci', 'nikophil'), true);
+  assert.equal(mentionsMe('voir @nikophil2 plus tard', 'nikophil'), false);
+  assert.equal(mentionsMe('rien ici', 'nikophil'), false);
+  assert.equal(mentionsMe(null, 'nikophil'), false);
+});
+
+test('latestMentionOfMe : dernier commentaire d’un autre, postérieur à since, qui me mentionne', () => {
+  const comments = [
+    { id: 1, user: { login: 'alice' }, created_at: '2026-06-26T08:00:00Z', body: 'cc @nikophil' },
+    { id: 2, user: { login: ME }, created_at: '2026-06-26T09:00:00Z', body: '@nikophil (moi-même)' },
+    { id: 3, user: { login: 'bob' }, created_at: '2026-06-26T07:00:00Z', body: 'sans mention' },
+  ];
+  assert.equal(latestMentionOfMe(comments, ME, '2026-06-25T00:00:00Z')?.id, 1); // alice, me mentionne
+  assert.equal(latestMentionOfMe(comments, ME, '2026-06-26T08:30:00Z'), null);  // alice déjà lue, le reste ne compte pas
+});
+
+test('régression #7014 : mention collante, PR mergée re-bumpée, déjà lue, aucune @moi récente → null', () => {
+  // latest_comment_url nu → latestComment = objet PR (vieux), aucune mention récente.
+  const insp = { latestComment: { user: { login: 'someone' }, created_at: '2026-06-20T00:00:00Z', body: 'corps de la PR', html_url: 'https://github.com/o/r/pull/42' }, reviewComments: [] };
+  const t = prThread({ reason: 'mention', last_read_at: '2026-06-26T09:00:00Z' });
+  assert.equal(classify(t, ME, insp), null);
+});
+
+test('régression #6431 : mention collante, commentaire tiers récent SANS @moi → null', () => {
+  // lnahiro poste un commentaire racine (pas une réponse à mon fil) sans me mentionner.
+  const insp = { latestComment: null, reviewComments: [
+    { id: 1, user: { login: 'lnahiro' }, created_at: '2026-06-26T08:01:00Z', in_reply_to_id: null, body: 'on peut pas filtrer via monolog ?', html_url: 'x' },
+  ] };
+  const t = prThread({ reason: 'mention', last_read_at: '2026-06-25T12:30:00Z' });
+  assert.equal(classify(t, ME, insp), null);
+});
+
+test('mention déjà lue MAIS nouvelle @moi par un autre → MENTION', () => {
+  const insp = { latestComment: { user: { login: 'lnahiro' }, created_at: '2026-06-26T08:01:00Z', body: 'cc @nikophil ?', html_url: 'https://github.com/o/r/pull/42#discussion_r9' }, reviewComments: [] };
+  const t = prThread({ reason: 'mention', last_read_at: '2026-06-25T12:30:00Z' });
+  const item = classify(t, ME, insp);
+  assert.equal(item.category, CATEGORY.MENTION);
+  assert.equal(item.actor, 'lnahiro');
   assert.equal(item.url, 'https://github.com/o/r/pull/42#discussion_r9');
 });
 

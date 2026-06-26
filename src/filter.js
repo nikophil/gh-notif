@@ -74,15 +74,30 @@ export function classifyVerdict(thread, me, inspection) {
   }
 
   if (reason === 'mention' || reason === 'team_mention') {
+    const since = thread.last_read_at;
     const c = inspection?.latestComment;
-    return {
-      item: baseItem(thread, {
-        category: CATEGORY.MENTION,
-        actor: c?.user?.login ?? null,
-        url: c?.html_url ?? prHtmlUrl(thread),
-      }),
-      reason: c?.user?.login ? `mention (@${c.user.login})` : 'mention',
-    };
+    // Jamais lue : la mention est réellement nouvelle → on fait confiance.
+    if (!since) {
+      return {
+        item: baseItem(thread, {
+          category: CATEGORY.MENTION,
+          actor: c?.user?.login ?? null,
+          url: c?.html_url ?? prHtmlUrl(thread),
+        }),
+        reason: c?.user?.login ? `mention (@${c.user.login})` : 'mention',
+      };
+    }
+    // Déjà lue : `reason: mention` est collante. On n'émet que si une VRAIE mention
+    // de moi (@moi), par un autre, est arrivée APRÈS ma lecture — sinon c'est un
+    // re-bump (merge : réel #7014 ; commentaire tiers sans @moi : réel #6431) → bruit.
+    const hit = latestMentionOfMe([c, ...(inspection?.reviewComments ?? [])], me, since);
+    if (hit) {
+      return {
+        item: baseItem(thread, { category: CATEGORY.MENTION, actor: hit.user.login, url: hit.html_url }),
+        reason: `mention de @${hit.user.login}`,
+      };
+    }
+    return { item: null, reason: 'mention déjà lue, re-bumpée sans nouvelle @moi (merge / commentaire tiers) → bruit' };
   }
 
   if (reason === 'author') {
@@ -113,6 +128,30 @@ export function classifyVerdict(thread, me, inspection) {
 
 export function classify(thread, me, inspection) {
   return classifyVerdict(thread, me, inspection).item;
+}
+
+// Vrai si `body` mentionne explicitement `@me` (frontière de mot pour ne pas
+// matcher `@meXY`). Insensible à la casse (les logins GitHub le sont).
+export function mentionsMe(body, me) {
+  if (!body || !me) return false;
+  const esc = me.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`@${esc}(?![\\w-])`, 'i').test(body);
+}
+
+// Commentaire le plus récent d'un AUTRE que `me`, postérieur à `since`, dont le
+// corps me mentionne (@me). Confirme qu'une notif `reason: mention` (collante)
+// correspond à une VRAIE nouvelle mention et non à un re-bump (merge, commentaire
+// tiers). Ne voit que le contenu fetché (latestComment + review-comments) : une
+// mention dans le corps de la PR n'est pas détectée (cas marginal). null si aucun.
+export function latestMentionOfMe(comments, me, since = null) {
+  let best = null;
+  for (const c of comments) {
+    if (!c || c.user?.login === me) continue;
+    if (since && (!c.created_at || c.created_at <= since)) continue;
+    if (!mentionsMe(c.body, me)) continue;
+    if (!best || (c.created_at || '') > (best.created_at || '')) best = c;
+  }
+  return best;
 }
 
 // Commentaire de review le plus récent d'un AUTRE que `me`, postérieur à `since`
