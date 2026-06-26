@@ -1,4 +1,4 @@
-import { classify, CATEGORY, TRIGGER_FOR } from './filter.js';
+import { classify, classifyVerdict, CATEGORY, TRIGGER_FOR } from './filter.js';
 import { reconcile, isHidden, keyOf } from './hidden.js';
 
 // Concurrence max des appels `gh` (évite de spawner des dizaines de process
@@ -69,7 +69,7 @@ export async function inspectThread(gh, thread, me, cacheEntry = null) {
   return { latestComment, reviewComments };
 }
 
-export async function collectNotifications(gh, me, { all = false, scope = null, cache = null } = {}) {
+export async function collectNotifications(gh, me, { all = false, scope = null, cache = null, debug = null } = {}) {
   const threads = await gh.listNotifications({ all });
   // Ne garde que les PR du scope avant toute requête (filtre = gratuit).
   const prThreads = threads.filter(
@@ -99,8 +99,24 @@ export async function collectNotifications(gh, me, { all = false, scope = null, 
   }
   const items = [];
   prThreads.forEach((thread, i) => {
-    const item = classify(thread, me, inspections[i]);
+    const inspection = inspections[i];
+    const { item, reason } = classifyVerdict(thread, me, inspection);
     if (item) items.push(item);
+    // Sink debug (optionnel) : verdict compact par thread, sans corps de
+    // commentaire (coût + vie privée). Produit gratuitement (donnée déjà fetchée).
+    if (debug) {
+      debug.push({
+        repo: thread.repository?.full_name ?? null,
+        number: Number(thread.subject.url.split('/').pop()),
+        title: thread.subject?.title ?? null,
+        ghReason: thread.reason,
+        updatedAt: thread.updated_at,
+        lastReadAt: thread.last_read_at ?? null,
+        commentsCount: inspection?.reviewComments?.length ?? 0,
+        latestCommentAuthor: inspection?.latestComment?.user?.login ?? null,
+        verdict: { kept: !!item, category: item?.category ?? null, reason },
+      });
+    }
   });
   return items;
 }
@@ -181,8 +197,9 @@ export function prState(d) {
 // récupère les détails de chaque PR (auteur / date / diff / CI) en parallèle,
 // puis sépare selon que la PR est de moi ou d'un autre.
 export async function collectPRs(gh, me, { all = false, scope = null, hidden = {}, cache = null } = {}) {
+  const debug = []; // verdict compact par thread (toujours produit : coût nul)
   const [items, pending, authored] = await Promise.all([
-    collectNotifications(gh, me, { all, scope, cache }),
+    collectNotifications(gh, me, { all, scope, cache, debug }),
     collectPending(gh, scope),
     collectAuthored(gh, scope),
   ]);
@@ -240,5 +257,6 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
 
   // `notifications` = items de notification déjà classifiés (avec url d'évènement),
   // exposés pour que `--watch` détecte les nouveautés sans refaire le travail.
-  return { mine, others, hidden: hiddenRows, hiddenCount: hiddenRows.length, hiddenChanged, notifications: items };
+  // `debug` = verdict du pipeline par thread (mode debug).
+  return { mine, others, hidden: hiddenRows, hiddenCount: hiddenRows.length, hiddenChanged, notifications: items, debug };
 }
