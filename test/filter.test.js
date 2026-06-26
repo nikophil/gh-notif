@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findReplyToMe, latestOtherComment, classify, prHtmlUrl, CATEGORY } from '../src/filter.js';
+import { findReplyToMe, latestOtherComment, classify, classifyVerdict, prHtmlUrl, CATEGORY } from '../src/filter.js';
 
 const ME = 'nikophil';
 
@@ -228,4 +228,46 @@ test('comment sur PR où je suis juste reviewer (pas de fil à moi) → null', (
     { id: 2, in_reply_to_id: 1, user: { login: 'alice' }, created_at: '2026-06-24T11:00:00Z', html_url: 'u2' },
   ] };
   assert.equal(classify(prThread({ reason: 'comment' }), ME, insp), null);
+});
+
+// ── classifyVerdict : item + raison (mode debug) ───────────────────────────
+test('classifyVerdict : non-PR → item null + raison', () => {
+  const t = prThread({ subject: { ...prThread().subject, type: 'Issue' } });
+  const v = classifyVerdict(t, ME, null);
+  assert.equal(v.item, null);
+  assert.match(v.reason, /pas une Pull Request/);
+});
+
+test('classifyVerdict : reason hors liste → item null + raison citant la reason', () => {
+  const v = classifyVerdict(prThread({ reason: 'ci_activity' }), ME, null);
+  assert.equal(v.item, null);
+  assert.match(v.reason, /ci_activity/);
+});
+
+test('classifyVerdict : réponse à mon fil → item THREAD_REPLY + raison nominative', () => {
+  const insp = { latestComment: null, reviewComments: [
+    { id: 1, user: { login: ME }, created_at: '2026-06-24T10:00:00Z', html_url: 'mine' },
+    { id: 2, in_reply_to_id: 1, user: { login: 'alice' }, created_at: '2026-06-24T11:00:00Z', html_url: 'u2' },
+  ] };
+  const v = classifyVerdict(prThread({ reason: 'review_requested' }), ME, insp);
+  assert.equal(v.item.category, CATEGORY.THREAD_REPLY);
+  assert.match(v.reason, /réponse de @alice/);
+});
+
+test('classifyVerdict : author sans activité d’un autre → item null + raison « ta propre action »', () => {
+  const v = classifyVerdict(prThread({ reason: 'author' }), ME, { latestComment: null, reviewComments: [] });
+  assert.equal(v.item, null);
+  assert.match(v.reason, /ta propre action/);
+});
+
+test('classifyVerdict : review_requested fallback → REVIEW_REQUEST + raison watch', () => {
+  const v = classifyVerdict(prThread({ reason: 'review_requested' }), ME, null);
+  assert.equal(v.item.category, CATEGORY.REVIEW_REQUEST);
+  assert.match(v.reason, /watch/);
+});
+
+test('classify reste équivalent à classifyVerdict(...).item', () => {
+  const insp = { latestComment: { user: { login: 'bob' }, html_url: 'x' }, reviewComments: [] };
+  const t = prThread({ reason: 'author' });
+  assert.deepEqual(classify(t, ME, insp), classifyVerdict(t, ME, insp).item);
 });
