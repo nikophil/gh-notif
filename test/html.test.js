@@ -180,6 +180,19 @@ test('renderShell : lien 🐛 vers /debug dans l’en-tête', () => {
   assert.match(out, /href="\/debug"/);
 });
 
+test('renderShell : favicon logo GitHub inline (data-URI SVG, theme-aware)', () => {
+  const out = renderShell({ intervalMs: 10000 });
+  assert.match(out, /<link rel="icon" href="data:image\/svg\+xml,/);
+  assert.match(out, /prefers-color-scheme:dark/);          // adaptatif clair/sombre
+  assert.match(out, /%231f2328/);                          // `#` encodé (pas un fragment)
+  assert.ok(!/href="https?:[^"]*\.(svg|ico|png)/.test(out), 'favicon non externe');
+});
+
+test('renderDebugShell : favicon logo GitHub inline (data-URI SVG)', () => {
+  const out = renderDebugShell({ intervalMs: 9000 });
+  assert.match(out, /<link rel="icon" href="data:image\/svg\+xml,/);
+});
+
 // ── renderDebug / renderDebugShell ─────────────────────────────────────────
 test('renderDebug : verdict gardé/droppé, PR liée, échappement', () => {
   const debug = [
