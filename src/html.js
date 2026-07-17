@@ -199,10 +199,23 @@ ${FAVICON}
          margin: 0; padding: 1rem 1.5rem; background: var(--canvas); color: var(--fg); }
   header { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; margin-bottom: 1.25rem;
            padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
-  header h1 { font-size: 1rem; font-weight: 600; margin: 0; }
+  header h1 { font-size: 1rem; font-weight: 600; margin: 0; white-space: nowrap; }
   #stamp { font-size: .8rem; color: var(--fg-muted); }
   .spacer { flex: 1; }
-  .controls { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+  /* Identité (titre + horodatage), collée à gauche. */
+  .brand { display: flex; align-items: baseline; gap: .5rem; }
+  /* Deux clusters de contrôles : « données » (scope/masquées/refresh) puis
+     « réglages » (notifs/thème/debug). Serrés à l'intérieur (gap .4rem = « ça va
+     ensemble »), séparés l'un de l'autre par un trait vertical. */
+  .group { display: inline-flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+  .group + .group { margin-left: .5rem; padding-left: .75rem; border-left: 1px solid var(--border); }
+  /* Scope + Filtrer + Tout fusionnés en un seul contrôle (bordures accolées,
+     coins arrondis aux extrémités) pour lire comme une barre de recherche. */
+  .input-group { display: inline-flex; }
+  .input-group > * { border-radius: 0; margin-left: -1px; }
+  .input-group > :first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+  .input-group > :last-child { border-radius: 0 6px 6px 0; }
+  .input-group #scope:focus, .input-group button:focus { position: relative; z-index: 1; }
   button, input { font: inherit; }
   button { cursor: pointer; border: 1px solid var(--btn-border); background: var(--btn-bg); color: var(--fg);
            border-radius: 6px; padding: .3rem .75rem; font-size: .8125rem; font-weight: 500; box-shadow: var(--shadow); }
@@ -253,14 +266,21 @@ ${FAVICON}
 </head>
 <body>
 <header>
-  <h1>🔔 gh notif</h1>
-  <span id="stamp">chargement…</span>
+  <div class="brand">
+    <h1>🔔 gh notif</h1>
+    <span id="stamp">chargement…</span>
+  </div>
   <span class="spacer"></span>
-  <span class="controls">
-    <input id="scope" placeholder="org ou owner/repo" value="${escapeHtml(scopeLabel)}">
-    <button id="scope-apply" title="Filtrer sur ce scope">Filtrer</button>
-    <button id="scope-all" title="Tout afficher">Tout</button>
+  <div class="group" role="group" aria-label="Données affichées">
+    <span class="input-group">
+      <input id="scope" placeholder="org ou owner/repo" value="${escapeHtml(scopeLabel)}">
+      <button id="scope-apply" title="Filtrer sur ce scope">Filtrer</button>
+      <button id="scope-all" title="Tout afficher">Tout</button>
+    </span>
     <button id="toggle-hidden" title="Afficher/masquer les PR cachées">🙈 masquées</button>
+    <button id="refresh" title="Rafraîchir maintenant">🔄</button>
+  </div>
+  <div class="group" role="group" aria-label="Réglages">
     <label id="notify-label" title="Activer/désactiver les notifications desktop">
       <input type="checkbox" id="notify"${notifyEnabled ? ' checked' : ''}> 🔔 notifs
     </label>
@@ -269,9 +289,8 @@ ${FAVICON}
       <button type="button" data-theme-val="light"${theme === 'light' ? ' class="on"' : ''} title="Thème : clair">☀️ clair</button>
       <button type="button" data-theme-val="dark"${theme === 'dark' ? ' class="on"' : ''} title="Thème : sombre">🌙 sombre</button>
     </span>
-    <button id="refresh" title="Rafraîchir maintenant">🔄</button>
     <a id="debug-link" href="/debug" title="Debug : verdict du pipeline">🐛</a>
-  </span>
+  </div>
 </header>
 <main id="content"></main>
 <script>
