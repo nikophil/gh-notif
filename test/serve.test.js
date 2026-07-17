@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { rmSync } from 'node:fs';
 import { handleRequest, serve, parseScope, scopeLabel } from '../src/serve.js';
+import { loadPrefs, prefsPath } from '../src/prefs.js';
 
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
 const OPTS = { now: NOW, intervalMs: 10000 };
@@ -89,6 +91,13 @@ test('GET / préremplit le champ de scope avec le scope courant', () => {
   assert.match(res.body, /id="scope"[^>]*value="mapado"/);
 });
 
+test('GET / : checkbox notifs cochée par défaut, décochée si notifyEnabled=false', () => {
+  const checked = handleRequest('/', okSnapshot(), { ...OPTS, notifyEnabled: true });
+  assert.match(checked.body, /id="notify"[^>]*\schecked/);
+  const off = handleRequest('/', okSnapshot(), { ...OPTS, notifyEnabled: false });
+  assert.ok(!/id="notify"[^>]*\schecked/.test(off.body), 'décochée quand notifyEnabled=false');
+});
+
 test('GET /fragment?hidden (showHidden) rend les lignes masquées', () => {
   const snap = okSnapshot();
   snap.data.hidden = [{ repo: 'o/x', number: 9, url: 'u', title: 'cachée', triggers: ['review'], ci: 'none', author: 'bob', createdAt: NOW, additions: 0, deletions: 0, state: 'open', approvals: 0 }];
@@ -150,5 +159,46 @@ test('POST /hide masque une PR des autres puis la restaure', async () => {
     assert.match(frag3, /mapado\/web#42/, 'réapparait en mode « voir masquées »');
   } finally {
     server.close();
+  }
+});
+
+// ── intégration : POST /notify (dés)active les notifs + persiste la préférence ─
+test('POST /notify persiste la préférence et se reflète dans la page', async () => {
+  const gh = {
+    getCurrentUser: async () => 'moi',
+    listNotifications: async () => [],
+    searchReviewRequested: async () => [],
+    searchAuthored: async () => [],
+    getPullDetailsBatch: async () => [],
+    getComment: async () => null,
+    getReviewComments: async () => [],
+  };
+  const tmp = `/tmp/gh-notif-test-notify-${process.pid}`;
+  rmSync(tmp, { recursive: true, force: true }); // départ propre : pas de prefs
+  process.env.XDG_STATE_HOME = tmp;
+
+  const PORT = 7792;
+  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600 });
+  try {
+    await new Promise((r) => setTimeout(r, 150));
+    // Défaut : cochée.
+    const page1 = await (await fetch(`http://localhost:${PORT}/`)).text();
+    assert.match(page1, /id="notify"[^>]*\schecked/, 'cochée par défaut');
+
+    // Désactive.
+    const res = await fetch(`http://localhost:${PORT}/notify?enabled=0`, { method: 'POST' });
+    assert.equal(res.status, 204);
+    const page2 = await (await fetch(`http://localhost:${PORT}/`)).text();
+    assert.ok(!/id="notify"[^>]*\schecked/.test(page2), 'décochée après désactivation');
+
+    // Persisté sur disque.
+    assert.equal(loadPrefs(prefsPath()).notify, false);
+
+    // Réactive.
+    await fetch(`http://localhost:${PORT}/notify?enabled=1`, { method: 'POST' });
+    assert.equal(loadPrefs(prefsPath()).notify, true);
+  } finally {
+    server.close();
+    rmSync(tmp, { recursive: true, force: true });
   }
 });

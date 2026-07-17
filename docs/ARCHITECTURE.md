@@ -19,6 +19,7 @@ qui réutilise l'auth de l'utilisateur. Tests avec le runner natif `node:test` (
 | `src/filter.js` | **Cœur** : `classify()` (règles de filtrage), `findReplyToMe()`, helpers. Fonctions pures. | oui |
 | `src/collect.js` | Orchestration : agrège notifications + recherches en PRs, récupère les détails, scope. | oui via gh stub |
 | `src/state.js` | Persistance + déduplication du `--watch`. | oui |
+| `src/prefs.js` | Préférences UI persistées du mode `--serve` (aujourd'hui la seule clé `notify`). Purs + I/O JSON, calqués sur `state.js`. | oui |
 | `src/approvals.js` | Approbations sur mes PR : `approvalsOf`, seuil « prête à merger » (`isReady`), diff/seed des évènements (`diffApprovals`). Purs. | oui |
 | `src/notify.js` | Notifs desktop (`notify-send`) + ligne d'évènement terminal. | oui via spawn stub |
 | `src/render.js` | Tableaux encadrés alignés, couleur, liens OSC 8, helpers d'affichage. | oui |
@@ -124,8 +125,20 @@ sans socket) : `GET /` → `renderShell` (page + JS de polling, champ de scope p
 lignes masquées), `GET /api/state` → JSON brut, sinon 404. Les **actions** (POST, effets de bord,
 dans le handler I/O) : `POST /refresh` (force un poll), `POST /hide?key=repo#n`
 (`toggleHidden`+`saveHidden`, puis **recompute local** sans refetch), `POST /scope?value=` (scope
-**mutable** : `parseScope` → re-fetch ciblé — le serveur ne charge que le scope choisi). Toutes
-renvoient le fragment courant que le client injecte dans `#content`.
+**mutable** : `parseScope` → re-fetch ciblé — le serveur ne charge que le scope choisi), `POST
+/notify?enabled=0|1` (checkbox 🔔 de l'en-tête : bascule un **flag mutable** `notifyEnabled` +
+`savePrefs` dans `prefs-v1.json`). `/hide` et `/scope` renvoient le fragment courant que le client
+injecte dans `#content` ; `/notify` renvoie **`204 No Content`** (la case vit dans le `<header>`,
+hors `#content` → inutile de re-rendre les tableaux ; elle survit d'elle-même aux refresh du fragment).
+
+**Coupure des notifs desktop (checkbox, persistée).** `notifyEnabled` est amorcé depuis
+`prefs.js` (`isNotifyEnabled(loadPrefs(...))`, **activé par défaut**, survit au redémarrage). Quand
+il est faux, `notifyNew` **continue** de consommer les évènements — `diffApprovals` remplit toujours
+`seenApprovals`, `markSeen`/`saveState` sont toujours appelés — et **saute uniquement** les deux
+`sendNotification`. Conséquence voulue : décocher = « marquer vu en silence », donc **recocher ne
+provoque aucune rafale** de vieilles notifs (même philosophie que le seed silencieux, cf. §4). ⚠️ Ne
+jamais court-circuiter `markSeen` derrière ce flag, sinon la file s'accumule et re-notifie tout au
+ré-activation.
 
 Le rendu HTML (`src/html.js`) **réutilise** les helpers de présentation de `render.js`
 (`ciIcon`, `stateIcon`, `relativeDate`) : seul le médium (terminal vs HTML) diffère. Le navigateur

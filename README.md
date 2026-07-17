@@ -137,6 +137,10 @@ Depuis la page, tu peux :
   PR cachées (grisées, bouton restaurer) ;
 - **filtrer par org/repo** : tape `mapado` ou `mapado/web` dans le champ puis **Filtrer** (le serveur
   ne charge **que** ce scope) ; **Tout** réaffiche tout.
+- **couper les notifications desktop** : décoche **🔔 notifs** dans l'en-tête. Le serveur continue de
+  suivre les évènements (ils sont marqués « vus » en silence), il cesse simplement de pousser des
+  `notify-send` — recocher ne déclenche donc **pas** de rafale de vieilles notifs. Le choix est
+  **persisté** dans `~/.local/state/gh-notif/prefs-v1.json` (survit à un redémarrage).
 
 Le **look & feel** reprend les couleurs GitHub (Primer, clair/sombre selon ton système). Zéro
 dépendance : servi par le module HTTP natif de Node, tout est inline (aucun asset externe).

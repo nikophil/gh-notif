@@ -180,6 +180,24 @@ test('renderShell : lien 🐛 vers /debug dans l’en-tête', () => {
   assert.match(out, /href="\/debug"/);
 });
 
+test('renderShell : checkbox notifs desktop cochée quand activées', () => {
+  const out = renderShell({ intervalMs: 10000, notifyEnabled: true });
+  assert.match(out, /id="notify"/);
+  assert.match(out, /id="notify"[^>]*\schecked/);          // cochée
+  assert.match(out, /\/notify/);                           // poste vers la route /notify
+});
+
+test('renderShell : checkbox notifs desktop décochée quand désactivées', () => {
+  const out = renderShell({ intervalMs: 10000, notifyEnabled: false });
+  assert.match(out, /id="notify"/);
+  assert.ok(!/id="notify"[^>]*\schecked/.test(out), 'ne doit pas être cochée');
+});
+
+test('renderShell : notifs activées par défaut (notifyEnabled absent)', () => {
+  const out = renderShell({ intervalMs: 10000 });
+  assert.match(out, /id="notify"[^>]*\schecked/);
+});
+
 test('renderShell : favicon logo GitHub inline (data-URI SVG, theme-aware)', () => {
   const out = renderShell({ intervalMs: 10000 });
   assert.match(out, /<link rel="icon" href="data:image\/svg\+xml,/);

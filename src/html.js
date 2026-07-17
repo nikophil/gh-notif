@@ -162,7 +162,7 @@ export function renderLoading() {
 // (avec compte à rebours), gère le bouton « rafraîchir », le mode « voir les
 // masquées », le masquage par bouton, et le filtre org/repo. `scopeLabel` préremplit
 // le champ de scope. Le rythme client est découplé du poll GitHub côté serveur.
-export function renderShell({ intervalMs = 10000, scopeLabel = '' } = {}) {
+export function renderShell({ intervalMs = 10000, scopeLabel = '', notifyEnabled = true } = {}) {
   return `<!doctype html>
 <html lang="fr">
 <head>
@@ -204,6 +204,10 @@ ${FAVICON}
   #scope { width: 13rem; padding: .3rem .65rem; border-radius: 6px; font-size: .8125rem;
            border: 1px solid var(--border); background: var(--canvas); color: var(--fg); }
   #scope:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+  /* Case « notifs desktop » : label + checkbox alignés dans la barre de contrôles. */
+  #notify-label { display: flex; align-items: center; gap: .35rem; font-size: .8125rem;
+                  color: var(--fg-muted); cursor: pointer; user-select: none; }
+  #notify { cursor: pointer; margin: 0; accent-color: var(--accent); }
   /* Section = « Box » GitHub : bordure arrondie, en-tête sur fond subtle. */
   section { margin: 0 0 1.5rem; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
   h2 { font-size: .875rem; font-weight: 600; margin: 0; padding: .65rem 1rem;
@@ -244,6 +248,9 @@ ${FAVICON}
     <button id="scope-apply" title="Filtrer sur ce scope">Filtrer</button>
     <button id="scope-all" title="Tout afficher">Tout</button>
     <button id="toggle-hidden" title="Afficher/masquer les PR cachées">🙈 masquées</button>
+    <label id="notify-label" title="Activer/désactiver les notifications desktop">
+      <input type="checkbox" id="notify"${notifyEnabled ? ' checked' : ''}> 🔔 notifs
+    </label>
     <button id="refresh" title="Rafraîchir maintenant">🔄</button>
     <a id="debug-link" href="/debug" title="Debug : verdict du pipeline">🐛</a>
   </span>
@@ -290,6 +297,11 @@ ${FAVICON}
   }
 
   document.getElementById('refresh').addEventListener('click', function () { post('/refresh'); });
+  document.getElementById('notify').addEventListener('change', function (e) {
+    // Pilote le flag serveur ; la case vit dans le <header> (hors #content) donc
+    // elle survit aux refresh du fragment. On ne remplace pas #content ici.
+    fetch('/notify?enabled=' + (e.target.checked ? '1' : '0'), { method: 'POST' });
+  });
   toggleBtn.addEventListener('click', function () {
     showHidden = !showHidden;
     toggleBtn.classList.toggle('on', showHidden);

@@ -11,6 +11,7 @@ import { collectPRs } from './collect.js';
 import { CATEGORY } from './filter.js';
 import { hiddenPath, loadHidden, saveHidden, toggleHidden, isHidden, keyOf } from './hidden.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './state.js';
+import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled } from './prefs.js';
 import { diffApprovals } from './approvals.js';
 import { sendNotification } from './notify.js';
 import { isRateLimitError, nextBackoffSeconds } from './ratelimit.js';
@@ -59,9 +60,9 @@ function debugBody(snapshot, { now } = {}) {
 
 // Routing des lectures (GET) — pur, aucune I/O. Testable sans socket.
 export function handleRequest(pathname, snapshot, opts = {}) {
-  const { now, intervalMs, showHidden, scope } = opts;
+  const { now, intervalMs, showHidden, scope, notifyEnabled = true } = opts;
   if (pathname === '/') {
-    return { status: 200, type: 'text/html; charset=utf-8', body: renderShell({ intervalMs, scopeLabel: scopeLabel(scope) }) };
+    return { status: 200, type: 'text/html; charset=utf-8', body: renderShell({ intervalMs, scopeLabel: scopeLabel(scope), notifyEnabled }) };
   }
   if (pathname === '/fragment') {
     return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden }) };
@@ -114,6 +115,11 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   let primed = existsSync(sPath);
   const state = loadState(sPath);
 
+  // Préférence « notifs desktop » (checkbox de l'UI), persistée sur disque.
+  // Activées par défaut. Pilotée en cours de session par POST /notify.
+  const prefsFile = prefsPath();
+  let notifyEnabled = isNotifyEnabled(loadPrefs(prefsFile));
+
   // Approbations sur mes PR : état en mémoire (par process), indépendant de l'état
   // disque des notifs. 1er poll = amorçage silencieux (pas de rafale au démarrage).
   const seenApprovals = new Set();
@@ -122,9 +128,12 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   const notifyNew = (data) => {
     // Approbations d'abord (indépendant du seed disque ci-dessous) : un approve
     // nouveau → notif desktop, comme --watch. Voir approvals.js / spec.
+    // diffApprovals mémorise TOUJOURS dans seenApprovals (même quand on ne notifie
+    // pas) → désactiver les notifs = « marquer vu en silence », pas de rafale au
+    // ré-activation.
     const freshApprovals = diffApprovals({ events: data.approvalEvents ?? [], seen: seenApprovals, primed: primedApprovals });
     primedApprovals = true;
-    for (const e of freshApprovals) sendNotification({ ...e, category: CATEGORY.APPROVAL });
+    if (notifyEnabled) for (const e of freshApprovals) sendNotification({ ...e, category: CATEGORY.APPROVAL });
 
     const items = data.notifications ?? [];
     if (!primed) {
@@ -138,7 +147,8 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
     const openKeys = new Set([...data.mine, ...data.others, ...(data.hidden ?? [])].map((r) => `${r.repo}#${r.number}`));
     const fresh = items.filter((i) => isNew(state, i));
     for (const item of fresh) {
-      markSeen(state, item);
+      markSeen(state, item); // toujours marqué vu, même notifs off (pas de rafale au ré-activation)
+      if (!notifyEnabled) continue;
       if (item.category === CATEGORY.REVIEW_REQUEST && !openKeys.has(`${item.repo}#${item.number}`)) continue;
       sendNotification(item);
     }
@@ -205,6 +215,13 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         await refresh();
         return send(200, 'text/html; charset=utf-8', fragmentResponse(showHidden));
       }
+      if (pathname === '/notify') {
+        notifyEnabled = url.searchParams.get('enabled') !== '0';
+        savePrefs(prefsFile, { notify: notifyEnabled });
+        // La case vit dans l'en-tête (hors #content) : pas besoin de re-rendre les
+        // tableaux, un accusé suffit.
+        return send(204, 'text/plain; charset=utf-8', '');
+      }
       return send(404, 'text/plain; charset=utf-8', 'Not found');
     }
 
@@ -215,6 +232,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       intervalMs: intervalSeconds * 1000,
       showHidden,
       scope,
+      notifyEnabled,
     });
     send(status, type, body);
   });
