@@ -21,7 +21,7 @@ qui réutilise l'auth de l'utilisateur. Tests avec le runner natif `node:test` (
 | `src/state.js` | Persistance + déduplication du `--watch`. | oui |
 | `src/prefs.js` | Préférences UI persistées du mode `--serve` (aujourd'hui la seule clé `notify`). Purs + I/O JSON, calqués sur `state.js`. | oui |
 | `src/approvals.js` | Approbations sur mes PR : `approvalsOf`, seuil « prête à merger » (`isReady`), diff/seed des évènements (`diffApprovals`). Purs. | oui |
-| `src/notify.js` | Notifs desktop (`notify-send`) + ligne d'évènement terminal. | oui via spawn stub |
+| `src/notify.js` | Notifs desktop multi-plateforme (`notifyCommand` : `notify-send` Linux / `osascript` macOS) + ligne d'évènement terminal. | oui via spawn stub |
 | `src/render.js` | Tableaux encadrés alignés, couleur, liens OSC 8, helpers d'affichage. | oui |
 | `src/spinner.js` | Spinner pendant les requêtes (stderr, no-op hors TTY). | oui via stream stub |
 | `src/hidden.js` | Masquage des PR des autres : persistance, signatures d'évènements, réconciliation, numéros. | oui |
@@ -331,6 +331,18 @@ sequenceDiagram
     un lien 🐛 dans l'en-tête. ⚠️ Contrainte produit : GitHub ne notifie **pas** tes propres actions →
     le debug montre le raisonnement, pas « tes messages ». ⚠️ `renderDebug` **échappe** toute donnée
     GitHub (titre, repo, raison) via `escapeHtml`.
+
+13. **Notifs desktop multi-plateforme (`notify.js`).** Le choix de la commande est **pur** :
+    `notifyCommand(platform, {title, body}) → {cmd, args}`. Linux → `notify-send [title, body]` ;
+    **macOS** → `osascript -e 'display notification "…" with title "…"'`. `sendNotification` injecte
+    `platform = process.platform` (surchargeable en test → les deux branches sont testées quelle que
+    soit la machine CI). ⚠️ Pièges macOS/AppleScript : une source AppleScript **ne peut pas contenir
+    de saut de ligne** dans un littéral de chaîne (le corps `…\n${url}` est donc **aplati en espaces**),
+    et il faut échapper `\` **puis** `"` (dans cet ordre) sinon un titre de PR avec guillemets casse la
+    commande. ⚠️ `sendNotification` attache **`child.on('error', …)`** (comme `openBrowser`) : sans ça,
+    une commande absente (ENOENT) émet un évènement `error` non-géré qui **tue la boucle**
+    `--watch`/`--serve`. Notifs restent **best-effort** (échec silencieux). Windows non couvert (retombe
+    sur `notify-send`, absent → no-op silencieux).
 
 ## Conventions de test
 

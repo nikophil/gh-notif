@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CATEGORY } from '../src/filter.js';
-import { notifyMessage, sendNotification, watchEventLine } from '../src/notify.js';
+import { notifyMessage, notifyCommand, sendNotification, watchEventLine } from '../src/notify.js';
 
 const base = { repo: 'o/r', number: 42, title: 'Ma PR', url: 'https://github.com/o/r/pull/42' };
 
@@ -41,9 +41,48 @@ test('titre approbation : suffixe 🎉 prête à merger dès 2 approbations', ()
 test('sendNotification appelle spawn avec titre et corps', () => {
   const calls = [];
   const spawn = (cmd, args) => { calls.push({ cmd, args }); return { on() {}, unref() {} }; };
-  sendNotification({ ...base, category: CATEGORY.REVIEW_REQUEST, actor: null }, spawn);
+  sendNotification({ ...base, category: CATEGORY.REVIEW_REQUEST, actor: null }, spawn, 'linux');
   assert.equal(calls[0].cmd, 'notify-send');
   assert.equal(calls[0].args[0], 'Nouvelle PR à review');
+});
+
+test('notifyCommand : Linux → notify-send [title, body]', () => {
+  const cmd = notifyCommand('linux', { title: 'T', body: 'B' });
+  assert.deepEqual(cmd, { cmd: 'notify-send', args: ['T', 'B'] });
+});
+
+test('notifyCommand : macOS → osascript display notification', () => {
+  const { cmd, args } = notifyCommand('darwin', { title: 'Mon titre', body: 'o/r #42' });
+  assert.equal(cmd, 'osascript');
+  assert.equal(args[0], '-e');
+  assert.match(args[1], /^display notification "o\/r #42" with title "Mon titre"$/);
+});
+
+test('notifyCommand : macOS échappe guillemets/backslash et aplatit les sauts de ligne', () => {
+  const { args } = notifyCommand('darwin', { title: 'a"b\\c', body: 'ligne1\nligne2' });
+  // guillemet → \" , backslash → \\ , newline → espace (pas de retour à la ligne brut)
+  assert.match(args[1], /with title "a\\"b\\\\c"/);
+  assert.match(args[1], /display notification "ligne1 ligne2"/);
+  assert.ok(!args[1].includes('\n'), 'aucun saut de ligne brut dans la source AppleScript');
+});
+
+test('sendNotification : macOS spawn osascript', () => {
+  const calls = [];
+  const spawn = (cmd, args) => { calls.push({ cmd, args }); return { on() {}, unref() {} }; };
+  sendNotification({ ...base, category: CATEGORY.REVIEW_REQUEST, actor: null }, spawn, 'darwin');
+  assert.equal(calls[0].cmd, 'osascript');
+  assert.match(calls[0].args[1], /with title "Nouvelle PR à review"/);
+});
+
+test('sendNotification : une erreur de spawn (commande absente) ne crashe pas', () => {
+  const spawn = () => {
+    const handlers = {};
+    const child = { on(ev, cb) { handlers[ev] = cb; }, unref() {} };
+    // simule l'émission asynchrone d'ENOENT : ne doit pas lever
+    queueMicrotask(() => handlers.error && handlers.error(new Error('ENOENT')));
+    return child;
+  };
+  assert.doesNotThrow(() => sendNotification({ ...base, category: CATEGORY.MENTION, actor: 'a' }, spawn, 'linux'));
 });
 
 test('notif mention sans auteur résolu → titre générique sans @null', () => {

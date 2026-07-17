@@ -82,7 +82,7 @@ une ligne au journal). La liste des masquées est persistée dans
 
 `gh notif --watch` affiche **les mêmes deux tableaux que `gh notif`**, mais **rafraîchis
 automatiquement** (~60 s, avec un compte à rebours), et **pousse en plus une notification desktop**
-(`notify-send`) pour chaque nouvel évènement.
+(`notify-send` sous Linux, `osascript` sous macOS) pour chaque nouvel évènement.
 
 Avec **`-v`** (`--verbose`), les évènements détectés pendant la session sont aussi journalisés sous
 les tableaux (le compte à rebours et le spinner restent dans tous les cas) :
@@ -127,7 +127,7 @@ Le navigateur s'ouvre automatiquement sur l'URL. Une **unique boucle de poll cô
 (~60 s) interroge GitHub et alimente la page ; plusieurs onglets ouverts ne multiplient donc pas
 les appels. La page se rafraîchit toute seule (~10 s) avec un **compte à rebours** ; les liens
 s'ouvrent dans un **nouvel onglet**. Comme `--watch`, chaque nouvel évènement pousse une
-**notification desktop** (`notify-send`).
+**notification desktop** (`notify-send` sous Linux, `osascript` sous macOS).
 
 Depuis la page, tu peux :
 
@@ -165,8 +165,9 @@ classification — **gardé** (en trigger X) ou **droppé** (avec la raison).
 
 - [`gh`](https://cli.github.com/) authentifié (`gh auth login`)
 - Node ≥ 18
-- `notify-send` (paquet `libnotify-bin`) pour les notifications desktop (optionnel : sans lui,
-  `--watch` logge quand même dans le terminal)
+- Notifications desktop (optionnel : sans elles, `--watch` logge quand même dans le terminal) :
+  - **Linux** : `notify-send` (paquet `libnotify-bin`)
+  - **macOS** : `osascript` (fourni de base, rien à installer)
 
 ## Installation
 

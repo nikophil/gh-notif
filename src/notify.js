@@ -17,9 +17,26 @@ export function notifyMessage(item) {
   return { title, body };
 }
 
-export function sendNotification(item, spawn = nodeSpawn) {
-  const { title, body } = notifyMessage(item);
-  const child = spawn('notify-send', [title, body], { stdio: 'ignore' });
+// Commande système à lancer pour une notif desktop, selon la plateforme (pur,
+// testable). macOS n'a pas `notify-send` : on passe par `osascript` (fourni de
+// base, zéro dépendance). ⚠️ Une source AppleScript ne peut pas contenir de saut
+// de ligne dans un littéral, et il faut échapper `\` puis `"` — sinon un titre de
+// PR avec des guillemets casse la commande.
+export function notifyCommand(platform, { title, body }) {
+  if (platform === 'darwin') {
+    const esc = (s) => String(s ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n]+/g, ' ');
+    return { cmd: 'osascript', args: ['-e', `display notification "${esc(body)}" with title "${esc(title)}"`] };
+  }
+  // Linux (et défaut) : notify-send.
+  return { cmd: 'notify-send', args: [title, body] };
+}
+
+export function sendNotification(item, spawn = nodeSpawn, platform = process.platform) {
+  const { cmd, args } = notifyCommand(platform, notifyMessage(item));
+  const child = spawn(cmd, [...args], { stdio: 'ignore' });
+  // Best-effort : si la commande manque (ENOENT), on avale l'erreur au lieu de
+  // laisser un évènement 'error' non-géré tuer la boucle --watch/--serve.
+  if (child.on) child.on('error', () => {});
   if (child.unref) child.unref();
 }
 
