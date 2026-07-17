@@ -98,6 +98,12 @@ test('GET / : checkbox notifs cochée par défaut, décochée si notifyEnabled=f
   assert.ok(!/id="notify"[^>]*\schecked/.test(off.body), 'décochée quand notifyEnabled=false');
 });
 
+test('GET / : data-theme reflète le thème passé à handleRequest', () => {
+  const res = handleRequest('/', okSnapshot(), { ...OPTS, theme: 'dark' });
+  assert.match(res.body, /<html lang="fr" data-theme="dark"/);
+  assert.match(res.body, /data-theme-val="dark"[^>]*class="[^"]*\bon\b/);
+});
+
 test('GET /fragment?hidden (showHidden) rend les lignes masquées', () => {
   const snap = okSnapshot();
   snap.data.hidden = [{ repo: 'o/x', number: 9, url: 'u', title: 'cachée', triggers: ['review'], ci: 'none', author: 'bob', createdAt: NOW, additions: 0, deletions: 0, state: 'open', approvals: 0 }];
@@ -197,6 +203,52 @@ test('POST /notify persiste la préférence et se reflète dans la page', async 
     // Réactive.
     await fetch(`http://localhost:${PORT}/notify?enabled=1`, { method: 'POST' });
     assert.equal(loadPrefs(prefsPath()).notify, true);
+  } finally {
+    server.close();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// ── intégration : POST /theme persiste le thème sans écraser notify ─────────
+test('POST /theme persiste le thème, se reflète dans la page, ne perd pas notify', async () => {
+  const gh = {
+    getCurrentUser: async () => 'moi',
+    listNotifications: async () => [],
+    searchReviewRequested: async () => [],
+    searchAuthored: async () => [],
+    getPullDetailsBatch: async () => [],
+    getComment: async () => null,
+    getReviewComments: async () => [],
+  };
+  const tmp = `/tmp/gh-notif-test-theme-${process.pid}`;
+  rmSync(tmp, { recursive: true, force: true });
+  process.env.XDG_STATE_HOME = tmp;
+
+  const PORT = 7793;
+  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600 });
+  try {
+    await new Promise((r) => setTimeout(r, 150));
+    // Défaut auto.
+    const page1 = await (await fetch(`http://localhost:${PORT}/`)).text();
+    assert.match(page1, /<html lang="fr" data-theme="auto"/);
+
+    // Coupe d'abord les notifs pour vérifier que /theme ne l'écrase pas.
+    await fetch(`http://localhost:${PORT}/notify?enabled=0`, { method: 'POST' });
+
+    // Passe en sombre.
+    const res = await fetch(`http://localhost:${PORT}/theme?value=dark`, { method: 'POST' });
+    assert.equal(res.status, 204);
+    const page2 = await (await fetch(`http://localhost:${PORT}/`)).text();
+    assert.match(page2, /<html lang="fr" data-theme="dark"/);
+
+    // Persisté ET notify préservé (pas de clé perdue).
+    const prefs = loadPrefs(prefsPath());
+    assert.equal(prefs.theme, 'dark');
+    assert.equal(prefs.notify, false);
+
+    // Valeur invalide → ignorée/normalisée en auto (robustesse).
+    await fetch(`http://localhost:${PORT}/theme?value=fuchsia`, { method: 'POST' });
+    assert.equal(loadPrefs(prefsPath()).theme, 'auto');
   } finally {
     server.close();
     rmSync(tmp, { recursive: true, force: true });

@@ -19,7 +19,7 @@ qui réutilise l'auth de l'utilisateur. Tests avec le runner natif `node:test` (
 | `src/filter.js` | **Cœur** : `classify()` (règles de filtrage), `findReplyToMe()`, helpers. Fonctions pures. | oui |
 | `src/collect.js` | Orchestration : agrège notifications + recherches en PRs, récupère les détails, scope. | oui via gh stub |
 | `src/state.js` | Persistance + déduplication du `--watch`. | oui |
-| `src/prefs.js` | Préférences UI persistées du mode `--serve` (aujourd'hui la seule clé `notify`). Purs + I/O JSON, calqués sur `state.js`. | oui |
+| `src/prefs.js` | Préférences UI persistées du mode `--serve` (`notify` + `theme`, avec défauts/validation `isNotifyEnabled`/`themeOf`). Purs + I/O JSON, calqués sur `state.js`. | oui |
 | `src/approvals.js` | Approbations sur mes PR : `approvalsOf`, seuil « prête à merger » (`isReady`), diff/seed des évènements (`diffApprovals`). Purs. | oui |
 | `src/notify.js` | Notifs desktop multi-plateforme (`notifyCommand` : `notify-send` Linux / `osascript` macOS) + ligne d'évènement terminal. | oui via spawn stub |
 | `src/render.js` | Tableaux encadrés alignés, couleur, liens OSC 8, helpers d'affichage. | oui |
@@ -126,10 +126,17 @@ lignes masquées), `GET /api/state` → JSON brut, sinon 404. Les **actions** (P
 dans le handler I/O) : `POST /refresh` (force un poll), `POST /hide?key=repo#n`
 (`toggleHidden`+`saveHidden`, puis **recompute local** sans refetch), `POST /scope?value=` (scope
 **mutable** : `parseScope` → re-fetch ciblé — le serveur ne charge que le scope choisi), `POST
-/notify?enabled=0|1` (checkbox 🔔 de l'en-tête : bascule un **flag mutable** `notifyEnabled` +
-`savePrefs` dans `prefs-v1.json`). `/hide` et `/scope` renvoient le fragment courant que le client
-injecte dans `#content` ; `/notify` renvoie **`204 No Content`** (la case vit dans le `<header>`,
-hors `#content` → inutile de re-rendre les tableaux ; elle survit d'elle-même aux refresh du fragment).
+/notify?enabled=0|1` (checkbox 🔔 de l'en-tête : bascule `notifyEnabled`), `POST /theme?value=auto|light|dark`
+(switcher de thème : `themeOf` normalise, bascule `theme`). `/hide` et `/scope` renvoient le fragment
+courant que le client injecte dans `#content` ; `/notify` et `/theme` renvoient **`204 No Content`**
+(leurs widgets vivent dans le `<header>`, hors `#content` → inutile de re-rendre les tableaux ; ils
+survivent d'eux-mêmes aux refresh du fragment).
+
+**Préférences persistées (`prefs.js`, `prefs-v1.json`).** `serve` charge `prefs` **une fois** puis
+en garde un **objet mutable en mémoire** ; `notifyEnabled`/`theme` en sont dérivés (`isNotifyEnabled`,
+`themeOf`). ⚠️ Chaque action **mute cet objet et le ré-écrit EN ENTIER** (`prefs.notify = …; savePrefs(prefs)`)
+— surtout **pas** `savePrefs({ notify })` : ça écraserait la clé `theme` (et inversement). Défauts
+appliqués à la lecture (notifs activées, thème `auto`) → un fichier ancien/partiel reste valide.
 
 **Coupure des notifs desktop (checkbox, persistée).** `notifyEnabled` est amorcé depuis
 `prefs.js` (`isNotifyEnabled(loadPrefs(...))`, **activé par défaut**, survit au redémarrage). Quand
@@ -146,7 +153,16 @@ re-fetch `/fragment` **au même rythme que le poll** (`intervalSeconds`, 60 s pa
 re-fetch ne fait que **relire le snapshot en mémoire** (0 appel GitHub), si bien que plusieurs
 onglets ne multiplient pas les requêtes. Comme `--watch`, la boucle détecte les nouveautés
 (`state.js` + `sendNotification`, seed silencieux au 1er run, gating `REVIEW_REQUEST` sur les PR
-ouvertes). Style aux couleurs GitHub (Primer), tout inline (aucun asset externe). ⚠️
+ouvertes). Style aux couleurs GitHub (Primer), tout inline (aucun asset externe).
+
+**Thème CSS (auto/light/dark).** `renderShell` pose `data-theme` sur `<html>` **au rendu serveur**
+(pas de flash au chargement). Les variables Primer ont une **source unique** (`LIGHT_VARS`/`DARK_VARS`
+dans `html.js`) réutilisée dans 4 sélecteurs : `:root` (clair de base), `@media (prefers-color-scheme:
+dark) :root[data-theme="auto"]` (auto suit le système), `:root[data-theme="light"]` et
+`[data-theme="dark"]` (forçage). ⚠️ Astuce de spécificité : `[data-theme]` (0,1,1) l'emporte toujours
+sur `:root` (0,0,1) **même** dans la media query (les media queries n'ajoutent pas de spécificité) →
+`light`/`dark` gagnent quel que soit le système, `auto` seul suit la media query. Le switcher applique
+`data-theme` côté client **immédiatement** (pas de reload) puis `POST /theme` persiste. ⚠️
 `renderFragment` **échappe** toute donnée GitHub (titre, repo, auteur, clé de masquage) via
 `escapeHtml` — un titre de PR peut contenir `<`/`&` (anti-injection).
 

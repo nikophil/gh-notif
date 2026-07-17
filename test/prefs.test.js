@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync, mkdtempSync } from 'node:fs';
-import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled } from '../src/prefs.js';
+import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf } from '../src/prefs.js';
 
 test('prefsPath respecte XDG_STATE_HOME', () => {
   const prev = process.env.XDG_STATE_HOME;
@@ -12,17 +12,17 @@ test('prefsPath respecte XDG_STATE_HOME', () => {
   if (prev === undefined) delete process.env.XDG_STATE_HOME; else process.env.XDG_STATE_HOME = prev;
 });
 
-test('loadPrefs : fichier absent → défaut { notify: true }', () => {
-  assert.deepEqual(loadPrefs('/nope/nope/prefs.json'), { notify: true });
+test('loadPrefs : fichier absent → défauts (notify: true, theme: auto)', () => {
+  assert.deepEqual(loadPrefs('/nope/nope/prefs.json'), { notify: true, theme: 'auto' });
 });
 
-test('loadPrefs : fichier corrompu → défaut { notify: true }', () => {
+test('loadPrefs : fichier corrompu → défauts', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ghnotif-'));
   const p = join(dir, 'prefs.json');
   savePrefs(p, {}); // écrit un objet valide…
   rmSync(p, { force: true });
   // …puis on relit un chemin inexistant : défaut appliqué
-  assert.deepEqual(loadPrefs(p), { notify: true });
+  assert.deepEqual(loadPrefs(p), { notify: true, theme: 'auto' });
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -30,7 +30,7 @@ test('save puis load round-trip (notify: false persisté)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ghnotif-'));
   const p = join(dir, 'sub', 'prefs.json');
   savePrefs(p, { notify: false });
-  assert.deepEqual(loadPrefs(p), { notify: false });
+  assert.deepEqual(loadPrefs(p), { notify: false, theme: 'auto' });
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -46,4 +46,21 @@ test('isNotifyEnabled : true par défaut, false seulement si explicitement désa
   assert.equal(isNotifyEnabled({ notify: true }), true);
   assert.equal(isNotifyEnabled({ notify: false }), false);
   assert.equal(isNotifyEnabled({}), true); // absent → activé
+});
+
+test('themeOf : valeurs valides passent, tout le reste → auto', () => {
+  assert.equal(themeOf({ theme: 'light' }), 'light');
+  assert.equal(themeOf({ theme: 'dark' }), 'dark');
+  assert.equal(themeOf({ theme: 'auto' }), 'auto');
+  assert.equal(themeOf({ theme: 'fuchsia' }), 'auto'); // valeur inconnue
+  assert.equal(themeOf({}), 'auto');                   // absent
+  assert.equal(themeOf(null), 'auto');                 // objet nul
+});
+
+test('loadPrefs : theme persisté conservé, notify complété par défaut', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ghnotif-'));
+  const p = join(dir, 'prefs.json');
+  savePrefs(p, { theme: 'dark' });
+  assert.deepEqual(loadPrefs(p), { notify: true, theme: 'dark' });
+  rmSync(dir, { recursive: true, force: true });
 });

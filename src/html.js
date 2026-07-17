@@ -29,6 +29,19 @@ const FAVICON =
   "<path d='M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z'/>" +
   '</svg>">';
 
+// Variables de couleur GitHub Primer, source unique réutilisée pour les 4 cas de
+// thème (auto/système, auto/dark, light forcé, dark forcé) sans les tripler.
+const LIGHT_VARS =
+  '--canvas: #ffffff; --canvas-subtle: #f6f8fa; --canvas-inset: #f6f8fa;\n' +
+  '    --fg: #1f2328; --fg-muted: #59636e; --border: #d1d9e0; --border-muted: #d1d9e0b3;\n' +
+  '    --accent: #0969da; --success: #1a7f37; --danger: #cf222e;\n' +
+  '    --btn-bg: #f6f8fa; --btn-border: #1f23280f; --btn-hover: #eef1f4; --shadow: 0 1px 0 #1f23280a;';
+const DARK_VARS =
+  '--canvas: #0d1117; --canvas-subtle: #151b23; --canvas-inset: #010409;\n' +
+  '    --fg: #e6edf3; --fg-muted: #9198a1; --border: #3d444d; --border-muted: #3d444db3;\n' +
+  '    --accent: #4493f8; --success: #3fb950; --danger: #f85149;\n' +
+  '    --btn-bg: #212830; --btn-border: #f0f6fc1a; --btn-hover: #2a313c; --shadow: 0 0 transparent;';
+
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
 // Échappe toute donnée issue de GitHub (titre, repo, auteur, url) avant de
@@ -162,31 +175,25 @@ export function renderLoading() {
 // (avec compte à rebours), gère le bouton « rafraîchir », le mode « voir les
 // masquées », le masquage par bouton, et le filtre org/repo. `scopeLabel` préremplit
 // le champ de scope. Le rythme client est découplé du poll GitHub côté serveur.
-export function renderShell({ intervalMs = 10000, scopeLabel = '', notifyEnabled = true } = {}) {
+export function renderShell({ intervalMs = 10000, scopeLabel = '', notifyEnabled = true, theme = 'auto' } = {}) {
   return `<!doctype html>
-<html lang="fr">
+<html lang="fr" data-theme="${theme}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>gh notif</title>
 ${FAVICON}
 <style>
-  /* Palette GitHub Primer (light par défaut, dark via prefers-color-scheme). */
-  :root {
-    color-scheme: light dark;
-    --canvas: #ffffff; --canvas-subtle: #f6f8fa; --canvas-inset: #f6f8fa;
-    --fg: #1f2328; --fg-muted: #59636e; --border: #d1d9e0; --border-muted: #d1d9e0b3;
-    --accent: #0969da; --success: #1a7f37; --danger: #cf222e;
-    --btn-bg: #f6f8fa; --btn-border: #1f23280f; --btn-hover: #eef1f4; --shadow: 0 1px 0 #1f23280a;
-  }
+  /* Palette GitHub Primer. Clair par défaut ; le thème est piloté par
+     data-theme sur <html> : "auto" suit le système (media query), "light"/"dark"
+     forcent. [data-theme] (spécificité 0,1,1) l'emporte sur :root dans la media
+     query → l'override explicite gagne toujours. */
+  :root { color-scheme: light dark; ${LIGHT_VARS} }
   @media (prefers-color-scheme: dark) {
-    :root {
-      --canvas: #0d1117; --canvas-subtle: #151b23; --canvas-inset: #010409;
-      --fg: #e6edf3; --fg-muted: #9198a1; --border: #3d444d; --border-muted: #3d444db3;
-      --accent: #4493f8; --success: #3fb950; --danger: #f85149;
-      --btn-bg: #212830; --btn-border: #f0f6fc1a; --btn-hover: #2a313c; --shadow: 0 0 transparent;
-    }
+    :root[data-theme="auto"] { ${DARK_VARS} }
   }
+  :root[data-theme="light"] { color-scheme: light; ${LIGHT_VARS} }
+  :root[data-theme="dark"] { color-scheme: dark; ${DARK_VARS} }
   * { box-sizing: border-box; }
   body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
          margin: 0; padding: 1rem 1.5rem; background: var(--canvas); color: var(--fg); }
@@ -208,6 +215,12 @@ ${FAVICON}
   #notify-label { display: flex; align-items: center; gap: .35rem; font-size: .8125rem;
                   color: var(--fg-muted); cursor: pointer; user-select: none; }
   #notify { cursor: pointer; margin: 0; accent-color: var(--accent); }
+  /* Switcher de thème : boutons accolés en « segmented control », l'actif = .on. */
+  .theme-switch { display: inline-flex; }
+  .theme-switch button { border-radius: 0; margin-left: -1px; }
+  .theme-switch button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+  .theme-switch button:last-child { border-radius: 0 6px 6px 0; }
+  .theme-switch button.on { position: relative; z-index: 1; }
   /* Section = « Box » GitHub : bordure arrondie, en-tête sur fond subtle. */
   section { margin: 0 0 1.5rem; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
   h2 { font-size: .875rem; font-weight: 600; margin: 0; padding: .65rem 1rem;
@@ -251,6 +264,11 @@ ${FAVICON}
     <label id="notify-label" title="Activer/désactiver les notifications desktop">
       <input type="checkbox" id="notify"${notifyEnabled ? ' checked' : ''}> 🔔 notifs
     </label>
+    <span class="theme-switch" role="group" aria-label="Thème">
+      <button type="button" data-theme-val="auto"${theme === 'auto' ? ' class="on"' : ''} title="Thème : auto (système)">🌗 auto</button>
+      <button type="button" data-theme-val="light"${theme === 'light' ? ' class="on"' : ''} title="Thème : clair">☀️ clair</button>
+      <button type="button" data-theme-val="dark"${theme === 'dark' ? ' class="on"' : ''} title="Thème : sombre">🌙 sombre</button>
+    </span>
     <button id="refresh" title="Rafraîchir maintenant">🔄</button>
     <a id="debug-link" href="/debug" title="Debug : verdict du pipeline">🐛</a>
   </span>
@@ -301,6 +319,17 @@ ${FAVICON}
     // Pilote le flag serveur ; la case vit dans le <header> (hors #content) donc
     // elle survit aux refresh du fragment. On ne remplace pas #content ici.
     fetch('/notify?enabled=' + (e.target.checked ? '1' : '0'), { method: 'POST' });
+  });
+  var themeSwitch = document.querySelector('.theme-switch');
+  themeSwitch.addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-theme-val]');
+    if (!btn) return;
+    var val = btn.getAttribute('data-theme-val');
+    // Applique tout de suite (pas de reload), met à jour le bouton actif, persiste.
+    document.documentElement.setAttribute('data-theme', val);
+    var all = themeSwitch.querySelectorAll('button');
+    for (var i = 0; i < all.length; i++) all[i].classList.toggle('on', all[i] === btn);
+    fetch('/theme?value=' + encodeURIComponent(val), { method: 'POST' });
   });
   toggleBtn.addEventListener('click', function () {
     showHidden = !showHidden;

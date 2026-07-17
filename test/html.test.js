@@ -198,6 +198,36 @@ test('renderShell : notifs activées par défaut (notifyEnabled absent)', () => 
   assert.match(out, /id="notify"[^>]*\schecked/);
 });
 
+test('renderShell : data-theme sur <html> selon la préférence', () => {
+  assert.match(renderShell({ theme: 'dark' }), /<html lang="fr" data-theme="dark"/);
+  assert.match(renderShell({ theme: 'light' }), /<html lang="fr" data-theme="light"/);
+});
+
+test('renderShell : data-theme="auto" par défaut', () => {
+  assert.match(renderShell({}), /<html lang="fr" data-theme="auto"/);
+});
+
+test('renderShell : CSS gère auto (media) + override light/dark explicites', () => {
+  const out = renderShell({ theme: 'auto' });
+  assert.match(out, /:root\[data-theme="auto"\]/);   // dark suit le système en auto
+  assert.match(out, /:root\[data-theme="light"\]/);  // force clair
+  assert.match(out, /:root\[data-theme="dark"\]/);   // force sombre
+});
+
+test('renderShell : switcher 3 boutons, l’actif surligné (.on) selon le thème', () => {
+  const out = renderShell({ theme: 'dark' });
+  assert.match(out, /data-theme-val="auto"/);
+  assert.match(out, /data-theme-val="light"/);
+  assert.match(out, /data-theme-val="dark"/);
+  // le bouton du thème courant porte la classe on
+  assert.match(out, /data-theme-val="dark"[^>]*class="[^"]*\bon\b/);
+  assert.ok(!/data-theme-val="light"[^>]*\bon\b/.test(out), 'seul le thème courant est actif');
+});
+
+test('renderShell : le switcher poste vers /theme', () => {
+  assert.match(renderShell({ theme: 'auto' }), /\/theme/);
+});
+
 test('renderShell : favicon logo GitHub inline (data-URI SVG, theme-aware)', () => {
   const out = renderShell({ intervalMs: 10000 });
   assert.match(out, /<link rel="icon" href="data:image\/svg\+xml,/);

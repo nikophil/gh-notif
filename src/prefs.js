@@ -7,7 +7,8 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 // persistance JSON, testables sur fixtures. Défauts appliqués à la lecture pour
 // qu'un fichier ancien/partiel reste valide (les notifs sont activées par défaut).
 
-const DEFAULTS = { notify: true };
+const DEFAULTS = { notify: true, theme: 'auto' };
+const THEMES = ['light', 'dark', 'auto'];
 
 export function prefsPath() {
   const base = process.env.XDG_STATE_HOME || join(homedir(), '.local', 'state');
@@ -31,4 +32,11 @@ export function savePrefs(path, prefs) {
 // les désactive (cohérent avec les défauts de loadPrefs).
 export function isNotifyEnabled(prefs) {
   return prefs?.notify !== false;
+}
+
+// Thème CSS choisi : 'light' | 'dark' | 'auto'. Toute valeur inconnue/absente
+// retombe sur 'auto' (suit le système) — robuste face à un fichier trafiqué.
+export function themeOf(prefs) {
+  const t = prefs?.theme;
+  return THEMES.includes(t) ? t : 'auto';
 }
