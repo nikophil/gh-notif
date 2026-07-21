@@ -149,6 +149,66 @@ Le **look & feel** reprend les couleurs GitHub (Primer, clair/sombre selon ton s
 dépendance : servi par le module HTTP natif de Node, tout est inline (aucun asset externe).
 `Ctrl-C` arrête le serveur. Un lien **🐛** dans l'en-tête mène à la page de debug (voir ci-dessous).
 
+### Lancer au démarrage (Linux · systemd)
+
+Pour avoir le dashboard en permanence, sans le relancer à la main à chaque session, déclare-le en
+**service systemd *utilisateur*** (`~/.config/systemd/user/gh-notif.service`) :
+
+```ini
+[Unit]
+Description=gh notif --serve (dashboard GitHub local)
+After=graphical-session.target network-online.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h
+# node installé via nvm/asdf ? le shebang est `#!/usr/bin/env node` : donne un PATH explicite
+# Environment=PATH=%h/.nvm/versions/node/vXX.Y.Z/bin:/usr/local/bin:/usr/bin:/bin
+# évite d'ouvrir un onglet de navigateur à chaque (re)démarrage
+Environment=BROWSER=/bin/true
+ExecStart=/usr/bin/gh notif --serve --port 7777
+
+Restart=always
+RestartSec=10
+# ne jamais abandonner, même après des crashs en rafale
+StartLimitIntervalSec=0
+
+[Install]
+WantedBy=graphical-session.target
+```
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now gh-notif.service
+```
+
+Trois points qui font échouer le service si on les rate :
+
+- **service *utilisateur*, pas système** : les notifications desktop passent par le D-Bus de ta
+  session et `gh` lit ton auth dans `~/.config/gh`. Un service système n'a ni l'un ni l'autre.
+- **`PATH` explicite si node vient de nvm/asdf** : systemd démarre avec un `PATH` minimal, et
+  l'entrypoint est un `#!/usr/bin/env node` — sans ça, `node: command not found`.
+- **`BROWSER=/bin/true`** : `--serve` ouvre le navigateur au démarrage (via `xdg-open`) ; sans ce
+  garde-fou, chaque redémarrage du service t'ouvre un onglet.
+
+Piloter le service au quotidien :
+
+```bash
+systemctl --user status gh-notif        # état, PID, dernières lignes de log
+systemctl --user restart gh-notif       # relance (après une mise à jour de l'extension)
+systemctl --user stop gh-notif          # arrête — et ne redémarre PAS (stop explicite ≠ crash)
+systemctl --user disable gh-notif       # ne se lance plus au login
+journalctl --user -u gh-notif -f        # logs en direct
+```
+
+Après avoir modifié le fichier `.service`, un `systemctl --user daemon-reload` est **obligatoire**
+avant le `restart` : sinon systemd relance l'ancienne version gardée en mémoire.
+
+> ⚠️ Ne tue jamais le process à la main : `gh` lance un **process node enfant** qui survit au `kill`
+> du parent et garde le port occupé (le service redémarre alors en boucle sur `EADDRINUSE`). Passe
+> par `systemctl --user restart/stop`, qui nettoie tout le cgroup.
+
 ## Debug — vérifier la détection
 
 Pour comprendre *pourquoi* une PR remonte (ou pas), le mode debug expose le **verdict du pipeline**
