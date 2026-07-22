@@ -106,3 +106,22 @@ test('getPullDetailsBatch : liste vide → aucune requête', async () => {
   assert.deepEqual(await gh.getPullDetailsBatch([]), []);
   assert.equal(runner.calls.length, 0);
 });
+
+test('scopeExists : org/user → GET users/…, repo → GET repos/…', async () => {
+  const runner = fakeRunner([['api users/mapado', '{"id":1}'], ['api repos/o/r', '{"id":2}']]);
+  const gh = makeGh(runner);
+  assert.equal(await gh.scopeExists({ type: 'org', value: 'mapado' }), true);
+  assert.equal(await gh.scopeExists({ type: 'repo', value: 'o/r' }), true);
+  assert.ok(runner.calls[0].join(' ').startsWith('api users/mapado'));
+  assert.ok(runner.calls[1].join(' ').startsWith('api repos/o/r'));
+});
+
+test('scopeExists : 404 → false, autre échec (réseau…) → null (indéterminé)', async () => {
+  const gh404 = makeGh(async () => { const e = new Error('gh: Not Found (HTTP 404)'); throw e; });
+  assert.equal(await gh404.scopeExists({ type: 'org', value: 'nope' }), false);
+  const ghStderr = makeGh(async () => { const e = new Error('exit 1'); e.stderr = 'gh: Not Found (HTTP 404)'; throw e; });
+  assert.equal(await ghStderr.scopeExists({ type: 'repo', value: 'o/nope' }), false);
+  const ghDown = makeGh(async () => { throw new Error('connect ETIMEDOUT'); });
+  assert.equal(await ghDown.scopeExists({ type: 'org', value: 'mapado' }), null);
+  assert.equal(await ghDown.scopeExists(null), null); // scope invalide : indéterminé
+});

@@ -5,7 +5,12 @@ import { makeGh } from './src/github.js';
 import { collectPRs } from './src/collect.js';
 import { CATEGORY } from './src/filter.js';
 import { diffApprovals } from './src/approvals.js';
-import { renderList, renderDebugText } from './src/render.js';
+import { renderList, renderDebugText, favoritesBar } from './src/render.js';
+import { prefsPath, loadPrefs, savePrefs } from './src/prefs.js';
+import {
+  parseScope, normalizeFavorites, addFavorite, removeFavorite,
+  favoriteScopes, activeFavoriteOf, cycleFavorite, filterDataByScope,
+} from './src/favorites.js';
 import { sendNotification, watchEventLine } from './src/notify.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './src/state.js';
 import { startSpinner } from './src/spinner.js';
@@ -48,10 +53,15 @@ function rowIndexForInput(rows, buffer) {
 
 // Bandeau d'aide sous les tableaux. En mode masquage : invite « # de la PR ».
 // `quitHint` ajoute la touche de sortie propre au contexte (q en one-shot).
-function helpBanner(hideMode, buffer, quitHint = '') {
-  return hideMode
-    ? `\n\x1b[2mn° de la PR à masquer/restaurer : \x1b[0m#${buffer}\x1b[2m_  ·  Entrée valide · Esc annule\x1b[0m\n`
-    : `\n\x1b[2m↳ appuie sur \x1b[0mh\x1b[2m pour masquer/restaurer une PR des autres${quitHint}\x1b[0m\n`;
+// `favBar` (barre de favoris) est affichée au-dessus, uniquement si des favoris
+// existent — et l'indice « f » n'apparaît que dans ce cas.
+function helpBanner(hideMode, buffer, quitHint = '', favBar = '') {
+  const bar = favBar ? `\n${favBar}\n` : '';
+  if (hideMode) {
+    return `${bar}\n\x1b[2mn° de la PR à masquer/restaurer : \x1b[0m#${buffer}\x1b[2m_  ·  Entrée valide · Esc annule\x1b[0m\n`;
+  }
+  const favHint = favBar ? `\x1b[0mf\x1b[2m pour changer de favori · \x1b[0m` : '';
+  return `${bar}\n\x1b[2m↳ ${favHint}\x1b[2mappuie sur \x1b[0mh\x1b[2m pour masquer/restaurer une PR des autres${quitHint}\x1b[0m\n`;
 }
 
 // Ligne de journal (--watch -v) quand une PR est masquée/restaurée à la main.
@@ -62,9 +72,10 @@ function hideEventLine(nowHidden, row, time) {
 
 // Boucle clavier partagée (one-shot). Résout quand l'utilisateur quitte (q hors
 // mode masquage). `draw(hideMode, buffer)` redessine ; `rowsFor()` renvoie les
-// lignes « autres » courantes ; `onToggle(row)` masque/restaure. On quitte le
-// mode masquage dès qu'une PR a été (dé)masquée.
-function runInteractive({ draw, rowsFor, onToggle }) {
+// lignes « autres » courantes ; `onToggle(row)` masque/restaure ;
+// `onCycleFav()` passe au favori suivant (filtre local, aucune requête). On quitte
+// le mode masquage dès qu'une PR a été (dé)masquée.
+function runInteractive({ draw, rowsFor, onToggle, onCycleFav }) {
   return new Promise((resolve) => {
     let hideMode = false;
     let buffer = ''; // chiffres du numéro de PR saisi en mode masquage
@@ -80,6 +91,9 @@ function runInteractive({ draw, rowsFor, onToggle }) {
       if (key.ctrl && key.name === 'c') { cleanup(); process.stdout.write('\n'); resolve(); return; }
       if (!hideMode) {
         if (str === 'h') { hideMode = true; buffer = ''; draw(true, buffer); }
+        // `f` hors mode masquage seulement : en mode masquage, la saisie est
+        // numérique et `f` n'a pas à voler la frappe.
+        else if (str === 'f' && onCycleFav) { onCycleFav(); draw(false, ''); }
         else if (str === 'q') { cleanup(); resolve(); }
         return;
       }
@@ -107,7 +121,7 @@ function runInteractive({ draw, rowsFor, onToggle }) {
 
 const RECENT_MAX = 8; // évènements de session affichés sous les tableaux
 
-async function runWatch(gh, { scope, verbose, showHidden, debug, intervalSeconds = POLL_SECONDS }) {
+async function runWatch(gh, { scope, verbose, showHidden, debug, intervalSeconds = POLL_SECONDS, favorites = [], activeFav = null, prefs = null, prefsFile = null }) {
   const me = await gh.getCurrentUser();
   const path = statePath();
   const hiddenFile = hiddenPath();
@@ -122,22 +136,27 @@ async function runWatch(gh, { scope, verbose, showHidden, debug, intervalSeconds
   let data = null;
   let hideMode = false;
   let buffer = '';
+  // `data` reste brut (union des favoris) : les notifs desktop couvrent TOUS les
+  // favoris, y compris ceux qu'on ne regarde pas. `view()` filtre à l'affichage.
+  let current = activeFav;
+  const view = () => filterDataByScope(data, parseScope(current));
 
   // Redessine : en-tête + les deux tableaux + bandeau (indice ou saisie) + journal.
   const redraw = () => {
     if (!data) return;
-    const vm = viewModel(data, { showHidden });
+    const shown = view();
+    const vm = viewModel(shown, { showHidden });
     if (process.stdout.isTTY) process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
     process.stdout.write(`\x1b[2m🔄 gh notif --watch · maj ${now()} · toutes les ${intervalSeconds}s · Ctrl-C pour arrêter\x1b[0m\n\n`);
-    process.stdout.write(renderList({ mine: data.mine, others: vm.rows, hiddenCount: data.hiddenCount },
+    process.stdout.write(renderList({ mine: shown.mine, others: vm.rows, hiddenCount: shown.hiddenCount },
       { showHidden, hiddenFlags: vm.hiddenFlags }));
     // indice « h » en permanence (mode normal) ou invite de saisie (mode masquage)
-    if (interactive()) process.stdout.write(helpBanner(hideMode, buffer));
+    if (interactive()) process.stdout.write(helpBanner(hideMode, buffer, '', favoritesBar(favorites, current)));
     if (verbose && recent.length > 0) {
       process.stdout.write(`\n\x1b[1m🔔 Évènements détectés (session)\x1b[0m\n`);
       for (const line of recent) process.stdout.write(`${line}\n`);
     }
-    if (debug) process.stdout.write(`\n${renderDebugText(data.debug)}`);
+    if (debug) process.stdout.write(`\n${renderDebugText(shown.debug)}`);
   };
 
   if (interactive()) {
@@ -145,10 +164,19 @@ async function runWatch(gh, { scope, verbose, showHidden, debug, intervalSeconds
     process.stdin.setRawMode(true);
     process.stdin.on('keypress', (str, key) => {
       if (key.ctrl && key.name === 'c') { try { process.stdin.setRawMode(false); } catch {} process.stdout.write('\n'); process.exit(0); }
-      if (!hideMode) { if (str === 'h' && data) { hideMode = true; buffer = ''; redraw(); } return; }
+      if (!hideMode) {
+        if (str === 'h' && data) { hideMode = true; buffer = ''; redraw(); }
+        // Changement de favori = filtre local : pas de poll, pas de gel de boucle.
+        else if (str === 'f' && favorites.length > 0) {
+          current = cycleFavorite(favorites, current);
+          if (prefs && prefsFile) { prefs.activeFav = current; savePrefs(prefsFile, prefs); }
+          redraw();
+        }
+        return;
+      }
       if (key.name === 'escape') { hideMode = false; buffer = ''; redraw(); return; }
       if (key.name === 'return' || key.name === 'enter') {
-        const rows = viewModel(data, { showHidden }).rows;
+        const rows = viewModel(view(), { showHidden }).rows;
         const idx = rowIndexForInput(rows, buffer);
         if (idx >= 0) {
           const row = rows[idx];
@@ -254,14 +282,26 @@ Usage:
   gh notif --interval N      Secondes entre deux polls (--watch/--serve, plancher 60)
   gh notif --org <org>       Limite à une organisation
   gh notif --repo [o/r]      Limite à un dépôt (sans valeur = dépôt courant)
+  gh notif --fav <scope>     Démarre sur ce favori (doit être dans la liste)
   gh notif --show-hidden     Affiche aussi les PR masquées (grisées, 🙈)
   gh notif --debug           Dump du verdict de classification par thread (terminal)
   gh notif --help            Affiche cette aide
 
---org et --repo sont mutuellement exclusifs. Ils s'appliquent aussi à --watch.
+Favoris (scopes épinglés) :
+  gh notif fav list          Liste les favoris (⭐ = celui affiché)
+  gh notif fav add <scope>   Épingle une org (mapado) ou un dépôt (owner/repo)
+  gh notif fav rm <scope>    Retire un favori
 
-Touches (terminal interactif) : h = masquer/restaurer une PR des autres ·
-(en mode masquage) n° de PR + Entrée = valider · Esc = annuler · q = quitter.
+Dès qu'un favori existe, la collecte porte sur l'UNION des favoris — donc les
+notifications desktop de tous arrivent en permanence — et seul le favori actif
+est affiché. Changer de favori ne coûte aucune requête GitHub.
+
+--org et --repo sont mutuellement exclusifs. Ils s'appliquent aussi à --watch et
+priment sur les favoris (alors ignorés).
+
+Touches (terminal interactif) : f = favori suivant · h = masquer/restaurer une PR
+des autres · (en mode masquage) n° de PR + Entrée = valider · Esc = annuler ·
+q = quitter.
 `;
 
 // Parse les arguments. repo: undefined=absent, null=donné sans valeur (dépôt
@@ -269,7 +309,7 @@ Touches (terminal interactif) : h = masquer/restaurer une PR des autres ·
 // (erreur, valeur requise), string=valeur.
 function parseArgs(argv) {
   const args = argv.slice(2);
-  const flags = { all: false, watch: false, serve: false, port: undefined, interval: undefined, help: false, verbose: false, debug: false, showHidden: false, org: undefined, repo: undefined };
+  const flags = { all: false, watch: false, serve: false, port: undefined, interval: undefined, help: false, verbose: false, debug: false, showHidden: false, org: undefined, repo: undefined, fav: undefined };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     const takeValue = () => {
@@ -292,6 +332,8 @@ function parseArgs(argv) {
     else if (a === '--org') flags.org = takeValue();
     else if (a.startsWith('--repo=')) flags.repo = a.slice(7);
     else if (a === '--repo') flags.repo = takeValue();
+    else if (a.startsWith('--fav=')) flags.fav = a.slice(6);
+    else if (a === '--fav') flags.fav = takeValue();
   }
   return flags;
 }
@@ -310,6 +352,7 @@ function effectiveInterval(flags) {
   return flags.interval;
 }
 
+// Scope ad-hoc demandé en ligne de commande (--org / --repo), ou null.
 async function resolveScope(gh, flags) {
   if (flags.org !== undefined && flags.repo !== undefined) {
     throw new Error('--org et --repo sont mutuellement exclusifs');
@@ -326,7 +369,72 @@ async function resolveScope(gh, flags) {
   return null;
 }
 
-async function runList(gh, { all, scope, showHidden, debug }) {
+// Résout ce qu'on COLLECTE et ce qu'on AFFICHE, par priorité décroissante :
+//   1. --org/--repo explicite → ce scope seul, favoris hors-jeu ;
+//   2. des favoris existent   → union des favoris, filtrée sur le favori actif ;
+//   3. sinon                  → tout GitHub (comportement historique).
+async function resolveScopes(gh, flags, prefs) {
+  const adhoc = await resolveScope(gh, flags);
+  const favorites = normalizeFavorites(prefs.favorites);
+  if (adhoc) return { collectScope: adhoc, favorites, activeFav: null };
+
+  let activeFav = activeFavoriteOf(prefs, favorites);
+  if (flags.fav !== undefined) {
+    if (!flags.fav) throw new Error('--fav requiert une valeur (ex. --fav mapado)');
+    if (!favorites.includes(flags.fav)) {
+      const known = favorites.length > 0 ? favorites.join(', ') : 'aucun (gh notif fav add <scope>)';
+      throw new Error(`--fav ${flags.fav} : favori inconnu. Favoris connus : ${known}`);
+    }
+    activeFav = flags.fav;
+  }
+  return { collectScope: favoriteScopes(favorites), favorites, activeFav };
+}
+
+// Sous-commande `gh notif fav [add|rm|list] [scope]` : gestion de la liste des
+// favoris (prefs-v1.json). Seul `add` touche le réseau : une vérification rapide
+// que le scope existe sur GitHub (org/user OU dépôt) — pas le droit d'épingler
+// une coquille. Tri-état de scopeExists : false → refus net ; null (réseau,
+// rate-limit…) → fail-open avec avertissement, on ne bloque pas à tort.
+async function runFav(args) {
+  const prefsFile = prefsPath();
+  const prefs = loadPrefs(prefsFile);
+  let favorites = normalizeFavorites(prefs.favorites);
+  const [action, value] = args;
+
+  if (action === 'add' || action === 'rm') {
+    if (action === 'add') {
+      const s = parseScope(value);
+      if (s) {
+        const exists = await makeGh().scopeExists(s);
+        if (exists === false) {
+          throw new Error(s.type === 'repo'
+            ? `dépôt ${s.value} introuvable sur GitHub`
+            : `org/utilisateur ${s.value} introuvable sur GitHub`);
+        }
+        if (exists === null) process.stderr.write(`gh notif fav: impossible de vérifier « ${s.value} » (réseau ?) — ajouté quand même\n`);
+      }
+      favorites = addFavorite(favorites, value);
+    } else {
+      favorites = removeFavorite(favorites, value);
+    }
+    // ⚠️ muter puis réécrire l'objet EN ENTIER : savePrefs({favorites}) perdrait
+    // notify/theme (cf. ARCHITECTURE.md §préférences persistées).
+    prefs.favorites = favorites;
+    prefs.activeFav = activeFavoriteOf(prefs, favorites); // favori retiré → « tous »
+    savePrefs(prefsFile, prefs);
+  } else if (action !== undefined && action !== 'list') {
+    throw new Error(`fav : action inconnue « ${action} » (add | rm | list)`);
+  }
+
+  if (favorites.length === 0) {
+    process.stdout.write('Aucun favori. Ajoute-en un : gh notif fav add mapado\n');
+    return;
+  }
+  const active = activeFavoriteOf(prefs, favorites);
+  process.stdout.write(`${favoritesBar(favorites, active)}\n`);
+}
+
+async function runList(gh, { all, scope, showHidden, debug, favorites = [], activeFav = null, prefs = null, prefsFile = null }) {
   const hiddenFile = hiddenPath();
   const hidden = loadHidden(hiddenFile);
   const stop = startSpinner('Récupération des PRs et notifications…');
@@ -339,47 +447,80 @@ async function runList(gh, { all, scope, showHidden, debug }) {
   }
   if (data.hiddenChanged) saveHidden(hiddenFile, hidden);
 
+  // `data` reste BRUT (union des favoris) : c'est lui qui alimente le masquage.
+  // `view()` n'applique le filtre du favori actif qu'au moment de l'affichage.
+  let current = activeFav;
+  const view = () => filterDataByScope(data, parseScope(current));
+
   // Hors TTY (pipe/redirection) : affiche puis rend la main, sans interaction.
   if (!interactive()) {
-    const vm = viewModel(data, { showHidden });
-    process.stdout.write(renderList({ mine: data.mine, others: vm.rows, hiddenCount: data.hiddenCount },
+    const shown = view();
+    const vm = viewModel(shown, { showHidden });
+    process.stdout.write(renderList({ mine: shown.mine, others: vm.rows, hiddenCount: shown.hiddenCount },
       { showHidden, hiddenFlags: vm.hiddenFlags }));
-    if (debug) process.stdout.write(`\n${renderDebugText(data.debug)}`);
+    if (debug) process.stdout.write(`\n${renderDebugText(shown.debug)}`);
     return;
   }
 
   // Terminal interactif : on reste vivant pour permettre le masquage au clavier.
   await runInteractive({
     draw: (hideMode, buffer) => {
-      const vm = viewModel(data, { showHidden });
+      const shown = view();
+      const vm = viewModel(shown, { showHidden });
       process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
-      process.stdout.write(renderList({ mine: data.mine, others: vm.rows, hiddenCount: data.hiddenCount },
+      process.stdout.write(renderList({ mine: shown.mine, others: vm.rows, hiddenCount: shown.hiddenCount },
         { showHidden, hiddenFlags: vm.hiddenFlags }));
-      process.stdout.write(helpBanner(hideMode, buffer, ' · q pour quitter'));
-      if (debug) process.stdout.write(`\n${renderDebugText(data.debug)}`);
+      process.stdout.write(helpBanner(hideMode, buffer, ' · q pour quitter', favoritesBar(favorites, current)));
+      if (debug) process.stdout.write(`\n${renderDebugText(shown.debug)}`);
     },
-    rowsFor: () => viewModel(data, { showHidden }).rows,
+    rowsFor: () => viewModel(view(), { showHidden }).rows,
     onToggle: (row) => { toggleHidden(hidden, keyOf(row), data.notifications); saveHidden(hiddenFile, hidden); data = recompute(data, hidden); },
+    // Filtre local : aucune requête GitHub, juste un redraw + persistance.
+    onCycleFav: () => {
+      current = cycleFavorite(favorites, current);
+      if (prefs && prefsFile) { prefs.activeFav = current; savePrefs(prefsFile, prefs); }
+    },
   });
 }
 
 async function main(argv) {
+  // Sous-commande `fav` : gérée à part, avant le parsing des flags.
+  if (argv[2] === 'fav') {
+    try {
+      await runFav(argv.slice(3));
+    } catch (err) {
+      process.stderr.write(`gh notif fav: ${err.message}\n`);
+      process.exit(1);
+    }
+    return;
+  }
+
   const flags = parseArgs(argv);
   if (flags.help) { process.stdout.write(HELP); return; }
   const gh = makeGh();
   try {
-    const scope = await resolveScope(gh, flags);
+    const prefsFile = prefsPath();
+    const prefs = loadPrefs(prefsFile);
+    const { collectScope, favorites, activeFav } = await resolveScopes(gh, flags, prefs);
+    // `--fav` vaut choix explicite : on le persiste, sinon --serve (qui relit
+    // prefs de son côté) l'ignorerait. Muter + réécrire en entier (cf. prefs.js).
+    if (flags.fav !== undefined && prefs.activeFav !== activeFav) {
+      prefs.activeFav = activeFav;
+      savePrefs(prefsFile, prefs);
+    }
     const intervalSeconds = effectiveInterval(flags);
     if (flags.serve) {
       if (flags.port !== undefined && flags.port !== null && !Number.isInteger(flags.port)) {
         throw new Error('--port requiert un entier (ex. --port 7777)');
       }
       const me = await gh.getCurrentUser();
-      serve({ gh, me, scope, all: flags.all, port: flags.port ?? 7777, intervalSeconds });
+      // serve() relit les favoris depuis prefs lui-même : on ne lui passe que le
+      // scope ad-hoc éventuel (Array ⇒ mode favoris, qu'il recalcule).
+      serve({ gh, me, scope: Array.isArray(collectScope) ? null : collectScope, all: flags.all, port: flags.port ?? 7777, intervalSeconds });
     } else if (flags.watch) {
-      await runWatch(gh, { scope, verbose: flags.verbose, showHidden: flags.showHidden, debug: flags.debug, intervalSeconds });
+      await runWatch(gh, { scope: collectScope, verbose: flags.verbose, showHidden: flags.showHidden, debug: flags.debug, intervalSeconds, favorites, activeFav, prefs, prefsFile });
     } else {
-      await runList(gh, { all: flags.all, scope, showHidden: flags.showHidden, debug: flags.debug });
+      await runList(gh, { all: flags.all, scope: collectScope, showHidden: flags.showHidden, debug: flags.debug, favorites, activeFav, prefs, prefsFile });
     }
   } catch (err) {
     process.stderr.write(`gh notif: ${err.message}\n`);

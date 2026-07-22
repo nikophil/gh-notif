@@ -1,6 +1,7 @@
 // Couleur & liens (désactivés hors TTY ou si NO_COLOR), construction de tableaux
 // encadrés alignés, et helpers d'affichage (triggers, CI, date relative, diff).
 import { isReady } from './approvals.js';
+import { favoriteLabel } from './favorites.js';
 
 const REPO_MAX = 26;
 const TITLE_MAX = 46;
@@ -244,6 +245,18 @@ export function renderList(data, opts) {
   }
   if (blocks.length === 0) return 'Rien à signaler ✨\n';
   return blocks.join('\n\n') + '\n';
+}
+
+// Barre de favoris du mode terminal : « ⭐ tous · [mapado] · zenstruck », l'actif
+// entre crochets et en gras. Liste vide → chaîne vide (rien ne s'affiche pour qui
+// n'utilise pas les favoris). Rendue HORS des tableaux encadrés : aucune
+// contrainte d'alignement, donc pas d'impact sur displayWidth (cf. §5).
+export function favoritesBar(favorites, active, opts) {
+  const o = resolveOpts(opts);
+  if (!favorites || favorites.length === 0) return '';
+  const cell = (label, on) => (on ? paint(`[${label}]`, C.bold, o) : paint(label, C.dim, o));
+  const parts = [cell('⭐ tous', !active), ...favorites.map((f) => cell(favoriteLabel(f), f === active))];
+  return parts.join(paint(' · ', C.dim, o));
 }
 
 // Dump terminal du verdict de classification par thread (mode --debug). Une ligne

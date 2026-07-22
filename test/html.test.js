@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { escapeHtml, renderFragment, renderShell, renderLoading, renderDebug, renderDebugShell } from '../src/html.js';
+import { escapeHtml, renderFragment, renderShell, renderLoading, renderDebug, renderDebugShell, renderFavorites } from '../src/html.js';
 
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
 
@@ -143,11 +143,13 @@ test('renderFragment : showHidden affiche les lignes masquées (grisées + resta
 });
 
 // ── renderShell (page + polling) ───────────────────────────────────────────
-test('renderShell : page HTML complète avec polling de /fragment', () => {
+test('renderShell : page HTML complète avec polling de /view', () => {
   const out = renderShell({ intervalMs: 10000 });
   assert.ok(out.startsWith('<!doctype html'), 'commence par le doctype');
   assert.ok(out.includes('id="content"'), 'conteneur rafraîchi');
-  assert.ok(out.includes('/fragment'), 'endpoint poll');
+  // Le poll client passe par /view ({chips, fragment, updatedAt}) : la barre de
+  // favoris (compteurs) se rafraîchit au même rythme que les tableaux.
+  assert.ok(out.includes("'/view'"), 'endpoint poll unifié');
   assert.ok(out.includes('10000'), 'intervalle injecté dans le JS');
 });
 
@@ -268,4 +270,72 @@ test('renderDebugShell : page autonome qui poll /debug-fragment, lien retour, sa
   assert.match(out, /9000/);
   assert.match(out, /href="\/"/);                 // retour aux tableaux
   assert.ok(!/src="https?:/.test(out), 'pas de script externe');
+});
+
+// ── Barre de favoris (web) ───────────────────────────────────────────────
+
+test('renderFavorites : chip active marquée .on, « ⭐ tous » actif si aucun favori', () => {
+  const list = ['mapado', 'zenstruck'];
+  const actif = renderFavorites(list, 'mapado');
+  assert.match(actif, /<button data-fav="mapado" class="on">mapado\/\*<\/button>/);
+  assert.doesNotMatch(actif, /<button data-fav="" class="on"/); // « tous » pas actif
+  const tous = renderFavorites(list, null);
+  assert.match(tous, /<button data-fav="" class="on"/);
+  assert.doesNotMatch(tous, /data-fav="mapado" class="on"/);
+});
+
+test('renderFavorites : une org s’affiche « org/* », un dépôt tel quel — data-fav reste brut', () => {
+  const html = renderFavorites(['mapado', 'noctud/collection'], null);
+  assert.match(html, /data-fav="mapado"[^>]*>mapado\/\*</);            // libellé décoré…
+  assert.match(html, /data-fav-rm="mapado"/);                          // …valeur brute pour l'API
+  assert.match(html, /data-fav="noctud\/collection"[^>]*>noctud\/collection</); // repo inchangé
+});
+
+test('renderFavorites : compteurs (activité des autres) par chip et sur « tous »', () => {
+  const counts = { total: 8, byFav: { mapado: 5, zenstruck: 3 } };
+  const html = renderFavorites(['mapado', 'zenstruck'], null, { counts });
+  assert.match(html, /⭐ tous <span class="fav-n">\(8\)<\/span>/);
+  assert.match(html, /mapado\/\* <span class="fav-n">\(5\)<\/span>/);
+  assert.match(html, /zenstruck\/\* <span class="fav-n">\(3\)<\/span>/);
+});
+
+test('renderFavorites : favori absent des compteurs → (0) ; sans counts → pas de badge', () => {
+  const html = renderFavorites(['mapado'], null, { counts: { total: 0, byFav: {} } });
+  assert.match(html, /mapado\/\* <span class="fav-n">\(0\)<\/span>/);
+  assert.doesNotMatch(renderFavorites(['mapado'], null), /fav-n/);
+});
+
+test('renderFavorites : chaque chip a sa croix de retrait', () => {
+  const html = renderFavorites(['mapado'], null);
+  assert.match(html, /data-fav-rm="mapado"/);
+});
+
+test('renderFavorites : liste vide → chaîne vide (aucun changement visuel)', () => {
+  assert.equal(renderFavorites([], null), '');
+  assert.equal(renderFavorites(undefined, null), '');
+});
+
+test('renderFavorites : mode ad-hoc → barre grisée, aucune chip active', () => {
+  const html = renderFavorites(['mapado'], 'mapado', { adhoc: true });
+  assert.match(html, /class="favs adhoc"/);
+  assert.doesNotMatch(html, /class="on"/);
+});
+
+test('renderFavorites échappe les valeurs (anti-injection : saisie utilisateur)', () => {
+  const html = renderFavorites(['<script>alert(1)</script>', 'a&b'], null);
+  assert.doesNotMatch(html, /<script>/);
+  assert.match(html, /&lt;script&gt;/);
+  assert.match(html, /a&amp;b/);
+});
+
+test('renderShell : intègre la barre de favoris et le bouton ⭐ d’épinglage', () => {
+  const html = renderShell({ favorites: ['mapado'], activeFav: 'mapado' });
+  assert.match(html, /id="favs"/);
+  assert.match(html, /data-fav="mapado" class="on"/);
+  assert.match(html, /id="scope-fav"/);
+});
+
+test('renderShell sans favoris : la barre reste vide', () => {
+  const html = renderShell({});
+  assert.match(html, /<div id="favs"><\/div>/);
 });

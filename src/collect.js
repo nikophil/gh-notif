@@ -33,6 +33,8 @@ export function watermarkOf(comments) {
 }
 
 // scope : null (tout) | { type:'org', value } | { type:'repo', value:'owner/name' }
+// Les entrées publiques (collectPRs & co) acceptent aussi un TABLEAU de scopes
+// (union des favoris) — cf. toScopeList / matchesAnyScope plus bas.
 export function scopeMatches(scope, fullName) {
   if (!scope) return true;
   if (scope.type === 'org') return (fullName || '').startsWith(`${scope.value}/`);
@@ -43,6 +45,35 @@ export function scopeMatches(scope, fullName) {
 export function scopeQualifier(scope) {
   if (!scope) return '';
   return scope.type === 'org' ? ` org:${scope.value}` : ` repo:${scope.value}`;
+}
+
+// ── Scopes multiples (favoris) ───────────────────────────────────────────
+// Depuis les favoris, `scope` peut être une LISTE de scopes dont on veut
+// l'union. Les trois helpers ci-dessous généralisent les deux précédents sans
+// les modifier (un scope unique reste un cas particulier).
+
+// Normalise un paramètre `scope` : null | objet unique | tableau → null | tableau
+// non vide. Un tableau vide vaut « pas de filtre ».
+export function toScopeList(scope) {
+  if (!scope) return null;
+  const list = (Array.isArray(scope) ? scope : [scope]).filter(Boolean);
+  return list.length > 0 ? list : null;
+}
+
+// Le dépôt appartient-il à AU MOINS UN des scopes ? (null → tout passe)
+export function matchesAnyScope(scopes, fullName) {
+  const list = toScopeList(scopes);
+  if (!list) return true;
+  return list.some((s) => scopeMatches(s, fullName));
+}
+
+// Qualifier de recherche pour l'union des scopes. GitHub OR-ise les qualifiers
+// de scope répétés (mesuré : `repo:a` 6 + `repo:b` 9 → les deux 15), y compris
+// en mêlant `org:` et `repo:` → l'union coûte UNE recherche, pas N.
+export function scopesQualifier(scopes) {
+  const list = toScopeList(scopes);
+  if (!list) return '';
+  return list.map(scopeQualifier).join('');
 }
 
 export async function inspectThread(gh, thread, me, cacheEntry = null) {
@@ -74,7 +105,7 @@ export async function collectNotifications(gh, me, { all = false, scope = null, 
   const threads = await gh.listNotifications({ all });
   // Ne garde que les PR du scope avant toute requête (filtre = gratuit).
   const prThreads = threads.filter(
-    (t) => t.subject?.type === 'PullRequest' && scopeMatches(scope, t.repository?.full_name),
+    (t) => t.subject?.type === 'PullRequest' && matchesAnyScope(scope, t.repository?.full_name),
   );
   // Inspection en parallèle (au lieu d'un await séquentiel par thread) : c'est le
   // gros gain de temps. `mapLimit` préserve l'ordre ; un thread en échec → null.
@@ -123,7 +154,7 @@ export async function collectNotifications(gh, me, { all = false, scope = null, 
 }
 
 export async function collectPending(gh, scope = null) {
-  const items = await gh.searchReviewRequested(scopeQualifier(scope));
+  const items = await gh.searchReviewRequested(scopesQualifier(scope));
   return items.map((it) => ({
     repo: it.repository_url.replace('https://api.github.com/repos/', ''),
     number: it.number,
@@ -134,7 +165,7 @@ export async function collectPending(gh, scope = null) {
 }
 
 export async function collectAuthored(gh, scope = null) {
-  const items = await gh.searchAuthored(scopeQualifier(scope));
+  const items = await gh.searchAuthored(scopesQualifier(scope));
   return items.map((it) => ({
     repo: it.repository_url.replace('https://api.github.com/repos/', ''),
     number: it.number,

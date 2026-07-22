@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   renderList, renderDebugText, hyperlink, truncate, displayWidth,
-  triggersLabel, ciIcon, stateIcon, relativeDate, diffStat,
+  triggersLabel, ciIcon, stateIcon, relativeDate, diffStat, favoritesBar,
 } from '../src/render.js';
 
 // Mise en page déterministe : couleur et liens désactivés, `now` fixe.
@@ -208,4 +208,23 @@ test('renderDebugText : une ligne par thread, gardé/droppé + raison', () => {
 
 test('renderDebugText : vide → message neutre', () => {
   assert.match(renderDebugText([], { color: false }), /aucun thread/);
+});
+
+// ── Barre de favoris (terminal) ──────────────────────────────────────────
+
+test('favoritesBar : actif entre crochets, « ⭐ tous » quand aucun favori actif', () => {
+  // Une org s'affiche `org/*` (tous ses dépôts), un dépôt reste `owner/name`.
+  const list = ['mapado', 'noctud/collection', 'zenstruck'];
+  assert.equal(favoritesBar(list, null, PLAIN), '[⭐ tous] · mapado/* · noctud/collection · zenstruck/*');
+  assert.equal(favoritesBar(list, 'mapado', PLAIN), '⭐ tous · [mapado/*] · noctud/collection · zenstruck/*');
+  assert.equal(favoritesBar(list, 'zenstruck', PLAIN), '⭐ tous · mapado/* · noctud/collection · [zenstruck/*]');
+});
+
+test('favoritesBar : liste vide → rien (invisible pour qui n’utilise pas les favoris)', () => {
+  assert.equal(favoritesBar([], null, PLAIN), '');
+  assert.equal(favoritesBar(undefined, null, PLAIN), '');
+});
+
+test('favoritesBar : un actif inconnu n’en marque aucun', () => {
+  assert.equal(favoritesBar(['a', 'b'], 'disparu', PLAIN), '⭐ tous · a/* · b/*');
 });

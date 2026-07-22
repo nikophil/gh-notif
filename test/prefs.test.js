@@ -13,7 +13,7 @@ test('prefsPath respecte XDG_STATE_HOME', () => {
 });
 
 test('loadPrefs : fichier absent → défauts (notify: true, theme: auto)', () => {
-  assert.deepEqual(loadPrefs('/nope/nope/prefs.json'), { notify: true, theme: 'auto' });
+  assert.deepEqual(loadPrefs('/nope/nope/prefs.json'), { notify: true, theme: 'auto', favorites: [], activeFav: null });
 });
 
 test('loadPrefs : fichier corrompu → défauts', () => {
@@ -22,7 +22,7 @@ test('loadPrefs : fichier corrompu → défauts', () => {
   savePrefs(p, {}); // écrit un objet valide…
   rmSync(p, { force: true });
   // …puis on relit un chemin inexistant : défaut appliqué
-  assert.deepEqual(loadPrefs(p), { notify: true, theme: 'auto' });
+  assert.deepEqual(loadPrefs(p), { notify: true, theme: 'auto', favorites: [], activeFav: null });
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -30,7 +30,7 @@ test('save puis load round-trip (notify: false persisté)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ghnotif-'));
   const p = join(dir, 'sub', 'prefs.json');
   savePrefs(p, { notify: false });
-  assert.deepEqual(loadPrefs(p), { notify: false, theme: 'auto' });
+  assert.deepEqual(loadPrefs(p), { notify: false, theme: 'auto', favorites: [], activeFav: null });
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -57,10 +57,41 @@ test('themeOf : valeurs valides passent, tout le reste → auto', () => {
   assert.equal(themeOf(null), 'auto');                 // objet nul
 });
 
+test('loadPrefs : un fichier antérieur aux favoris reste valide (pas de migration)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ghnotif-'));
+  const p = join(dir, 'prefs.json');
+  savePrefs(p, { notify: false, theme: 'dark' }); // fichier « ancien »
+  const prefs = loadPrefs(p);
+  assert.deepEqual(prefs.favorites, []);
+  assert.equal(prefs.activeFav, null);
+  assert.equal(prefs.notify, false); // les clés existantes ne bougent pas
+  assert.equal(prefs.theme, 'dark');
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('écrire les favoris ne perd ni notify ni theme (piège de la clé écrasée)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ghnotif-'));
+  const p = join(dir, 'prefs.json');
+  savePrefs(p, { notify: false, theme: 'dark' });
+  // La bonne façon : muter l'objet chargé puis le réécrire EN ENTIER.
+  const prefs = loadPrefs(p);
+  prefs.favorites = ['mapado'];
+  prefs.activeFav = 'mapado';
+  savePrefs(p, prefs);
+  assert.deepEqual(loadPrefs(p), { notify: false, theme: 'dark', favorites: ['mapado'], activeFav: 'mapado' });
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('loadPrefs : le tableau favorites n’est pas partagé entre appels', () => {
+  const a = loadPrefs('/nope/nope/prefs.json');
+  a.favorites.push('mapado'); // mutation accidentelle du premier objet
+  assert.deepEqual(loadPrefs('/nope/nope/prefs.json').favorites, []); // DEFAULTS intact
+});
+
 test('loadPrefs : theme persisté conservé, notify complété par défaut', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ghnotif-'));
   const p = join(dir, 'prefs.json');
   savePrefs(p, { theme: 'dark' });
-  assert.deepEqual(loadPrefs(p), { notify: true, theme: 'dark' });
+  assert.deepEqual(loadPrefs(p), { notify: true, theme: 'dark', favorites: [], activeFav: null });
   rmSync(dir, { recursive: true, force: true });
 });

@@ -2,12 +2,18 @@ import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 
-// Préférences UI persistées (mode --serve). Aujourd'hui une seule clé : `notify`
-// (notifications desktop). Calqué sur state.js / hidden.js : fonctions pures +
-// persistance JSON, testables sur fixtures. Défauts appliqués à la lecture pour
-// qu'un fichier ancien/partiel reste valide (les notifs sont activées par défaut).
+// Préférences UI persistées : `notify` (notifications desktop), `theme` (skin
+// CSS), `favorites` (scopes épinglés) et `activeFav` (favori affiché). Calqué sur
+// state.js / hidden.js : fonctions pures + persistance JSON, testables sur
+// fixtures. Défauts appliqués à la lecture pour qu'un fichier ancien/partiel reste
+// valide (notifs activées, thème auto, aucun favori) — donc aucune migration à
+// prévoir en ajoutant une clé.
+//
+// ⚠️ Écriture : muter l'objet prefs en mémoire puis le ré-écrire EN ENTIER
+// (`prefs.favorites = …; savePrefs(path, prefs)`). Surtout pas
+// `savePrefs(path, { favorites })` : ça effacerait notify/theme.
 
-const DEFAULTS = { notify: true, theme: 'auto' };
+const DEFAULTS = { notify: true, theme: 'auto', favorites: [], activeFav: null };
 const THEMES = ['light', 'dark', 'auto'];
 
 export function prefsPath() {
@@ -15,11 +21,16 @@ export function prefsPath() {
   return join(base, 'gh-notif', 'prefs-v1.json');
 }
 
+// ⚠️ `favorites` est un tableau : un simple `{ ...DEFAULTS }` en partagerait la
+// référence entre tous les appels (une mutation polluerait DEFAULTS). On en
+// recopie donc toujours une instance fraîche.
+const defaults = () => ({ ...DEFAULTS, favorites: [...DEFAULTS.favorites] });
+
 export function loadPrefs(path) {
   try {
-    return { ...DEFAULTS, ...JSON.parse(readFileSync(path, 'utf8')) };
+    return { ...defaults(), ...JSON.parse(readFileSync(path, 'utf8')) };
   } catch {
-    return { ...DEFAULTS };
+    return defaults();
   }
 }
 

@@ -60,6 +60,46 @@ sens. Une même PR peut cumuler plusieurs triggers.
 - les **PR en draft des autres** (tes propres drafts restent affichés dans « Tes PR ouvertes ») ;
 - tout ce qui n'est pas une Pull Request (issues, releases, discussions).
 
+### Favoris — suivre plusieurs périmètres sans les mélanger
+
+Tu suis `mapado`, `noctud/collection` et `zenstruck` ? Épingle-les :
+
+```bash
+gh notif fav add mapado
+gh notif fav add noctud/collection
+gh notif fav add zenstruck
+```
+
+L'ajout **vérifie que le scope existe sur GitHub** (org/utilisateur ou dépôt) : une coquille est
+refusée avec un message clair au lieu d'épingler un favori mort.
+
+Dès qu'un favori existe, `gh notif` ne regarde plus tout GitHub mais **l'union de tes favoris**.
+Une barre apparaît sous les tableaux — une org s'affiche `mapado/*` (tous ses dépôts), un dépôt
+tel quel :
+
+```
+⭐ tous · [mapado/*] · noctud/collection · zenstruck/*
+↳ f pour changer de favori · appuie sur h pour masquer/restaurer une PR des autres
+```
+
+**`f`** passe au favori suivant (puis revient à `⭐ tous`). Le choix est **persisté** : tu
+retrouves ta vue au prochain lancement, ou tu la forces avec `gh notif --fav mapado`.
+
+Le point clé : **les notifications desktop couvrent toujours *tous* tes favoris**, même ceux que
+tu ne regardes pas. Le favori actif ne filtre que l'affichage — c'est pour ça que changer de
+favori est instantané et **ne coûte aucune requête GitHub**.
+
+En `--serve`, les favoris sont des chips dans l'en-tête, chacune avec un compteur `(n)` =
+l'**activité sur les PR des autres** dans ce scope (tes propres PR et les masquées ne comptent
+pas) — y compris sur les favoris que tu ne regardes pas, pour voir d'un coup d'œil où ça bouge.
+Clique pour basculer, la croix retire, et le bouton **⭐** épingle le contenu du champ de scope
+(la puce apparaît immédiatement, les tableaux suivent dès la fin du re-poll). Un scope saisi à la
+main reprend la main sur les favoris (les chips passent en grisé) jusqu'à ce que tu recliques sur
+une chip.
+
+> Limite : une recherche GitHub est plafonnée à 256 caractères, donc la liste l'est aussi (une
+> dizaine de favoris aux noms courts). Préfère une org à l'énumération de ses dépôts.
+
 ### Masquer une PR des autres
 
 Un rappel s'affiche sous les tableaux : **`↳ appuie sur h pour masquer une PR des autres`**.
@@ -255,9 +295,16 @@ gh notif --debug              # dump du verdict du pipeline (terminal ; /debug e
 gh notif --org mapado         # limite à une organisation
 gh notif --repo mapado/web    # limite à un dépôt
 gh notif --repo               # limite au dépôt courant (gh repo view)
+gh notif --fav mapado         # démarre sur ce favori (cf. « Favoris »)
+
+gh notif fav list             # liste les favoris (⭐ = celui affiché)
+gh notif fav add mapado       # épingle une org…
+gh notif fav add noctud/collection   # …ou un dépôt
+gh notif fav rm zenstruck     # retire un favori
 ```
 
-`--org` et `--repo` sont mutuellement exclusifs et fonctionnent aussi avec `--watch` et `--serve`.
+`--org` et `--repo` sont mutuellement exclusifs, fonctionnent aussi avec `--watch` et `--serve`,
+et **priment sur les favoris** (qui sont alors ignorés).
 
 > 💡 Couleurs et liens cliquables s'activent en terminal interactif. En pipe/redirection (ou avec
 > `NO_COLOR`), la sortie est en texte simple et déterministe.

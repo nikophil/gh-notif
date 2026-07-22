@@ -4,6 +4,7 @@
 // la logique d'affichage reste mutualisée.
 import { ciIcon, stateIcon, relativeDate } from './render.js';
 import { isReady } from './approvals.js';
+import { favoriteLabel } from './favorites.js';
 
 // Libellés affichés au survol (title="") des icônes — donnent le sens.
 const STATE_LABEL = { draft: 'Brouillon', open: 'Ouverte', merged: 'Mergée', closed: 'Fermée' };
@@ -173,9 +174,32 @@ export function renderLoading() {
 // Page complète servie sur `/` : coquille HTML + CSS + JS inline (aucun asset
 // externe). Le JS recharge `/fragment` au démarrage puis toutes les `intervalMs`
 // (avec compte à rebours), gère le bouton « rafraîchir », le mode « voir les
+// Barre de favoris : « ⭐ tous » puis une chip par scope épinglé, l'actif en .on.
+// Une org s'affiche `mapado/*`, un dépôt `owner/name` (`favoriteLabel`). Chaque
+// chip porte une croix qui la retire. Avec `counts` ({ total, byFav }), un badge
+// `(n)` = activité sur les PR des autres pour ce scope. Liste vide → chaîne vide
+// (aucun changement visuel pour qui n'utilise pas les favoris).
+// `adhoc` = un scope a été saisi à la main : il pilote la collecte, les favoris
+// sont donc hors-jeu → barre grisée, sans chip active.
+// ⚠️ Les valeurs viennent d'une saisie utilisateur : escapeHtml partout (texte ET
+// attribut, `data-fav` reste la valeur BRUTE), et encodeURIComponent côté client.
+export function renderFavorites(favorites = [], active = null, { adhoc = false, counts = null } = {}) {
+  if (!favorites || favorites.length === 0) return '';
+  const badge = (n) => (counts ? ` <span class="fav-n">(${Number(n) || 0})</span>` : '');
+  const chips = favorites.map((f) => {
+    const on = !adhoc && f === active ? ' class="on"' : '';
+    return `<span class="chip"><button data-fav="${escapeHtml(f)}"${on}>${escapeHtml(favoriteLabel(f))}${badge(counts?.byFav?.[f])}</button>`
+      + `<button class="chip-x" data-fav-rm="${escapeHtml(f)}" title="Retirer des favoris">×</button></span>`;
+  }).join('');
+  const allOn = !adhoc && !active ? ' class="on"' : '';
+  const hint = adhoc ? ' title="Un scope est filtré à la main : les favoris ne pilotent plus la collecte"' : '';
+  return `<div class="favs${adhoc ? ' adhoc' : ''}"${hint} role="group" aria-label="Favoris">`
+    + `<button data-fav=""${allOn} title="Tous les favoris">⭐ tous${badge(counts?.total)}</button>${chips}</div>`;
+}
+
 // masquées », le masquage par bouton, et le filtre org/repo. `scopeLabel` préremplit
 // le champ de scope. Le rythme client est découplé du poll GitHub côté serveur.
-export function renderShell({ intervalMs = 10000, scopeLabel = '', notifyEnabled = true, theme = 'auto' } = {}) {
+export function renderShell({ intervalMs = 10000, scopeLabel = '', notifyEnabled = true, theme = 'auto', favorites = [], activeFav = null, adhoc = false, counts = null } = {}) {
   return `<!doctype html>
 <html lang="fr" data-theme="${theme}">
 <head>
@@ -234,6 +258,26 @@ ${FAVICON}
   .theme-switch button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
   .theme-switch button:last-child { border-radius: 0 6px 6px 0; }
   .theme-switch button.on { position: relative; z-index: 1; }
+  /* Favoris : chips « scope + croix » accolées, l'active en .on (même code
+     couleur que le switcher de thème). La barre prend toute la largeur sous
+     l'en-tête pour rester lisible jusqu'à 10 favoris. */
+  #favs { flex-basis: 100%; }
+  .favs { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+  .favs.adhoc { opacity: .45; }
+  .chip { display: inline-flex; }
+  .chip > button { border-radius: 6px 0 0 6px; }
+  .chip > .chip-x { border-radius: 0 6px 6px 0; margin-left: -1px; padding: .3rem .45rem;
+                    color: var(--fg-muted); }
+  .chip > .chip-x:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
+  .chip > button.on { position: relative; z-index: 1; }
+  /* Badge « (n) » = activité des autres sous ce favori. Lisible sur fond accent
+     quand la chip est active. */
+  .fav-n { color: var(--fg-muted); font-weight: 400; }
+  button.on .fav-n { color: #fff; opacity: .85; }
+  /* Message d'erreur (favori introuvable, etc.) : pleine largeur sous les
+     contrôles, masqué quand vide. */
+  .fav-err { flex-basis: 100%; color: var(--danger); font-size: .8125rem; }
+  .fav-err:empty { display: none; }
   /* Section = « Box » GitHub : bordure arrondie, en-tête sur fond subtle. */
   section { margin: 0 0 1.5rem; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
   h2 { font-size: .875rem; font-weight: 600; margin: 0; padding: .65rem 1rem;
@@ -275,6 +319,7 @@ ${FAVICON}
     <span class="input-group">
       <input id="scope" placeholder="org ou owner/repo" value="${escapeHtml(scopeLabel)}">
       <button id="scope-apply" title="Filtrer sur ce scope">Filtrer</button>
+      <button id="scope-fav" title="Épingler ce scope dans les favoris">⭐</button>
       <button id="scope-all" title="Tout afficher">Tout</button>
     </span>
     <button id="toggle-hidden" title="Afficher/masquer les PR cachées">🙈 masquées</button>
@@ -291,6 +336,8 @@ ${FAVICON}
     </span>
     <a id="debug-link" href="/debug" title="Debug : verdict du pipeline">🐛</a>
   </div>
+  <div id="fav-err" class="fav-err"></div>
+  <div id="favs">${renderFavorites(favorites, activeFav, { adhoc, counts })}</div>
 </header>
 <main id="content"></main>
 <script>
@@ -298,6 +345,7 @@ ${FAVICON}
   var content = document.getElementById('content');
   var stamp = document.getElementById('stamp');
   var scopeInput = document.getElementById('scope');
+  var favs = document.getElementById('favs');
   var toggleBtn = document.getElementById('toggle-hidden');
   var showHidden = false;
   var left = INTERVAL / 1000;
@@ -324,16 +372,47 @@ ${FAVICON}
     stamp.classList.add('offline');
     stamp.textContent = 'hors ligne — nouvelle tentative…';
   }
+  // Chaque réponse (poll ou action) porte {chips, fragment} : la barre de favoris
+  // vit dans le <header> (hors #content), on injecte donc les deux. Les compteurs
+  // des puces se rafraîchissent ainsi à CHAQUE poll, comme les tableaux.
+  function inject(d) {
+    if (d && typeof d.chips === 'string') favs.innerHTML = d.chips;
+    setContent(d.fragment);
+  }
   function load() {
     busy();
-    fetch('/fragment' + q()).then(function (r) { return r.text(); }).then(setContent).catch(fail);
+    fetch('/view' + q()).then(function (r) { return r.json(); }).then(inject).catch(fail);
   }
-  function post(path, extra) {
+  // Action POST → {chips, fragment}. Un 4xx (favori introuvable, trop de favoris)
+  // renvoie un message texte affiché près du champ, sans toucher la barre.
+  function act(path, extra) {
     busy();
-    return fetch(path + q(extra), { method: 'POST' }).then(function (r) { return r.text(); }).then(setContent).catch(fail);
+    return fetch(path + q(extra), { method: 'POST' })
+      .then(function (r) {
+        if (!r.ok) return r.text().then(function (t) { throw new Error(t || ('HTTP ' + r.status)); });
+        return r.json();
+      })
+      .then(function (d) { inject(d); return d; })
+      .catch(showError);
+  }
+  // Ajout/retrait de favori : le serveur répond TOUT DE SUITE (puce instantanée)
+  // et rafraîchit les données en arrière-plan. On sonde /view jusqu'à ce que le
+  // snapshot change (updatedAt) → les compteurs et les tableaux se mettent à jour.
+  function chaseFresh(prev, tries) {
+    fetch('/view' + q()).then(function (r) { return r.json(); }).then(function (d) {
+      inject(d);
+      if (d.updatedAt === prev && tries > 0) setTimeout(function () { chaseFresh(prev, tries - 1); }, 700);
+    }).catch(function () {});
+  }
+  function showError(e) {
+    stamp.classList.remove('offline');
+    stamp.textContent = 'maj ' + new Date().toLocaleTimeString('fr-FR');
+    var el = document.getElementById('fav-err');
+    el.textContent = (e && e.message) ? e.message : 'erreur';
+    clearTimeout(el._t); el._t = setTimeout(function () { el.textContent = ''; }, 6000);
   }
 
-  document.getElementById('refresh').addEventListener('click', function () { post('/refresh'); });
+  document.getElementById('refresh').addEventListener('click', function () { act('/refresh'); });
   document.getElementById('notify').addEventListener('change', function (e) {
     // Pilote le flag serveur ; la case vit dans le <header> (hors #content) donc
     // elle survit aux refresh du fragment. On ne remplace pas #content ici.
@@ -356,16 +435,32 @@ ${FAVICON}
     load();
   });
   document.getElementById('scope-apply').addEventListener('click', function () {
-    post('/scope', 'value=' + encodeURIComponent(scopeInput.value.trim()));
+    act('/scope', 'value=' + encodeURIComponent(scopeInput.value.trim()));
   });
   document.getElementById('scope-all').addEventListener('click', function () {
     scopeInput.value = '';
-    post('/scope', 'value=');
+    act('/scope', 'value=');
+  });
+  document.getElementById('scope-fav').addEventListener('click', function () {
+    var v = scopeInput.value.trim();
+    if (!v) return;
+    act('/fav/add', 'value=' + encodeURIComponent(v)).then(function (d) {
+      // Succès seulement : sur un refus (scope introuvable), la saisie reste
+      // pour laisser corriger la coquille.
+      if (d) { scopeInput.value = ''; chaseFresh(d.updatedAt, 8); }
+    });
+  });
+  // Délégation : la barre est remplacée à chaque action, on écoute le conteneur.
+  favs.addEventListener('click', function (e) {
+    var rm = e.target.closest('[data-fav-rm]');
+    if (rm) { act('/fav/rm', 'value=' + encodeURIComponent(rm.getAttribute('data-fav-rm'))).then(function (d) { if (d) chaseFresh(d.updatedAt, 8); }); return; }
+    var sel = e.target.closest('[data-fav]');
+    if (sel) act('/fav', 'value=' + encodeURIComponent(sel.getAttribute('data-fav')));
   });
   content.addEventListener('click', function (e) {
     var btn = e.target.closest('.act');
     if (!btn) return;
-    post('/hide', 'key=' + encodeURIComponent(btn.getAttribute('data-key')));
+    act('/hide', 'key=' + encodeURIComponent(btn.getAttribute('data-key')));
   });
 
   setInterval(function () {

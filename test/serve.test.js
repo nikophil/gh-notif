@@ -254,3 +254,216 @@ test('POST /theme persiste le thème, se reflète dans la page, ne perd pas noti
     rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+// ── Favoris : collecte sur l'union, filtre à l'affichage ─────────────────
+
+const mixedSnapshot = () => ({
+  data: {
+    mine: [
+      { repo: 'mapado/web', number: 1, url: 'u', title: 'chez mapado', triggers: [], ci: 'pass', state: 'open', approvals: 0 },
+      { repo: 'zenstruck/foundry', number: 2, url: 'u', title: 'chez zenstruck', triggers: [], ci: 'pass', state: 'open', approvals: 0 },
+    ],
+    others: [],
+    debug: [{ repo: 'mapado/web', number: 1, verdict: { kept: true, reason: 'r' } },
+            { repo: 'zenstruck/foundry', number: 2, verdict: { kept: true, reason: 'r' } }],
+  },
+  updatedAt: NOW,
+  error: null,
+});
+
+test('GET / : les chips de favoris sont dans la page, l’active marquée', () => {
+  const res = handleRequest('/', okSnapshot(), { ...OPTS, favorites: ['mapado', 'zenstruck'], activeFav: 'mapado' });
+  assert.match(res.body, /data-fav="mapado" class="on"/);
+  assert.match(res.body, /data-fav="zenstruck"/);
+});
+
+test('GET /fragment : filtré sur le favori actif (le snapshot, lui, garde l’union)', () => {
+  const snap = mixedSnapshot();
+  const res = handleRequest('/fragment', snap, { ...OPTS, favorites: ['mapado', 'zenstruck'], activeFav: 'mapado' });
+  assert.match(res.body, /chez mapado/);
+  assert.doesNotMatch(res.body, /chez zenstruck/);
+  // ⚠️ le snapshot n'est PAS muté : c'est lui qui alimente les notifs desktop
+  assert.equal(snap.data.mine.length, 2);
+});
+
+test('GET /fragment sans favori actif → toute l’union est affichée', () => {
+  const res = handleRequest('/fragment', mixedSnapshot(), { ...OPTS, favorites: ['mapado', 'zenstruck'], activeFav: null });
+  assert.match(res.body, /chez mapado/);
+  assert.match(res.body, /chez zenstruck/);
+});
+
+test('mode ad-hoc : un scope saisi prime, le favori actif ne re-filtre pas', () => {
+  const res = handleRequest('/fragment', mixedSnapshot(), {
+    ...OPTS, favorites: ['mapado'], activeFav: 'mapado', adhoc: true, scope: { type: 'org', value: 'zenstruck' },
+  });
+  assert.match(res.body, /chez zenstruck/); // la collecte a déjà fait le filtrage
+});
+
+test('GET / en mode ad-hoc : chips grisées et aucune active', () => {
+  const res = handleRequest('/', okSnapshot(), {
+    ...OPTS, favorites: ['mapado'], activeFav: 'mapado', adhoc: true, scope: { type: 'org', value: 'zenstruck' },
+  });
+  assert.match(res.body, /class="favs adhoc"/);
+  assert.doesNotMatch(res.body, /data-fav="mapado" class="on"/);
+});
+
+test('GET /debug-fragment suit aussi le favori actif', () => {
+  const res = handleRequest('/debug-fragment', mixedSnapshot(), { ...OPTS, favorites: ['mapado'], activeFav: 'mapado' });
+  assert.match(res.body, /mapado\/web/);
+  assert.doesNotMatch(res.body, /zenstruck/);
+});
+
+test('scopeLabel : en mode favoris (scope = tableau) le champ reste vide', () => {
+  assert.equal(scopeLabel([{ type: 'org', value: 'mapado' }, { type: 'org', value: 'zenstruck' }]), '');
+  assert.equal(scopeLabel({ type: 'org', value: 'mapado' }), 'mapado');
+});
+
+// ── intégration : routes /fav* (ajout, sélection, retrait, persistance) ─────
+test('POST /fav* : épingle, filtre, retire — et ne perd ni notify ni theme', async () => {
+  // Deux PR dans deux orgs : la collecte porte sur l'union, l'affichage filtre.
+  const pr = (repo, number, title) => ({
+    repository_url: `https://api.github.com/repos/${repo}`, number, title,
+    html_url: `https://github.com/${repo}/pull/${number}`, updated_at: '2026-06-24T10:00:00Z',
+  });
+  const searches = [];
+  const checked = [];
+  const gh = {
+    getCurrentUser: async () => 'moi',
+    listNotifications: async () => [],
+    searchReviewRequested: async (q) => { searches.push(q); return [pr('mapado/web', 1, 'chez mapado'), pr('zenstruck/foundry', 2, 'chez zenstruck')]; },
+    searchAuthored: async () => [],
+    getPullDetailsBatch: async (prs) => prs.map(() => ({ author: { login: 'alice' }, state: 'OPEN', additions: 1, deletions: 0, reviews: [] })),
+    getComment: async () => null,
+    getReviewComments: async () => [],
+    scopeExists: async (s) => { checked.push(s); return true; },
+  };
+  const tmp = `/tmp/gh-notif-test-fav-${process.pid}`;
+  rmSync(tmp, { recursive: true, force: true });
+  process.env.XDG_STATE_HOME = tmp;
+
+  const PORT = 7794;
+  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600 });
+  const post = (p) => fetch(`http://localhost:${PORT}${p}`, { method: 'POST' });
+  try {
+    await new Promise((r) => setTimeout(r, 150));
+    // Réglages préexistants : ils ne doivent pas bouger.
+    await post('/notify?enabled=0');
+    await post('/theme?value=dark');
+
+    // Épingle deux favoris. La réponse part AVANT le re-poll (puce instantanée) :
+    // la chip est déjà dans la réponse, l'existence a été vérifiée.
+    await post('/fav/add?value=mapado');
+    const added = await (await post('/fav/add?value=zenstruck')).json();
+    assert.match(added.chips, /data-fav="mapado"/);
+    assert.match(added.chips, /data-fav="zenstruck"/);
+    assert.deepEqual(checked, [{ type: 'org', value: 'mapado' }, { type: 'org', value: 'zenstruck' }]);
+    assert.match(added.fragment, /chez mapado/);
+    assert.match(added.fragment, /chez zenstruck/); // aucun favori actif → union
+
+    // Le refresh d'arrière-plan aboutit : la collecte porte bien sur l'union
+    // (une seule recherche OR-isée). On laisse le poll asynchrone se poser.
+    await new Promise((r) => setTimeout(r, 200));
+    assert.equal(searches.at(-1), ' org:mapado org:zenstruck');
+
+    // /view (poll du client) : chips avec compteurs (activité des autres) + updatedAt.
+    const view = await (await fetch(`http://localhost:${PORT}/view`)).json();
+    assert.match(view.chips, /⭐ tous <span class="fav-n">\(2\)<\/span>/);
+    assert.match(view.chips, /mapado\/\* <span class="fav-n">\(1\)<\/span>/);
+    assert.match(view.chips, /zenstruck\/\* <span class="fav-n">\(1\)<\/span>/);
+    assert.ok(view.updatedAt > 0, 'updatedAt exposé pour la sonde du client');
+
+    // Sélectionne un favori : filtre d'affichage, SANS nouvelle recherche.
+    const before = searches.length;
+    const selected = await (await post('/fav?value=mapado')).json();
+    assert.equal(searches.length, before, 'changer de favori ne doit coûter aucune requête');
+    assert.match(selected.fragment, /chez mapado/);
+    assert.doesNotMatch(selected.fragment, /chez zenstruck/);
+    assert.match(selected.chips, /data-fav="mapado" class="on"/);
+    // Le compteur de l'autre favori reste visible même quand on ne le regarde pas.
+    assert.match(selected.chips, /zenstruck\/\* <span class="fav-n">\(1\)<\/span>/);
+
+    // Persisté, sans écraser notify/theme (piège de la clé perdue).
+    let prefs = loadPrefs(prefsPath());
+    assert.deepEqual(prefs.favorites, ['mapado', 'zenstruck']);
+    assert.equal(prefs.activeFav, 'mapado');
+    assert.equal(prefs.notify, false);
+    assert.equal(prefs.theme, 'dark');
+
+    // Retirer le favori actif rebascule sur « tous ».
+    const removed = await (await post('/fav/rm?value=mapado')).json();
+    assert.doesNotMatch(removed.chips, /data-fav="mapado"/);
+    prefs = loadPrefs(prefsPath());
+    assert.deepEqual(prefs.favorites, ['zenstruck']);
+    assert.equal(prefs.activeFav, null);
+
+    // Valeur inconnue → « tous », pas d'erreur.
+    await post('/fav?value=nimportequoi');
+    assert.equal(loadPrefs(prefsPath()).activeFav, null);
+  } finally {
+    server.close();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// ── intégration : refus d'un favori qui n'existe pas sur GitHub ─────────────
+test('POST /fav/add : scope introuvable → 400, rien n’est persisté', async () => {
+  const gh = {
+    getCurrentUser: async () => 'moi',
+    listNotifications: async () => [],
+    searchReviewRequested: async () => [],
+    searchAuthored: async () => [],
+    getPullDetailsBatch: async () => [],
+    getComment: async () => null,
+    getReviewComments: async () => [],
+    // 404 GitHub → false ; indéterminé (réseau) → null (fail-open).
+    scopeExists: async (s) => (s.value.includes('reseau-hs') ? null : false),
+  };
+  const tmp = `/tmp/gh-notif-test-fav404-${process.pid}`;
+  rmSync(tmp, { recursive: true, force: true });
+  process.env.XDG_STATE_HOME = tmp;
+
+  const PORT = 7795;
+  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600 });
+  try {
+    await new Promise((r) => setTimeout(r, 150));
+
+    // Org inexistante → 400 avec message clair, favoris intacts.
+    const org = await fetch(`http://localhost:${PORT}/fav/add?value=nexiste-pas`, { method: 'POST' });
+    assert.equal(org.status, 400);
+    assert.match(await org.text(), /org\/utilisateur nexiste-pas introuvable/);
+    assert.deepEqual(loadPrefs(prefsPath()).favorites, []);
+
+    // Dépôt inexistant → même refus, message adapté.
+    const repo = await fetch(`http://localhost:${PORT}/fav/add?value=${encodeURIComponent('o/nexiste-pas')}`, { method: 'POST' });
+    assert.equal(repo.status, 400);
+    assert.match(await repo.text(), /dépôt o\/nexiste-pas introuvable/);
+
+    // Vérification indéterminée (réseau) → fail-open : l'ajout passe quand même.
+    const ok = await fetch(`http://localhost:${PORT}/fav/add?value=reseau-hs`, { method: 'POST' });
+    assert.equal(ok.status, 200);
+    assert.deepEqual(loadPrefs(prefsPath()).favorites, ['reseau-hs']);
+  } finally {
+    server.close();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// ── /view (handleRequest, pur) ──────────────────────────────────────────────
+test('GET /view : JSON {chips, fragment, updatedAt}, compteurs depuis le snapshot', () => {
+  const snap = mixedSnapshot();
+  snap.data.others = [
+    { repo: 'mapado/front', number: 7, url: 'u', title: 'aussi', triggers: ['review'], ci: 'pass', author: 'bob', createdAt: '2026-06-21T12:00:00Z', additions: 1, deletions: 0, state: 'open', approvals: 0 },
+  ];
+  const res = handleRequest('/view', snap, { ...OPTS, favorites: ['mapado', 'zenstruck'], activeFav: 'zenstruck' });
+  assert.equal(res.type, 'application/json; charset=utf-8');
+  const d = JSON.parse(res.body);
+  assert.equal(d.updatedAt, NOW);
+  // Compteurs = activité des autres, calculés sur l'UNION (mapado compte même
+  // si le favori actif est zenstruck).
+  assert.match(d.chips, /mapado\/\* <span class="fav-n">\(1\)<\/span>/);
+  assert.match(d.chips, /zenstruck\/\* <span class="fav-n">\(0\)<\/span>/);
+  assert.match(d.chips, /data-fav="zenstruck" class="on"/);
+  // Le fragment, lui, est filtré sur le favori actif.
+  assert.match(d.fragment, /chez zenstruck/);
+  assert.doesNotMatch(d.fragment, /chez mapado/);
+});

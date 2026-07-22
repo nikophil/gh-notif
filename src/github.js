@@ -111,5 +111,21 @@ export function makeGh(runner = defaultRunner) {
         return null;
       }
     },
+    // Un scope de favori existe-t-il sur GitHub ? repo → GET /repos/owner/name ;
+    // org/user → GET /users/{value} (200 pour une org **comme** pour un utilisateur).
+    // Tri-état : true (existe), false (404 → introuvable), null (indéterminé :
+    // réseau, rate-limit, auth…). Le null laisse l'appelant décider (fail-open) au
+    // lieu de refuser à tort sur un incident transitoire.
+    async scopeExists(scope) {
+      if (!scope || !scope.value) return null;
+      const path = scope.type === 'repo' ? `repos/${scope.value}` : `users/${scope.value}`;
+      try {
+        await runner(['api', path, '-q', '.id']);
+        return true;
+      } catch (err) {
+        const msg = `${err?.stderr || ''} ${err?.message || ''}`;
+        return /HTTP 404|Not Found/i.test(msg) ? false : null;
+      }
+    },
   };
 }

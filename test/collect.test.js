@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { collectNotifications, collectPending, collectPRs, ciFromState, prState, countApprovals, scopeMatches, scopeQualifier, mergeReviewComments, watermarkOf } from '../src/collect.js';
+import { collectNotifications, collectPending, collectPRs, ciFromState, prState, countApprovals, scopeMatches, scopeQualifier, toScopeList, matchesAnyScope, scopesQualifier, mergeReviewComments, watermarkOf } from '../src/collect.js';
 
 const ME = 'nikophil';
 
@@ -62,6 +62,77 @@ test('scopeQualifier', () => {
   assert.equal(scopeQualifier(null), '');
   assert.equal(scopeQualifier({ type: 'org', value: 'mapado' }), ' org:mapado');
   assert.equal(scopeQualifier({ type: 'repo', value: 'mapado/web' }), ' repo:mapado/web');
+});
+
+// ── Scopes multiples (union des favoris) ─────────────────────────────────
+
+test('toScopeList : null/objet/tableau → null ou tableau non vide', () => {
+  const org = { type: 'org', value: 'mapado' };
+  assert.equal(toScopeList(null), null);
+  assert.equal(toScopeList([]), null);       // tableau vide = pas de filtre
+  assert.equal(toScopeList([null]), null);   // entrées nulles élaguées
+  assert.deepEqual(toScopeList(org), [org]); // scope unique = cas particulier
+  assert.deepEqual(toScopeList([org]), [org]);
+});
+
+test('matchesAnyScope : union org + repo, null → tout passe', () => {
+  const scopes = [{ type: 'org', value: 'mapado' }, { type: 'repo', value: 'noctud/collection' }];
+  assert.equal(matchesAnyScope(scopes, 'mapado/api'), true);
+  assert.equal(matchesAnyScope(scopes, 'noctud/collection'), true);
+  assert.equal(matchesAnyScope(scopes, 'noctud/autre'), false); // repo ≠ org
+  assert.equal(matchesAnyScope(scopes, 'zenstruck/foundry'), false);
+  assert.equal(matchesAnyScope(null, 'nimporte/quoi'), true);
+  assert.equal(matchesAnyScope([], 'nimporte/quoi'), true);
+  // rétro-compat : un scope unique se comporte comme avant
+  assert.equal(matchesAnyScope({ type: 'org', value: 'mapado' }, 'mapado/api'), true);
+});
+
+test('scopesQualifier : union OR-isée par GitHub en une seule recherche', () => {
+  assert.equal(scopesQualifier(null), '');
+  assert.equal(scopesQualifier([]), '');
+  assert.equal(
+    scopesQualifier([{ type: 'org', value: 'mapado' }, { type: 'repo', value: 'noctud/collection' }]),
+    ' org:mapado repo:noctud/collection',
+  );
+});
+
+test('scopesQualifier : le cas d’usage réel tient largement sous 256 caractères', () => {
+  // Au-delà de 256 caractères, GitHub rejette la recherche — c'est ce que
+  // MAX_QUALIFIER_LENGTH (favorites.js) protège à l'ajout.
+  const scopes = [
+    { type: 'org', value: 'mapado' },
+    { type: 'repo', value: 'noctud/collection' },
+    { type: 'org', value: 'zenstruck' },
+  ];
+  assert.equal(scopesQualifier(scopes), ' org:mapado repo:noctud/collection org:zenstruck');
+  const q = `is:open is:pr review-requested:@me${scopesQualifier(scopes)}`;
+  assert.ok(q.length < 256, `query de ${q.length} caractères`);
+});
+
+test('collectNotifications filtre sur l’union des scopes (favoris)', async () => {
+  const mapado = { ...reviewReqThread, id: 'tm', repository: { full_name: 'mapado/api' }, subject: { ...reviewReqThread.subject, url: 'https://api.github.com/repos/mapado/api/pulls/1' } };
+  const zen = { ...reviewReqThread, id: 'tz', repository: { full_name: 'zenstruck/foundry' }, subject: { ...reviewReqThread.subject, url: 'https://api.github.com/repos/zenstruck/foundry/pulls/2' } };
+  const hors = { ...reviewReqThread, id: 'tx', repository: { full_name: 'autre/repo' }, subject: { ...reviewReqThread.subject, url: 'https://api.github.com/repos/autre/repo/pulls/3' } };
+  const debug = [];
+  await collectNotifications(fakeGh({ notifications: [mapado, zen, hors] }), ME, {
+    scope: [{ type: 'org', value: 'mapado' }, { type: 'org', value: 'zenstruck' }],
+    debug,
+  });
+  assert.deepEqual(debug.map((d) => d.repo), ['mapado/api', 'zenstruck/foundry']);
+});
+
+test('collectPRs passe le qualifier de l’union aux deux recherches', async () => {
+  const seen = [];
+  const gh = {
+    ...fakeGh(),
+    async searchReviewRequested(q) { seen.push(['pending', q]); return []; },
+    async searchAuthored(q) { seen.push(['authored', q]); return []; },
+  };
+  await collectPRs(gh, ME, { scope: [{ type: 'org', value: 'mapado' }, { type: 'repo', value: 'noctud/collection' }] });
+  assert.deepEqual(seen, [
+    ['pending', ' org:mapado repo:noctud/collection'],
+    ['authored', ' org:mapado repo:noctud/collection'],
+  ]);
 });
 
 test('collectNotifications filtre par scope avant inspection', async () => {

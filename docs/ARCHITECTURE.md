@@ -19,7 +19,8 @@ qui réutilise l'auth de l'utilisateur. Tests avec le runner natif `node:test` (
 | `src/filter.js` | **Cœur** : `classify()` (règles de filtrage), `findReplyToMe()`, helpers. Fonctions pures. | oui |
 | `src/collect.js` | Orchestration : agrège notifications + recherches en PRs, récupère les détails, scope. | oui via gh stub |
 | `src/state.js` | Persistance + déduplication du `--watch`. | oui |
-| `src/prefs.js` | Préférences UI persistées du mode `--serve` (`notify` + `theme`, avec défauts/validation `isNotifyEnabled`/`themeOf`). Purs + I/O JSON, calqués sur `state.js`. | oui |
+| `src/prefs.js` | Préférences UI persistées (`notify`, `theme`, `favorites`, `activeFav`, avec défauts/validation `isNotifyEnabled`/`themeOf`). Purs + I/O JSON, calqués sur `state.js`. | oui |
+| `src/favorites.js` | Favoris de scope : normalisation/ajout/retrait, `parseScope`, cycle de la touche `f`, **`filterDataByScope`** (filtre d'affichage), `favoriteLabel` (`org/*`) et `favoriteCounts` (badges). Purs. | oui |
 | `src/approvals.js` | Approbations sur mes PR : `approvalsOf`, seuil « prête à merger » (`isReady`), diff/seed des évènements (`diffApprovals`). Purs. | oui |
 | `src/notify.js` | Notifs desktop multi-plateforme (`notifyCommand` : `notify-send` Linux / `osascript` macOS) + ligne d'évènement terminal. | oui via spawn stub |
 | `src/render.js` | Tableaux encadrés alignés, couleur, liens OSC 8, helpers d'affichage. | oui |
@@ -196,7 +197,7 @@ sequenceDiagram
 - **Thread** (`/notifications`) : `{ id, reason, updated_at, subject:{title,url,latest_comment_url,type}, repository:{full_name} }`
 - **Item** (sortie de `classify`) : `{ category, actor, url, repo, number, title, threadId, updatedAt }`
 - **Row** (sortie de `collectPRs`) : `{ repo, number, url, title, triggers:[…], author, createdAt, additions, deletions, ci, state, approvals }` — `state` ∈ {draft,open,merged,closed} (via `prState`), `approvals` = nb d'**approbations** (via `countApprovals` : users distincts dont la dernière review est APPROVED — pas `reviews.length`).
-- **scope** : `null` (tout) | `{ type:'org', value }` | `{ type:'repo', value:'owner/name' }`
+- **scope** : `null` (tout) | `{ type:'org', value }` | `{ type:'repo', value:'owner/name' }` | **tableau** de ces objets (union des favoris, cf. §14)
 
 ## Décisions non-évidentes (⚠️ pièges)
 
@@ -359,6 +360,64 @@ sequenceDiagram
     une commande absente (ENOENT) émet un évènement `error` non-géré qui **tue la boucle**
     `--watch`/`--serve`. Notifs restent **best-effort** (échec silencieux). Windows non couvert (retombe
     sur `notify-send`, absent → no-op silencieux).
+
+14. **Favoris : on COLLECTE l'union, on FILTRE à l'affichage.** Un favori est un scope épinglé
+    (`favorites: ["mapado","noctud/collection","zenstruck"]` dans `prefs-v1.json`). Dès qu'il en
+    existe un, `collectPRs` reçoit un **tableau** de scopes — l'union — et le favori actif
+    (`activeFav`) n'est qu'un **filtre d'affichage** (`filterDataByScope`) appliqué en aval.
+    Conséquences voulues : les **notifs desktop de tous les favoris** arrivent en permanence même
+    si on n'en regarde qu'un, et **changer de favori coûte 0 requête** (touche `f` en terminal,
+    chips en web). ⚠️ **L'ordre est critique** :
+    `collectPRs(union) → reconcile/hidden → notifyNew(data) → filterDataByScope(data, actif) → rendu`.
+    Filtrer plus tôt casse trois choses à la fois : (a) `notifyNew`/`diffApprovals` perdraient les
+    évènements des favoris inactifs — c'est *la* raison d'être de la feature ; (b) `reconcile`
+    (§10) élague les clés absentes des entrées courantes, donc **effacerait le masquage** des
+    favoris non affichés ; (c) `markSeen` (§3/§4) doit consommer **tous** les items, sinon la file
+    s'accumule et re-notifie en rafale au changement de favori. En terminal comme en web, `data`
+    reste donc **brut** en mémoire (c'est lui qui alimente le masquage) et seul le rendu est filtré.
+
+    **Union en une seule recherche.** GitHub **OR-ise** les qualifiers de scope répétés — mesuré :
+    `repo:zenstruck/foundry` (6) + `repo:symfony/panther` (9) → les deux ensemble **15** — y
+    compris en mêlant `org:` et `repo:`. `scopesQualifier` concatène donc, et l'union ne coûte
+    **pas** N recherches. `ensure()` dédupe déjà par `repo#number`, donc des favoris qui se
+    recouvrent (`mapado` + `mapado/api`) ne produisent pas de doublon. ⚠️ Garde-fou : une query de
+    recherche GitHub est **plafonnée à 256 caractères** ; `addFavorite` refuse au-delà de
+    `MAX_QUALIFIER_LENGTH` (200). La contrainte est la **longueur, pas le nombre** — 10 favoris aux
+    noms courts passent, 5 aux noms très longs non.
+
+    **Priorité des scopes** : `--org`/`--repo` (ou le champ de scope web) → **mode ad-hoc**, ce
+    scope seul, favoris hors-jeu (chips grisées, `adhoc: true`) ; sinon favoris s'il y en a ;
+    sinon tout GitHub (comportement historique, strictement inchangé pour qui n'a aucun favori —
+    `renderFavorites` d'une liste vide rend une chaîne vide). ⚠️ En mode ad-hoc, `handleRequest`
+    ne re-filtre **pas** sur `activeFav` : la collecte a déjà fait le travail.
+
+    **Persistance** : `favorites` + `activeFav` vivent dans `prefs-v1.json`, avec le piège habituel
+    — muter l'objet `prefs` et le réécrire EN ENTIER (sinon `notify`/`theme` sautent). Pas de bump
+    de version de fichier : `loadPrefs` applique les défauts à la lecture, un fichier antérieur
+    reste valide. ⚠️ `favorites` étant un **tableau**, `loadPrefs` en recopie une instance fraîche
+    (un `{...DEFAULTS}` nu partagerait la référence entre tous les appels).
+
+    **Contrat HTTP du `--serve` (chips + tableaux ensemble).** La barre de favoris vit dans le
+    `<header>` (hors `#content`) mais dépend des **données** (compteurs) : le poll client passe donc
+    par **`GET /view` → JSON `{chips, fragment, updatedAt}`**, et toutes les actions POST
+    (`/refresh`, `/hide`, `/scope`, `/fav`, `/fav/add`, `/fav/rm`) renvoient le **même JSON** — le
+    client injecte les deux morceaux (`inject`). Seuls `/notify` et `/theme` restent en `204` (leur
+    widget n'affiche aucune donnée). `GET /fragment` (HTML nu) subsiste pour compat/tests.
+    ⚠️ **`/fav/add` et `/fav/rm` répondent AVANT le re-poll** : le refresh part en arrière-plan
+    (`refresh().catch(…)`, jamais `await`) pour que la puce apparaisse instantanément ; le client
+    **sonde `/view` jusqu'à ce que `updatedAt` change** (`chaseFresh`) pour voir compteurs et
+    tableaux se poser. Re-`await`er ce refresh ferait réapparaître la latence d'origine (retour UX).
+
+    **UI des favoris.** (a) **Compteur `(n)`** par chip = lignes d'« activité sur les PR des
+    autres » (`data.others`, hors masquées) sous ce scope — **pas** `mine`, pas les triggers —
+    calculé par `favoriteCounts` sur l'**union brute** : un favori inactif garde son compteur.
+    (b) **Libellé** : une org s'affiche `mapado/*`, un dépôt `owner/name` (`favoriteLabel`) ;
+    purement cosmétique, `data-fav`/valeur stockée/argument d'URL restent la chaîne **brute**.
+    (c) **Existence vérifiée à l'ajout** (`gh.scopeExists`, CLI et web) : repo → `GET /repos/o/n`,
+    org → `GET /users/x` (couvre orgs **et** users). Tri-état : `false` (404) → refus net (400 web /
+    erreur CLI) ; **`null` (réseau, rate-limit…) → fail-open** avec avertissement — ne jamais
+    bloquer un ajout légitime sur un incident transitoire. Les stubs `gh` sans `scopeExists`
+    passent (garde `typeof`).
 
 ## Conventions de test
 

@@ -12,26 +12,28 @@ import { CATEGORY } from './filter.js';
 import { hiddenPath, loadHidden, saveHidden, toggleHidden, isHidden, keyOf } from './hidden.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './state.js';
 import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf } from './prefs.js';
+import {
+  parseScope, normalizeFavorites, addFavorite, removeFavorite,
+  favoriteScopes, activeFavoriteOf, filterDataByScope, favoriteCounts,
+} from './favorites.js';
 import { diffApprovals } from './approvals.js';
 import { sendNotification } from './notify.js';
 import { isRateLimitError, nextBackoffSeconds } from './ratelimit.js';
 import { startSpinner } from './spinner.js';
-import { renderShell, renderFragment, renderLoading, renderDebug, renderDebugShell, escapeHtml } from './html.js';
+import { renderShell, renderFragment, renderLoading, renderDebug, renderDebugShell, renderFavorites, escapeHtml } from './html.js';
 
 const POLL_SECONDS = 60;
 const BACKOFF_CAP = 600; // plafond du recul en cas de rate-limit (10 min)
 
-// Valeur du champ de scope → objet scope (même sémantique que --org/--repo).
-// Vide → null (tout). Contient « / » → repo (owner/name). Sinon → org.
-export function parseScope(value) {
-  const v = (value || '').trim();
-  if (!v) return null;
-  return v.includes('/') ? { type: 'repo', value: v } : { type: 'org', value: v };
-}
+// `parseScope` vit dans favorites.js (module pur, sans node:http) car le CLI et
+// les favoris en ont besoin ; ré-exporté ici où il a toujours été consommé.
+export { parseScope };
 
 // Libellé d'un scope pour préremplir le champ de saisie ('' = tout).
+// En mode favoris, `scope` est un TABLEAU (l'union) : le champ reste vide, ce
+// sont les chips qui portent l'information.
 export function scopeLabel(scope) {
-  return scope ? scope.value : '';
+  return scope && !Array.isArray(scope) ? scope.value : '';
 }
 
 // Re-filtre others/hidden depuis les données en mémoire après un toggle, sans
@@ -45,27 +47,48 @@ function recompute(data, hidden) {
 
 // Corps HTML du fragment selon l'état du snapshot : erreur → bannière échappée ;
 // pas encore de données (1er poll en cours) → spinner ; sinon → les tableaux.
-function fragmentBody(snapshot, { now, showHidden } = {}) {
+// ⚠️ Le snapshot contient les données de l'UNION des favoris ; le filtre du
+// favori actif s'applique ICI, au rendu — jamais à la collecte (cf. §14).
+function fragmentBody(snapshot, { now, showHidden, viewScope = null } = {}) {
   if (snapshot.error) return `<p class="empty offline">⚠️ Erreur : ${escapeHtml(snapshot.error)}</p>`;
   if (!snapshot.updatedAt) return renderLoading();
-  return renderFragment(snapshot.data ?? { mine: [], others: [] }, { now, showHidden });
+  const data = filterDataByScope(snapshot.data ?? { mine: [], others: [] }, viewScope);
+  return renderFragment(data, { now, showHidden });
 }
 
 // Corps du fragment de debug (verdict du pipeline) — même gestion erreur/chargement.
-function debugBody(snapshot, { now } = {}) {
+function debugBody(snapshot, { now, viewScope = null } = {}) {
   if (snapshot.error) return `<p class="empty offline">⚠️ Erreur : ${escapeHtml(snapshot.error)}</p>`;
   if (!snapshot.updatedAt) return renderLoading();
-  return renderDebug(snapshot.data?.debug ?? [], { now });
+  const data = filterDataByScope(snapshot.data ?? {}, viewScope);
+  return renderDebug(data?.debug ?? [], { now });
 }
 
 // Routing des lectures (GET) — pur, aucune I/O. Testable sans socket.
 export function handleRequest(pathname, snapshot, opts = {}) {
-  const { now, intervalMs, showHidden, scope, notifyEnabled = true, theme = 'auto' } = opts;
+  const {
+    now, intervalMs, showHidden, scope, notifyEnabled = true, theme = 'auto',
+    favorites = [], activeFav = null, adhoc = false,
+  } = opts;
+  // Filtre d'affichage : le favori actif, sauf en mode ad-hoc (le scope saisi
+  // pilote déjà la collecte, re-filtrer serait redondant).
+  const viewScope = adhoc ? null : parseScope(activeFav);
+  // Compteurs des puces = activité des autres par scope, sur l'UNION brute.
+  const counts = favoriteCounts(favorites, snapshot.data?.others);
   if (pathname === '/') {
-    return { status: 200, type: 'text/html; charset=utf-8', body: renderShell({ intervalMs, scopeLabel: scopeLabel(scope), notifyEnabled, theme }) };
+    return { status: 200, type: 'text/html; charset=utf-8', body: renderShell({ intervalMs, scopeLabel: scopeLabel(scope), notifyEnabled, theme, favorites, activeFav, adhoc, counts }) };
   }
   if (pathname === '/fragment') {
-    return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden }) };
+    return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden, viewScope }) };
+  }
+  // Poll unifié du client : tableaux filtrés + barre de favoris (compteurs à jour)
+  // + updatedAt (le client sonde jusqu'à ce qu'il change après un ajout/retrait).
+  if (pathname === '/view') {
+    return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify({
+      chips: renderFavorites(favorites, activeFav, { adhoc, counts }),
+      fragment: fragmentBody(snapshot, { now, showHidden, viewScope }),
+      updatedAt: snapshot.updatedAt,
+    }) };
   }
   if (pathname === '/api/state') {
     return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify(snapshot) };
@@ -75,7 +98,7 @@ export function handleRequest(pathname, snapshot, opts = {}) {
     return { status: 200, type: 'text/html; charset=utf-8', body: renderDebugShell({ intervalMs }) };
   }
   if (pathname === '/debug-fragment') {
-    return { status: 200, type: 'text/html; charset=utf-8', body: debugBody(snapshot, { now }) };
+    return { status: 200, type: 'text/html; charset=utf-8', body: debugBody(snapshot, { now, viewScope }) };
   }
   if (pathname === '/api/debug') {
     return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify(snapshot.data?.debug ?? []) };
@@ -97,7 +120,13 @@ function openBrowser(url) {
 
 // Démarre la boucle de poll + le serveur HTTP. Le scope est mutable (filtre UI).
 // Renvoie le server pour permettre une fermeture propre en test.
+//
+// Deux notions à ne pas confondre (cf. ARCHITECTURE.md §14) :
+//  - `scope` (mode ad-hoc) ou l'union des favoris = ce qu'on COLLECTE ;
+//  - `activeFav` = simple filtre d'AFFICHAGE, changé sans aucune requête.
 export function serve({ gh, me, scope: initialScope = null, all = false, port = 7777, intervalSeconds = POLL_SECONDS } = {}) {
+  // `scope` non nul ⇒ mode ad-hoc : un scope saisi (--org/--repo ou champ web)
+  // prime sur les favoris, qui deviennent purement décoratifs (chips grisées).
   let scope = initialScope;
   const snapshot = { data: { mine: [], others: [] }, updatedAt: null, error: null };
 
@@ -123,6 +152,11 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   const prefs = loadPrefs(prefsFile);
   let notifyEnabled = isNotifyEnabled(prefs);
   let theme = themeOf(prefs);
+  // favorites : scopes épinglés (persistés). activeFav : celui qu'on regarde
+  // (null = tous). collectScope : ce qu'on demande réellement à GitHub.
+  let favorites = normalizeFavorites(prefs.favorites);
+  let activeFav = activeFavoriteOf(prefs, favorites);
+  const collectScope = () => (scope ? scope : favoriteScopes(favorites));
 
   // Approbations sur mes PR : état en mémoire (par process), indépendant de l'état
   // disque des notifs. 1er poll = amorçage silencieux (pas de rafale au démarrage).
@@ -162,7 +196,10 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   const refresh = async () => {
     const stop = startSpinner('Mise à jour…'); // spinner terminal (no-op hors TTY)
     try {
-      const data = await collectPRs(gh, me, { all, scope, hidden, cache: inspectCache });
+      // Collecte sur l'UNION des favoris (ou le scope ad-hoc). notifyNew reçoit
+      // ces données brutes : c'est ce qui fait arriver les notifs desktop des
+      // favoris qu'on ne regarde pas. Le filtrage se fait au rendu (fragmentBody).
+      const data = await collectPRs(gh, me, { all, scope: collectScope(), hidden, cache: inspectCache });
       if (data.hiddenChanged) saveHidden(hiddenFile, hidden);
       notifyNew(data);
       snapshot.data = data;
@@ -190,9 +227,19 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   };
   loop();
 
-  // Réponse standard après une action : le fragment courant (le client remplace
-  // #content). `showHidden` est porté par la query pour préserver le mode.
-  const fragmentResponse = (showHidden) => fragmentBody(snapshot, { now: Date.now(), showHidden });
+  // Réponse unifiée des actions (JSON {chips, fragment, updatedAt}) : la barre de
+  // favoris vit dans le <header> (hors #content), on renvoie donc les deux
+  // morceaux et le client les injecte séparément — les compteurs restent à jour.
+  // (À l'inverse de /notify & /theme, dont le widget n'a rien à re-rendre → 204.)
+  const currentView = (showHidden) => {
+    const counts = favoriteCounts(favorites, snapshot.data?.others);
+    return JSON.stringify({
+      chips: renderFavorites(favorites, activeFav, { adhoc: !!scope, counts }),
+      fragment: fragmentBody(snapshot, { now: Date.now(), showHidden, viewScope: scope ? null : parseScope(activeFav) }),
+      updatedAt: snapshot.updatedAt,
+    });
+  };
+  const json = 'application/json; charset=utf-8';
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
@@ -203,7 +250,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
     if (req.method === 'POST') {
       if (pathname === '/refresh') {
         await refresh();
-        return send(200, 'text/html; charset=utf-8', fragmentResponse(showHidden));
+        return send(200, json, currentView(showHidden));
       }
       if (pathname === '/hide') {
         const key = url.searchParams.get('key');
@@ -212,12 +259,53 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
           saveHidden(hiddenFile, hidden);
           snapshot.data = recompute(snapshot.data, hidden);
         }
-        return send(200, 'text/html; charset=utf-8', fragmentResponse(showHidden));
+        return send(200, json, currentView(showHidden));
       }
       if (pathname === '/scope') {
+        // Saisie manuelle → mode ad-hoc (les chips passent en grisé) ; champ vidé
+        // → retour au mode favoris (ou tout GitHub si aucun favori).
         scope = parseScope(url.searchParams.get('value'));
         await refresh();
-        return send(200, 'text/html; charset=utf-8', fragmentResponse(showHidden));
+        return send(200, json, currentView(showHidden));
+      }
+      if (pathname === '/fav') {
+        // Changement de favori actif = filtre d'affichage pur : AUCUN appel
+        // GitHub… sauf si on sortait du mode ad-hoc (l'union n'est pas collectée).
+        const value = (url.searchParams.get('value') || '').trim();
+        activeFav = favorites.includes(value) ? value : null;
+        prefs.activeFav = activeFav; // ⚠️ muter + réécrire EN ENTIER (sinon notify/theme perdus)
+        savePrefs(prefsFile, prefs);
+        if (scope) { scope = null; await refresh(); }
+        return send(200, json, currentView(showHidden));
+      }
+      if (pathname === '/fav/add' || pathname === '/fav/rm') {
+        const value = url.searchParams.get('value') || '';
+        // Pas le droit d'épingler un scope qui n'existe pas sur GitHub (une
+        // vérification rapide, ~1 requête). Tri-état : false → 400 net ; null
+        // (réseau, rate-limit…) → fail-open, on n'empêche pas l'ajout à tort.
+        if (pathname === '/fav/add' && typeof gh.scopeExists === 'function') {
+          const s = parseScope(value);
+          if (s && (await gh.scopeExists(s)) === false) {
+            return send(400, 'text/plain; charset=utf-8', s.type === 'repo'
+              ? `dépôt ${s.value} introuvable sur GitHub`
+              : `org/utilisateur ${s.value} introuvable sur GitHub`);
+          }
+        }
+        try {
+          favorites = pathname === '/fav/add' ? addFavorite(favorites, value) : removeFavorite(favorites, value);
+        } catch (err) {
+          return send(400, 'text/plain; charset=utf-8', err.message);
+        }
+        activeFav = activeFavoriteOf({ activeFav }, favorites); // favori retiré → « tous »
+        prefs.favorites = favorites;
+        prefs.activeFav = activeFav;
+        savePrefs(prefsFile, prefs);
+        scope = null; // épingler/retirer, c'est vouloir la vue favoris
+        // ⚠️ refresh en ARRIÈRE-PLAN : la réponse part tout de suite (la puce
+        // apparaît sans attendre le poll) ; le client sonde /view jusqu'à ce que
+        // updatedAt change pour voir compteurs et tableaux se mettre à jour.
+        refresh().catch(() => {});
+        return send(200, json, currentView(showHidden));
       }
       if (pathname === '/notify') {
         notifyEnabled = url.searchParams.get('enabled') !== '0';
@@ -247,6 +335,9 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       scope,
       notifyEnabled,
       theme,
+      favorites,
+      activeFav,
+      adhoc: !!scope,
     });
     send(status, type, body);
   });
