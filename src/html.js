@@ -140,17 +140,24 @@ function othersTable(others, hiddenRows, now, showHidden) {
 // HTML des deux tableaux (le « fragment » re-fetché en boucle par la page).
 // `now` est injectable pour des tests déterministes (comme render.js).
 // `showHidden` ajoute les lignes masquées (grisées, bouton restaurer).
+// `closedUrl` (optionnel) : lien externe « fermées ↗ » vers mes PR fermées sur
+// GitHub, contextualisé sur la vue (calculé en amont, cf. closedPRsUrl). S'il est
+// fourni, la section « Tes PR » est rendue même vide (accès à l'historique).
 export function renderFragment(data, opts = {}) {
   const now = opts.now ?? Date.now();
   const showHidden = !!opts.showHidden;
+  const closedUrl = opts.closedUrl ?? null;
   const mine = data?.mine ?? [];
   const others = data?.others ?? [];
   const hiddenRows = data?.hidden ?? [];
   const hiddenCount = data?.hiddenCount ?? hiddenRows.length;
 
   const blocks = [];
-  if (mine.length > 0) {
-    blocks.push(`<section><h2>📥 Tes PR ouvertes (${mine.length})</h2>${mineTable(mine)}</section>`);
+  if (mine.length > 0 || closedUrl) {
+    const hist = closedUrl
+      ? ` <a class="hist" href="${escapeHtml(closedUrl)}" target="_blank" rel="noopener">fermées ↗</a>`
+      : '';
+    blocks.push(`<section><h2>📥 Tes PR ouvertes (${mine.length})${hist}</h2>${mine.length > 0 ? mineTable(mine) : ''}</section>`);
   }
   if (others.length > 0 || (showHidden && hiddenCount > 0)) {
     const count =
@@ -282,6 +289,12 @@ ${FAVICON}
   section { margin: 0 0 1.5rem; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
   h2 { font-size: .875rem; font-weight: 600; margin: 0; padding: .65rem 1rem;
        background: var(--canvas-subtle); border-bottom: 1px solid var(--border); }
+  /* Section sans tableau (« Tes PR (0) » avec le seul lien fermées) : pas de
+     double trait sous l'en-tête. */
+  section h2:last-child { border-bottom: 0; }
+  /* Lien « fermées ↗ » : discret dans le titre de section. */
+  h2 .hist { font-size: .75rem; font-weight: 400; color: var(--fg-muted); margin-left: .35rem; }
+  h2 .hist:hover { color: var(--accent); }
   table { border-collapse: collapse; width: 100%; }
   th, td { text-align: left; padding: .5rem 1rem; border-bottom: 1px solid var(--border-muted); white-space: nowrap; }
   tbody tr:last-child td { border-bottom: 0; }

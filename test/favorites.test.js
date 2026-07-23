@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   MAX_QUALIFIER_LENGTH, parseScope, normalizeFavorites, addFavorite, removeFavorite,
   favoriteScopes, activeFavoriteOf, cycleFavorite, filterDataByScope, favoriteLabel, favoriteCounts,
+  closedPRsUrl,
 } from '../src/favorites.js';
 import { scopesQualifier } from '../src/collect.js';
 
@@ -173,4 +174,22 @@ test('favoriteCounts : liste/données vides ou invalides → zéros, pas de cras
   assert.deepEqual(favoriteCounts([], []), { total: 0, byFav: {} });
   assert.deepEqual(favoriteCounts(['mapado'], null), { total: 0, byFav: { mapado: 0 } });
   assert.deepEqual(favoriteCounts(null, [{ repo: 'a/b' }]), { total: 1, byFav: {} });
+});
+
+test('closedPRsUrl : sans scope → recherche GitHub author:@me is:closed', () => {
+  assert.equal(
+    closedPRsUrl(null),
+    'https://github.com/pulls?q=is%3Apr%20author%3A%40me%20is%3Aclosed',
+  );
+});
+
+test('closedPRsUrl : scope org / repo → qualifier ajouté (encodé)', () => {
+  assert.ok(closedPRsUrl({ type: 'org', value: 'mapado' }).endsWith('%20org%3Amapado'));
+  assert.ok(closedPRsUrl({ type: 'repo', value: 'noctud/collection' }).endsWith('%20repo%3Anoctud%2Fcollection'));
+});
+
+test('closedPRsUrl : union de scopes → tous les qualifiers (OR-isés par GitHub)', () => {
+  const url = closedPRsUrl([{ type: 'org', value: 'mapado' }, { type: 'repo', value: 'a/b' }]);
+  assert.ok(url.includes('org%3Amapado'));
+  assert.ok(url.includes('repo%3Aa%2Fb'));
 });

@@ -14,7 +14,7 @@ import { statePath, loadState, saveState, isNew, markSeen } from './state.js';
 import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf } from './prefs.js';
 import {
   parseScope, normalizeFavorites, addFavorite, removeFavorite,
-  favoriteScopes, activeFavoriteOf, filterDataByScope, favoriteCounts,
+  favoriteScopes, activeFavoriteOf, filterDataByScope, favoriteCounts, closedPRsUrl,
 } from './favorites.js';
 import { diffApprovals } from './approvals.js';
 import { sendNotification } from './notify.js';
@@ -58,11 +58,19 @@ function recompute(data, hidden) {
 // pas encore de données (1er poll en cours) → spinner ; sinon → les tableaux.
 // ⚠️ Le snapshot contient les données de l'UNION des favoris ; le filtre du
 // favori actif s'applique ICI, au rendu — jamais à la collecte (cf. §14).
-function fragmentBody(snapshot, { now, showHidden, viewScope = null } = {}) {
+function fragmentBody(snapshot, { now, showHidden, viewScope = null, closedUrl = null } = {}) {
   if (snapshot.error) return `<p class="empty offline">⚠️ Erreur : ${escapeHtml(snapshot.error)}</p>`;
   if (!snapshot.updatedAt) return renderLoading();
   const data = filterDataByScope(snapshot.data ?? { mine: [], others: [] }, viewScope);
-  return renderFragment(data, { now, showHidden });
+  return renderFragment(data, { now, showHidden, closedUrl });
+}
+
+// Scope(s) que la vue AFFICHE, pour contextualiser le lien « fermées ↗ » :
+// ad-hoc > favori actif > union des favoris > null (tout GitHub). Distinct de
+// `viewScope` (filtre d'affichage), qui est nul en ad-hoc (collecte déjà ciblée)
+// et nul sur « tous » (l'union est déjà collectée).
+function linkScopes({ scope = null, activeFav = null, favorites = [] } = {}) {
+  return scope ?? parseScope(activeFav) ?? favoriteScopes(favorites);
 }
 
 // Corps du fragment de debug (verdict du pipeline) — même gestion erreur/chargement.
@@ -82,20 +90,22 @@ export function handleRequest(pathname, snapshot, opts = {}) {
   // Filtre d'affichage : le favori actif, sauf en mode ad-hoc (le scope saisi
   // pilote déjà la collecte, re-filtrer serait redondant).
   const viewScope = adhoc ? null : parseScope(activeFav);
+  // Lien « fermées ↗ » contextualisé sur ce que la vue affiche.
+  const closedUrl = closedPRsUrl(linkScopes({ scope, activeFav, favorites }));
   // Compteurs des puces = activité des autres par scope, sur l'UNION brute.
   const counts = favoriteCounts(favorites, snapshot.data?.others);
   if (pathname === '/') {
     return { status: 200, type: 'text/html; charset=utf-8', body: renderShell({ intervalMs, scopeLabel: scopeLabel(scope), notifyEnabled, theme, favorites, activeFav, adhoc, counts }) };
   }
   if (pathname === '/fragment') {
-    return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden, viewScope }) };
+    return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl }) };
   }
   // Poll unifié du client : tableaux filtrés + barre de favoris (compteurs à jour)
   // + updatedAt (le client sonde jusqu'à ce qu'il change après un ajout/retrait).
   if (pathname === '/view') {
     return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify({
       chips: renderFavorites(favorites, activeFav, { adhoc, counts }),
-      fragment: fragmentBody(snapshot, { now, showHidden, viewScope }),
+      fragment: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl }),
       updatedAt: snapshot.updatedAt,
     }) };
   }
@@ -244,7 +254,11 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
     const counts = favoriteCounts(favorites, snapshot.data?.others);
     return JSON.stringify({
       chips: renderFavorites(favorites, activeFav, { adhoc: !!scope, counts }),
-      fragment: fragmentBody(snapshot, { now: Date.now(), showHidden, viewScope: scope ? null : parseScope(activeFav) }),
+      fragment: fragmentBody(snapshot, {
+        now: Date.now(), showHidden,
+        viewScope: scope ? null : parseScope(activeFav),
+        closedUrl: closedPRsUrl(linkScopes({ scope, activeFav, favorites })),
+      }),
       updatedAt: snapshot.updatedAt,
     });
   };

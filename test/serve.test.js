@@ -513,3 +513,18 @@ test('GET /view : JSON {chips, fragment, updatedAt}, compteurs depuis le snapsho
   assert.match(d.fragment, /chez zenstruck/);
   assert.doesNotMatch(d.fragment, /chez mapado/);
 });
+
+test('GET /fragment : lien « fermées » contextualisé (ad-hoc > favori actif > union des favoris)', () => {
+  // Aucun scope ni favori → lien sans qualifier.
+  let res = handleRequest('/fragment', okSnapshot(), OPTS);
+  assert.ok(res.body.includes('href="https://github.com/pulls?q=is%3Apr%20author%3A%40me%20is%3Aclosed"'));
+  // Favori actif → son qualifier seul.
+  res = handleRequest('/fragment', okSnapshot(), { ...OPTS, favorites: ['mapado', 'a/b'], activeFav: 'mapado' });
+  assert.ok(res.body.includes('is%3Aclosed%20org%3Amapado"'));
+  // « Tous » avec favoris → union.
+  res = handleRequest('/fragment', okSnapshot(), { ...OPTS, favorites: ['mapado', 'a/b'], activeFav: null });
+  assert.ok(res.body.includes('org%3Amapado%20repo%3Aa%2Fb"'));
+  // Mode ad-hoc → le scope saisi prime sur les favoris.
+  res = handleRequest('/fragment', okSnapshot(), { ...OPTS, favorites: ['mapado'], activeFav: 'mapado', scope: { type: 'repo', value: 'x/y' }, adhoc: true });
+  assert.ok(res.body.includes('is%3Aclosed%20repo%3Ax%2Fy"'));
+});

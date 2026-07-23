@@ -116,6 +116,13 @@ export function favoriteCounts(favorites, others) {
   return { total: rows.length, byFav };
 }
 
+// Lien externe vers MES PR fermées (mergées + closes) sur GitHub, contextualisé
+// sur le(s) scope(s) affiché(s) — null, un scope, ou l'union (tableau). Aucune
+// collecte ni pagination côté gh-notif : GitHub gère l'affichage.
+export function closedPRsUrl(scopes) {
+  return `https://github.com/pulls?q=${encodeURIComponent(`is:pr author:@me is:closed${scopesQualifier(scopes)}`)}`;
+}
+
 // Filtre d'AFFICHAGE : restreint des données déjà collectées à un scope.
 // ⚠️ À n'appliquer qu'en aval de collectPRs ET de notifyNew — filtrer en amont
 // casserait les notifs desktop des favoris inactifs, l'élagage de `hidden`

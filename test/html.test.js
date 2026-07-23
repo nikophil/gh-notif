@@ -353,3 +353,34 @@ test('renderShell sans favoris : la barre reste vide', () => {
   const html = renderShell({});
   assert.match(html, /<div id="favs"><\/div>/);
 });
+
+test('renderFragment : lien « fermées ↗ » dans le titre quand closedUrl est fourni', () => {
+  const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW, closedUrl: 'https://github.com/pulls?q=x%20%26%20y' });
+  assert.match(out, /Tes PR ouvertes \(1\)/);
+  assert.ok(out.includes('href="https://github.com/pulls?q=x%20%26%20y"'), 'href du lien fermées');
+  assert.ok(out.includes('target="_blank"'));
+  assert.match(out, /fermées ↗/);
+});
+
+test('renderFragment : sans closedUrl → pas de lien (compat)', () => {
+  const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW });
+  assert.ok(!out.includes('fermées ↗'));
+});
+
+test('renderFragment : closedUrl dangereuse échappée', () => {
+  const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW, closedUrl: 'https://x/?a="<b>&c' });
+  assert.ok(out.includes('href="https://x/?a=&quot;&lt;b&gt;&amp;c"'), 'URL échappée');
+});
+
+test('renderFragment : mine vide + closedUrl → section (0) avec lien, sans tableau', () => {
+  const out = renderFragment({ mine: [], others: [] }, { now: NOW, closedUrl: 'https://github.com/pulls?q=z' });
+  assert.match(out, /Tes PR ouvertes \(0\)/);
+  assert.ok(out.includes('href="https://github.com/pulls?q=z"'));
+  assert.ok(!out.includes('<table'), 'pas de tableau vide');
+  assert.ok(!out.includes('Rien à signaler'));
+});
+
+test('renderFragment : mine vide sans closedUrl → comportement inchangé', () => {
+  const out = renderFragment({ mine: [], others: [] }, { now: NOW });
+  assert.match(out, /Rien à signaler/);
+});

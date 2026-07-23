@@ -418,6 +418,16 @@ sequenceDiagram
     **sonde `/view` jusqu'à ce que `updatedAt` change** (`chaseFresh`) pour voir compteurs et
     tableaux se poser. Re-`await`er ce refresh ferait réapparaître la latence d'origine (retour UX).
 
+    **Lien « fermées ↗ » (historique de MES PR).** Aucune collecte ni pagination côté gh-notif :
+    un simple lien externe (`closedPRsUrl`, pur, favorites.js) vers
+    `github.com/pulls?q=is:pr author:@me is:closed + qualifiers`, dans le `<h2>` de « Tes PR »
+    (`renderFragment`, opt `closedUrl`). Contextualisé sur ce que la vue **affiche**
+    (`linkScopes`, serve.js) : ad-hoc > favori actif > union des favoris > rien. ⚠️ Distinct de
+    `viewScope` (nul en ad-hoc et sur « tous »). Si `closedUrl` est fourni, la section « Tes PR »
+    est rendue même vide (`(0)`, sans tableau) pour garder l'accès à l'historique ; sans lui
+    (compat), comportement inchangé. Web (`--serve`) uniquement. Spec :
+    `docs/superpowers/specs/2026-07-23-closed-prs-link-design.md`.
+
     **UI des favoris.** (a) **Compteur `(n)`** par chip = lignes d'« activité sur les PR des
     autres » (`data.others`, hors masquées) sous ce scope — **pas** `mine`, pas les triggers —
     calculé par `favoriteCounts` sur l'**union brute** : un favori inactif garde son compteur.
