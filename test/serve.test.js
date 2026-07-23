@@ -528,3 +528,87 @@ test('GET /fragment : lien « fermées » contextualisé (ad-hoc > favori actif 
   res = handleRequest('/fragment', okSnapshot(), { ...OPTS, favorites: ['mapado'], activeFav: 'mapado', scope: { type: 'repo', value: 'x/y' }, adhoc: true });
   assert.ok(res.body.includes('is%3Aclosed%20repo%3Ax%2Fy"'));
 });
+
+// ── tri du tableau « autres » ──────────────────────────────────────────────
+const sortedSnapshot = () => ({
+  data: {
+    mine: [],
+    others: [
+      { repo: 'o/old', number: 1, url: 'u', title: 'vieille', author: 'zoe', createdAt: '2026-06-01T00:00:00Z', additions: 0, deletions: 0, triggers: ['review'], ci: 'pass', state: 'open', approvals: 2 },
+      { repo: 'o/new', number: 2, url: 'u', title: 'récente', author: 'alice', createdAt: '2026-06-20T00:00:00Z', additions: 0, deletions: 0, triggers: ['review'], ci: 'pass', state: 'open', approvals: 0 },
+    ],
+  },
+  updatedAt: NOW,
+  error: null,
+});
+
+test('GET /fragment : opts.sort trie les autres et marque la colonne active', () => {
+  const desc = handleRequest('/fragment', sortedSnapshot(), { ...OPTS, sort: { key: 'date', dir: 'desc' } });
+  assert.ok(desc.body.indexOf('o/new#2') < desc.body.indexOf('o/old#1'), 'date desc : récente d’abord');
+  assert.match(desc.body, /data-sort-key="date"[^>]*>Ouverte ▾/);
+  const byAuthor = handleRequest('/fragment', sortedSnapshot(), { ...OPTS, sort: { key: 'author', dir: 'asc' } });
+  assert.ok(byAuthor.body.indexOf('o/new#2') < byAuthor.body.indexOf('o/old#1'), 'alice avant zoe');
+});
+
+test('GET /fragment?hidden : les lignes masquées suivent le même tri', () => {
+  const snap = sortedSnapshot();
+  snap.data.hidden = [
+    { repo: 'o/hb', number: 8, url: 'u', title: 'b', author: 'bob', createdAt: '2026-06-05T00:00:00Z', additions: 0, deletions: 0, triggers: ['review'], ci: 'none', state: 'open', approvals: 0 },
+    { repo: 'o/ha', number: 9, url: 'u', title: 'a', author: 'ann', createdAt: '2026-06-10T00:00:00Z', additions: 0, deletions: 0, triggers: ['review'], ci: 'none', state: 'open', approvals: 0 },
+  ];
+  snap.data.hiddenCount = 2;
+  const res = handleRequest('/fragment', snap, { ...OPTS, showHidden: true, sort: { key: 'date', dir: 'desc' } });
+  assert.ok(res.body.indexOf('o/ha#9') < res.body.indexOf('o/hb#8'), 'masquées triées aussi (date desc)');
+});
+
+test('POST /sort : trie, inverse au re-clic, persiste, 400 sur clé inconnue', async () => {
+  const gh = {
+    getCurrentUser: async () => 'moi',
+    listNotifications: async () => [],
+    searchReviewRequested: async () => [
+      { repository_url: 'https://api.github.com/repos/o/old', number: 1, title: 'vieille', html_url: 'u', updated_at: '2026-06-24T00:00:00Z' },
+      { repository_url: 'https://api.github.com/repos/o/new', number: 2, title: 'récente', html_url: 'u', updated_at: '2026-06-24T00:00:00Z' },
+    ],
+    searchAuthored: async () => [],
+    getPullDetailsBatch: async (prs) => prs.map((p) => ({
+      number: p.number, title: p.number === 1 ? 'vieille' : 'récente',
+      author: { login: p.number === 1 ? 'zoe' : 'alice' },
+      createdAt: p.number === 1 ? '2026-06-01T00:00:00Z' : '2026-06-20T00:00:00Z',
+      additions: 0, deletions: 0, isDraft: false, state: 'OPEN', reviews: [], statusCheckRollupState: 'SUCCESS',
+    })),
+    getComment: async () => null,
+    getReviewComments: async () => [],
+  };
+  const tmp = `/tmp/gh-notif-test-sort-${process.pid}`;
+  rmSync(tmp, { recursive: true, force: true });
+  process.env.XDG_STATE_HOME = tmp;
+
+  const PORT = 7797;
+  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600 });
+  try {
+    await new Promise((r) => setTimeout(r, 250)); // 1er poll
+    // Défaut date desc : la récente (#2) d'abord.
+    const frag1 = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
+    assert.ok(frag1.indexOf('o/new#2') < frag1.indexOf('o/old#1'), 'défaut : date desc');
+
+    // Clic « Auteur » → alice avant zoe, et l'état est persisté sur disque.
+    const r1 = await fetch(`http://localhost:${PORT}/sort?key=author`, { method: 'POST' });
+    assert.equal(r1.status, 200);
+    const d1 = await r1.json();
+    assert.ok(d1.fragment.indexOf('o/new#2') < d1.fragment.indexOf('o/old#1'), 'author asc : alice d’abord');
+    assert.deepEqual(loadPrefs(prefsPath()).sort, { key: 'author', dir: 'asc' });
+
+    // Re-clic « Auteur » → sens inversé.
+    const d2 = await (await fetch(`http://localhost:${PORT}/sort?key=author`, { method: 'POST' })).json();
+    assert.ok(d2.fragment.indexOf('o/old#1') < d2.fragment.indexOf('o/new#2'), 'author desc : zoe d’abord');
+    assert.deepEqual(loadPrefs(prefsPath()).sort, { key: 'author', dir: 'desc' });
+
+    // Clé inconnue → 400, préférence intacte.
+    const bad = await fetch(`http://localhost:${PORT}/sort?key=nope`, { method: 'POST' });
+    assert.equal(bad.status, 400);
+    assert.deepEqual(loadPrefs(prefsPath()).sort, { key: 'author', dir: 'desc' });
+  } finally {
+    server.close();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});

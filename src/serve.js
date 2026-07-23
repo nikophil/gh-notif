@@ -17,6 +17,7 @@ import {
   favoriteScopes, activeFavoriteOf, filterDataByScope, favoriteCounts, closedPRsUrl,
 } from './favorites.js';
 import { diffApprovals } from './approvals.js';
+import { normalizeSort, toggleSort, sortRows, SORT_KEYS } from './sort.js';
 import { sendNotification } from './notify.js';
 import { isRateLimitError, nextBackoffSeconds } from './ratelimit.js';
 import { startSpinner } from './spinner.js';
@@ -58,11 +59,14 @@ function recompute(data, hidden) {
 // pas encore de données (1er poll en cours) → spinner ; sinon → les tableaux.
 // ⚠️ Le snapshot contient les données de l'UNION des favoris ; le filtre du
 // favori actif s'applique ICI, au rendu — jamais à la collecte (cf. §14).
-function fragmentBody(snapshot, { now, showHidden, viewScope = null, closedUrl = null } = {}) {
+function fragmentBody(snapshot, { now, showHidden, viewScope = null, closedUrl = null, sort = null } = {}) {
   if (snapshot.error) return `<p class="empty offline">⚠️ Erreur : ${escapeHtml(snapshot.error)}</p>`;
   if (!snapshot.updatedAt) return renderLoading();
-  const data = filterDataByScope(snapshot.data ?? { mine: [], others: [] }, viewScope);
-  return renderFragment(data, { now, showHidden, closedUrl });
+  let data = filterDataByScope(snapshot.data ?? { mine: [], others: [] }, viewScope);
+  // Tri d'affichage du tableau « autres » (les masquées suivent, cohérence en
+  // mode ?hidden=1). `sort` absent → ordre de collecte inchangé (compat).
+  if (sort) data = { ...data, others: sortRows(data.others, sort), hidden: sortRows(data.hidden, sort) };
+  return renderFragment(data, { now, showHidden, closedUrl, sort });
 }
 
 // Scope(s) que la vue AFFICHE, pour contextualiser le lien « fermées ↗ » :
@@ -85,7 +89,7 @@ function debugBody(snapshot, { now, viewScope = null } = {}) {
 export function handleRequest(pathname, snapshot, opts = {}) {
   const {
     now, intervalMs, showHidden, scope, notifyEnabled = true, theme = 'auto',
-    favorites = [], activeFav = null, adhoc = false,
+    favorites = [], activeFav = null, adhoc = false, sort = null,
   } = opts;
   // Filtre d'affichage : le favori actif, sauf en mode ad-hoc (le scope saisi
   // pilote déjà la collecte, re-filtrer serait redondant).
@@ -98,14 +102,14 @@ export function handleRequest(pathname, snapshot, opts = {}) {
     return { status: 200, type: 'text/html; charset=utf-8', body: renderShell({ intervalMs, scopeLabel: scopeLabel(scope), notifyEnabled, theme, favorites, activeFav, adhoc, counts }) };
   }
   if (pathname === '/fragment') {
-    return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl }) };
+    return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, sort }) };
   }
   // Poll unifié du client : tableaux filtrés + barre de favoris (compteurs à jour)
   // + updatedAt (le client sonde jusqu'à ce qu'il change après un ajout/retrait).
   if (pathname === '/view') {
     return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify({
       chips: renderFavorites(favorites, activeFav, { adhoc, counts }),
-      fragment: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl }),
+      fragment: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, sort }),
       updatedAt: snapshot.updatedAt,
     }) };
   }
@@ -171,6 +175,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   const prefs = loadPrefs(prefsFile);
   let notifyEnabled = isNotifyEnabled(prefs);
   let theme = themeOf(prefs);
+  let sort = normalizeSort(prefs.sort); // tri du tableau « autres » (persisté)
   // favorites : scopes épinglés (persistés). activeFav : celui qu'on regarde
   // (null = tous). collectScope : ce qu'on demande réellement à GitHub.
   let favorites = normalizeFavorites(prefs.favorites);
@@ -258,6 +263,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         now: Date.now(), showHidden,
         viewScope: scope ? null : parseScope(activeFav),
         closedUrl: closedPRsUrl(linkScopes({ scope, activeFav, favorites })),
+        sort,
       }),
       updatedAt: snapshot.updatedAt,
     });
@@ -332,6 +338,15 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         refresh().catch(() => {});
         return send(200, json, currentView(showHidden));
       }
+      if (pathname === '/sort') {
+        // Tri = état d'affichage pur : recompute local, AUCUN appel GitHub.
+        const key = url.searchParams.get('key');
+        if (!SORT_KEYS.includes(key)) return send(400, 'text/plain; charset=utf-8', `clé de tri inconnue : ${key ?? ''}`);
+        sort = toggleSort(sort, key);
+        prefs.sort = sort; // ⚠️ muter + réécrire EN ENTIER (sinon notify/theme perdus)
+        savePrefs(prefsFile, prefs);
+        return send(200, json, currentView(showHidden));
+      }
       if (pathname === '/notify') {
         notifyEnabled = url.searchParams.get('enabled') !== '0';
         prefs.notify = notifyEnabled;
@@ -363,6 +378,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       favorites,
       activeFav,
       adhoc: !!scope,
+      sort,
     });
     send(status, type, body);
   });
