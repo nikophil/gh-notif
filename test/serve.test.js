@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
-import { handleRequest, serve, parseScope, scopeLabel } from '../src/serve.js';
+import { handleRequest, serve, parseScope, scopeLabel, shouldRefresh } from '../src/serve.js';
 import { loadPrefs, prefsPath } from '../src/prefs.js';
 
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
@@ -442,6 +442,52 @@ test('POST /fav/add : scope introuvable → 400, rien n’est persisté', async 
     const ok = await fetch(`http://localhost:${PORT}/fav/add?value=reseau-hs`, { method: 'POST' });
     assert.equal(ok.status, 200);
     assert.deepEqual(loadPrefs(prefsPath()).favorites, ['reseau-hs']);
+  } finally {
+    server.close();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// ── shouldRefresh (débounce du POST /refresh, pur) ──────────────────────────
+test('shouldRefresh : jamais pollé ou snapshot vieux → true, frais → false', () => {
+  // Jamais pollé (updatedAt null) : il faut poller.
+  assert.equal(shouldRefresh(null, NOW), true);
+  // Snapshot frais (< 10 s) : un reload de page ne re-poll pas GitHub.
+  assert.equal(shouldRefresh(NOW - 3000, NOW), false);
+  // Snapshot vieux : on re-poll.
+  assert.equal(shouldRefresh(NOW - 15000, NOW), true);
+  // Seuil surchargeable.
+  assert.equal(shouldRefresh(NOW - 3000, NOW, 2000), true);
+});
+
+// ── intégration : POST /refresh débouncé quand le snapshot est frais ────────
+test('POST /refresh juste après un poll → pas de nouvelle collecte GitHub', async () => {
+  let polls = 0;
+  const gh = {
+    getCurrentUser: async () => 'moi',
+    listNotifications: async () => { polls += 1; return []; },
+    searchReviewRequested: async () => [],
+    searchAuthored: async () => [],
+    getPullDetailsBatch: async () => [],
+    getComment: async () => null,
+    getReviewComments: async () => [],
+  };
+  const tmp = `/tmp/gh-notif-test-refresh-${process.pid}`;
+  rmSync(tmp, { recursive: true, force: true });
+  process.env.XDG_STATE_HOME = tmp;
+
+  const PORT = 7796;
+  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600 });
+  try {
+    await new Promise((r) => setTimeout(r, 150)); // 1er poll
+    assert.equal(polls, 1, 'un seul poll au démarrage');
+
+    // Reload de page (ctrl+R) → le client force /refresh ; snapshot frais → 0 collecte.
+    const res = await fetch(`http://localhost:${PORT}/refresh`, { method: 'POST' });
+    assert.equal(res.status, 200);
+    const d = await res.json();
+    assert.ok(d.updatedAt, 'répond quand même la vue courante (JSON complet)');
+    assert.equal(polls, 1, 'snapshot frais → pas de re-poll GitHub');
   } finally {
     server.close();
     rmSync(tmp, { recursive: true, force: true });

@@ -24,6 +24,7 @@ import { renderShell, renderFragment, renderLoading, renderDebug, renderDebugShe
 
 const POLL_SECONDS = 60;
 const BACKOFF_CAP = 600; // plafond du recul en cas de rate-limit (10 min)
+const REFRESH_MIN_AGE_MS = 10_000; // débounce de POST /refresh (voir shouldRefresh)
 
 // `parseScope` vit dans favorites.js (module pur, sans node:http) car le CLI et
 // les favoris en ont besoin ; ré-exporté ici où il a toujours été consommé.
@@ -34,6 +35,14 @@ export { parseScope };
 // sont les chips qui portent l'information.
 export function scopeLabel(scope) {
   return scope && !Array.isArray(scope) ? scope.value : '';
+}
+
+// Débounce du POST /refresh : le client en envoie un à CHAQUE chargement de
+// page (ctrl+R = « rafraîchis vraiment »), donc on ne re-poll GitHub que si le
+// snapshot a plus de `minAgeMs` (sinon spammer ctrl+R = spammer GitHub, cf.
+// rate-limit §11). `updatedAt` null (1er poll pas fini) → toujours poller.
+export function shouldRefresh(updatedAt, now, minAgeMs = REFRESH_MIN_AGE_MS) {
+  return updatedAt == null || now - updatedAt >= minAgeMs;
 }
 
 // Re-filtre others/hidden depuis les données en mémoire après un toggle, sans
@@ -249,7 +258,9 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
 
     if (req.method === 'POST') {
       if (pathname === '/refresh') {
-        await refresh();
+        // Débouncé : snapshot frais (< 10 s) → on répond la vue courante sans
+        // toucher GitHub (le client force /refresh à chaque chargement de page).
+        if (shouldRefresh(snapshot.updatedAt, Date.now())) await refresh();
         return send(200, json, currentView(showHidden));
       }
       if (pathname === '/hide') {

@@ -360,11 +360,17 @@ ${FAVICON}
     stamp.classList.remove('offline');
     stamp.innerHTML = '<span class="spinner"></span> mise à jour…';
   }
-  function setContent(html) {
+  function setContent(html, updatedAt) {
     content.innerHTML = html;
-    left = INTERVAL / 1000;
+    // « maj » = l'heure du VRAI poll GitHub (updatedAt du snapshot serveur),
+    // pas l'heure d'affichage — sinon un ctrl+R prétend une maj qu'il n'a pas
+    // faite. Le compteur est calé sur le prochain poll serveur estimé
+    // (updatedAt + INTERVAL), clampé : jamais < 5 s (serveur en retard/backoff
+    // → on re-sonde vite, 0 appel GitHub) ni > INTERVAL.
+    var t = updatedAt || Date.now();
+    left = Math.max(5, Math.min(INTERVAL / 1000, Math.round((t + INTERVAL - Date.now()) / 1000) + 2));
     stamp.classList.remove('offline');
-    stamp.textContent = 'maj ' + new Date().toLocaleTimeString('fr-FR');
+    stamp.textContent = 'maj ' + new Date(t).toLocaleTimeString('fr-FR');
     // Serveur pas encore prêt (1er poll en cours) → on re-poll vite.
     if (content.querySelector('[data-loading]')) left = 1;
   }
@@ -377,11 +383,12 @@ ${FAVICON}
   // des puces se rafraîchissent ainsi à CHAQUE poll, comme les tableaux.
   function inject(d) {
     if (d && typeof d.chips === 'string') favs.innerHTML = d.chips;
-    setContent(d.fragment);
+    setContent(d.fragment, d.updatedAt);
+    return d;
   }
   function load() {
     busy();
-    fetch('/view' + q()).then(function (r) { return r.json(); }).then(inject).catch(fail);
+    return fetch('/view' + q()).then(function (r) { return r.json(); }).then(inject).catch(fail);
   }
   // Action POST → {chips, fragment}. Un 4xx (favori introuvable, trop de favoris)
   // renvoie un message texte affiché près du champ, sans toucher la barre.
@@ -470,7 +477,12 @@ ${FAVICON}
     if (!stamp.classList.contains('offline')) stamp.textContent = base + '  ·  prochaine vérif dans ' + left + 's';
   }, 1000);
 
-  load();
+  // Chargement de page : affiche le snapshot tout de suite (0 appel GitHub),
+  // puis force un vrai poll — un ctrl+R rafraîchit donc réellement les données.
+  // Le serveur débounce (shouldRefresh) : snapshot frais → réponse immédiate,
+  // spammer ctrl+R ne spamme pas GitHub. En échec (serveur down), fail() a déjà
+  // affiché « hors ligne » et d est undefined → on ne force rien.
+  load().then(function (d) { if (d) act('/refresh'); });
 </script>
 </body>
 </html>`;

@@ -124,7 +124,7 @@ par `handleRequest(pathname, snapshot, {now, intervalMs, showHidden, scope})` (*
 sans socket) : `GET /` → `renderShell` (page + JS de polling, champ de scope prérempli), `GET
 /fragment` → `renderFragment` du snapshot (ou message d'erreur échappé ; `?hidden=1` ajoute les
 lignes masquées), `GET /api/state` → JSON brut, sinon 404. Les **actions** (POST, effets de bord,
-dans le handler I/O) : `POST /refresh` (force un poll), `POST /hide?key=repo#n`
+dans le handler I/O) : `POST /refresh` (force un poll, **débouncé** — cf. ci-dessous), `POST /hide?key=repo#n`
 (`toggleHidden`+`saveHidden`, puis **recompute local** sans refetch), `POST /scope?value=` (scope
 **mutable** : `parseScope` → re-fetch ciblé — le serveur ne charge que le scope choisi), `POST
 /notify?enabled=0|1` (checkbox 🔔 de l'en-tête : bascule `notifyEnabled`), `POST /theme?value=auto|light|dark`
@@ -147,6 +147,16 @@ il est faux, `notifyNew` **continue** de consommer les évènements — `diffApp
 provoque aucune rafale** de vieilles notifs (même philosophie que le seed silencieux, cf. §4). ⚠️ Ne
 jamais court-circuiter `markSeen` derrière ce flag, sinon la file s'accumule et re-notifie tout au
 ré-activation.
+
+**Ctrl+R rafraîchit vraiment (et le stamp ne ment pas).** Au chargement de page, le client
+affiche d'abord le snapshot (`GET /view`, 0 appel GitHub) **puis envoie `POST /refresh`** pour
+forcer un vrai poll. Anti-spam côté serveur : `shouldRefresh(updatedAt, now)` (pur, exporté) —
+snapshot **plus frais que 10 s** ⇒ `/refresh` répond la vue courante **sans re-poller** (spammer
+ctrl+R ne spamme pas GitHub ; le bouton 🔄 subit le même débounce, voulu : des données de < 10 s
+sont déjà fraîches). ⚠️ Le stamp `maj HH:MM:SS` affiche **`updatedAt` du snapshot** (l'heure du
+vrai poll), jamais l'heure d'affichage — sinon un reload prétend une maj qu'il n'a pas faite
+(bug réel). Le compteur « prochaine vérif » est calé sur le **prochain poll serveur estimé**
+(`updatedAt + INTERVAL`, clampé ≥ 5 s), pas remis à plein à chaque injection.
 
 Le rendu HTML (`src/html.js`) **réutilise** les helpers de présentation de `render.js`
 (`ciIcon`, `stateIcon`, `relativeDate`) : seul le médium (terminal vs HTML) diffère. Le navigateur

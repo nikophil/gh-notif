@@ -170,6 +170,20 @@ test('renderShell : embarque le style + l’usage du spinner', () => {
   assert.match(out, /class="spinner"/);          // utilisé (indicateur d'activité)
 });
 
+test('renderShell : le stamp « maj » reflète updatedAt du snapshot, pas l’heure du reload', () => {
+  const out = renderShell({ intervalMs: 10000 });
+  // setContent reçoit l'updatedAt du serveur : après un ctrl+R, « maj HH:MM:SS »
+  // est l'heure du vrai poll GitHub, pas celle de l'affichage.
+  assert.ok(out.includes('setContent(d.fragment, d.updatedAt)'), 'updatedAt propagé au stamp');
+});
+
+test('renderShell : le chargement de page force un vrai poll (débouncé serveur)', () => {
+  const out = renderShell({ intervalMs: 10000 });
+  // Boot : affiche le snapshot tout de suite, puis POST /refresh (le serveur
+  // ignore si le snapshot est frais) → ctrl+R rafraîchit vraiment les données.
+  assert.match(out, /load\(\)\.then\([\s\S]*act\('\/refresh'\)/, 'boot = load puis /refresh');
+});
+
 test('renderLoading : spinner + libellé + sentinelle data-loading', () => {
   const out = renderLoading();
   assert.match(out, /class="spinner"/);
