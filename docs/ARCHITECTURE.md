@@ -29,6 +29,7 @@ qui réutilise l'auth de l'utilisateur. Tests avec le runner natif `node:test` (
 | `src/html.js` | Rendu **HTML pur** du mode `--serve` (`escapeHtml`, `renderFragment`, `renderShell`, `renderDebug`/`renderDebugShell`). Réutilise les helpers de `render.js`. | oui |
 | `src/serve.js` | Serveur HTTP local (`node:http`) + boucle de poll : `handleRequest` (pur) + `serve` (I/O). | `handleRequest` oui ; `serve` non (I/O) |
 | `src/ratelimit.js` | Détection rate-limit (`isRateLimitError`) + backoff (`nextBackoffSeconds`). Purs. | oui |
+| `src/sort.js` | Tri du tableau « PR des autres » en `--serve` : `normalizeSort`, `toggleSort` (cycle des clics), `sortRows` (copie triée, manquants en fin). Purs. | oui |
 
 Chaque module a une responsabilité claire ; la logique difficile vit dans des **fonctions pures**
 testées sur fixtures (pas d'appel réseau en test).
@@ -438,6 +439,21 @@ sequenceDiagram
     erreur CLI) ; **`null` (réseau, rate-limit…) → fail-open** avec avertissement — ne jamais
     bloquer un ajout légitime sur un incident transitoire. Les stubs `gh` sans `scopeExists`
     passent (garde `typeof`).
+
+15. **Tri des « PR des autres » (`--serve`) = état d'affichage, comme le favori actif.** Un seul
+    critère `{key: date|approvals|author, dir}` (jamais de cumul multi-colonnes), persisté dans
+    `prefs-v1.json` (clé `sort`, `null` par défaut — `normalizeSort` applique `{date, desc}` à
+    l'usage, aucune migration). Le tri s'applique dans `fragmentBody` (serve.js), APRÈS
+    `filterDataByScope` et jamais à la collecte — même ordre critique que §14 (`data` reste brut :
+    masquage, notifs et compteurs de favoris ne voient aucun changement). Les lignes masquées
+    (`?hidden=1`) suivent le même tri. `POST /sort?key=…` = `toggleSort` (même colonne → inverse ;
+    autre → sens par défaut : date `desc`, approvals `asc` — les moins approuvées d'abord —,
+    author `asc`) + recompute local, **0 appel GitHub**. En-têtes cliquables rendus par
+    `sortableTh` (html.js) **seulement si `opts.sort` est fourni** à `renderFragment` — sans lui,
+    sortie strictement inchangée (compat ; le terminal ne trie pas). Manquants (`author`/
+    `createdAt` nuls) en fin de liste quel que soit le sens ; égalité → ordre d'arrivée (sort
+    stable). « Tes PR » n'est jamais triable. Spec :
+    `docs/superpowers/specs/2026-07-23-sort-others-design.md`.
 
 ## Conventions de test
 
