@@ -454,7 +454,12 @@ sequenceDiagram
     autre → sens par défaut : date `desc`, approvals `asc` — les moins approuvées d'abord —,
     author `asc`) + recompute local, **0 appel GitHub**. En-têtes cliquables rendus par
     `sortableTh` (html.js) **seulement si `opts.sort` est fourni** à `renderFragment` — sans lui,
-    sortie strictement inchangée (compat ; le terminal ne trie pas). Manquants (`author`/
+    sortie strictement inchangée (compat ; le terminal ne trie pas). La colonne active est
+    **surlignée discrètement** (toutes les cellules) via un `<colgroup>` émis par `table()` :
+    l'index du `<col class="sorted">` est dérivé du **même tableau `headers`** que les th (pas de
+    `nth-child` codé en dur → ne peut pas se désynchroniser) ; CSS `col.sorted` = voile
+    `color-mix(accent 6%)` — le fond d'un `<col>` se peint **sous** celui des lignes, donc le hover
+    et l'opacité des masquées restent lisibles. Manquants (`author`/
     `createdAt` nuls) en fin de liste quel que soit le sens ; égalité → ordre d'arrivée (sort
     stable). « Tes PR » n'est jamais triable. Spec :
     `docs/superpowers/specs/2026-07-23-sort-others-design.md`.

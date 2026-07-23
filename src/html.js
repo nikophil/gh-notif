@@ -30,6 +30,7 @@ function sortableTh(html, key, sort) {
   return {
     attrs: ` data-sort-key="${key}" title="Trier"`,
     html: active ? `${html}${SORT_ARROW[sort.dir] ?? ''}` : html,
+    active, // colonne du tri courant → marquée dans le colgroup (cf. table)
   };
 }
 
@@ -95,12 +96,19 @@ const tableRow = (cells, cls = '') => `<tr${cls ? ` class="${cls}"` : ''}>${cell
 
 // Un en-tête est soit une chaîne (th nu), soit { html, attrs } (th triable —
 // attrs porte data-sort-key pour la délégation de clic côté client).
+// Si un en-tête est `active` (colonne du tri courant), un <colgroup> marque le
+// <col> correspondant : l'index vient du même tableau `headers` que les th,
+// donc ne peut pas se désynchroniser. Le fond d'un <col> se peint SOUS celui
+// des lignes → le hover et l'opacité des masquées restent lisibles par-dessus.
 function table(headers, rows) {
+  const colgroup = headers.some((h) => h?.active)
+    ? `<colgroup>${headers.map((h) => (h?.active ? '<col class="sorted">' : '<col>')).join('')}</colgroup>`
+    : '';
   const head = `<thead><tr>${headers
     .map((h) => (typeof h === 'string' ? `<th>${h}</th>` : `<th${h.attrs}>${h.html}</th>`))
     .join('')}</tr></thead>`;
   const body = `<tbody>${rows.join('')}</tbody>`;
-  return `<table>${head}${body}</table>`;
+  return `<table>${colgroup}${head}${body}</table>`;
 }
 
 function mineTable(rows) {
@@ -329,6 +337,8 @@ ${FAVICON}
   th { font-weight: 600; color: var(--fg-muted); font-size: .75rem; }
   th[data-sort-key] { cursor: pointer; user-select: none; }
   th[data-sort-key]:hover { color: var(--accent); }
+  /* Colonne du tri actif : voile discret (accent à 6 %), th compris. */
+  col.sorted { background: color-mix(in srgb, var(--accent) 6%, transparent); }
   /* Colonne Titre : absorbe la largeur restante et tronque sur une seule ligne
      (astuce width:100% + max-width:0 + ellipsis sur un tableau auto-layout). */
   td:nth-child(3) { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }

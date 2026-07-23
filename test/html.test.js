@@ -422,3 +422,52 @@ test('renderShell : le JS gère le clic sur th[data-sort-key] → POST /sort', (
   assert.match(page, /data-sort-key/);
   assert.match(page, /\/sort/);
 });
+
+// ── Surbrillance de la colonne triée (colgroup) ────────────────────────────
+
+// Position (1-based) du col.sorted dans le colgroup, ou -1.
+function sortedColIndex(html) {
+  const m = html.match(/<colgroup>(.*?)<\/colgroup>/);
+  if (!m) return -1;
+  const cols = m[1].match(/<col[^>]*>/g) || [];
+  return cols.findIndex((c) => c.includes('sorted')) + 1 || -1;
+}
+
+// Position (1-based) du th actif — celle du data-sort-key demandé.
+// ⚠️ `(?:\s…)?` et pas `[^>]*` : sinon <thead> compterait comme un th.
+function thIndex(html, key) {
+  const ths = html.match(/<th(?:\s[^>]*)?>/g) || [];
+  return ths.findIndex((t) => t.includes(`data-sort-key="${key}"`)) + 1 || -1;
+}
+
+test('tri actif : le colgroup marque la colonne du th actif (position dérivée, pas codée en dur)', () => {
+  const data = { mine: [], others: [
+    { repo: 'o/r', number: 1, url: 'u', title: 't', author: 'alice', createdAt: '2026-07-20T00:00:00Z', additions: 0, deletions: 0, triggers: ['review'], ci: 'pass', state: 'open', approvals: 0 },
+  ] };
+  for (const key of ['author', 'date', 'approvals']) {
+    const html = renderFragment(data, { now: Date.parse('2026-07-23T00:00:00Z'), sort: { key, dir: 'asc' } });
+    const col = sortedColIndex(html);
+    assert.ok(col > 0, `colgroup présent et marqué pour ${key}`);
+    assert.equal(col, thIndex(html, key), `col.sorted aligné sur le th ${key}`);
+    // un seul col marqué
+    assert.equal((html.match(/<col class="sorted">/g) || []).length, 1);
+  }
+});
+
+test('sans opts.sort : aucun colgroup (sortie inchangée)', () => {
+  const data = { mine: [], others: [
+    { repo: 'o/r', number: 1, url: 'u', title: 't', author: 'alice', createdAt: null, additions: 0, deletions: 0, triggers: ['review'], ci: 'pass', state: 'open', approvals: 0 },
+  ] };
+  assert.ok(!renderFragment(data, { now: 0 }).includes('<colgroup>'));
+});
+
+test('le tableau « Tes PR » n’a jamais de colgroup, même avec tri actif', () => {
+  const data = { mine: [
+    { repo: 'o/r', number: 1, url: 'u', title: 't', triggers: [], ci: 'pass', state: 'open', approvals: 0 },
+  ], others: [] };
+  assert.ok(!renderFragment(data, { now: 0, sort: { key: 'date', dir: 'desc' } }).includes('<colgroup>'));
+});
+
+test('renderShell : style col.sorted présent (voile discret sur la colonne triée)', () => {
+  assert.match(renderShell({}), /col\.sorted/);
+});
