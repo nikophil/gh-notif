@@ -3,17 +3,18 @@ import { join, dirname } from 'node:path';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 
 // Préférences UI persistées : `notify` (notifications desktop), `theme` (skin
-// CSS), `favorites` (scopes épinglés) et `activeFav` (favori affiché). Calqué sur
-// state.js / hidden.js : fonctions pures + persistance JSON, testables sur
+// CSS), `favorites` (scopes épinglés), `activeFav` (favori affiché) et `sort`
+// (tri du tableau « autres » en --serve, validé par `normalizeSort` à l'usage).
+// Calqué sur state.js / hidden.js : fonctions pures + persistance JSON, testables sur
 // fixtures. Défauts appliqués à la lecture pour qu'un fichier ancien/partiel reste
-// valide (notifs activées, thème auto, aucun favori) — donc aucune migration à
-// prévoir en ajoutant une clé.
+// valide (notifs activées, thème auto, aucun favori, tri non choisi) — donc aucune
+// migration à prévoir en ajoutant une clé.
 //
 // ⚠️ Écriture : muter l'objet prefs en mémoire puis le ré-écrire EN ENTIER
 // (`prefs.favorites = …; savePrefs(path, prefs)`). Surtout pas
 // `savePrefs(path, { favorites })` : ça effacerait notify/theme.
 
-const DEFAULTS = { notify: true, theme: 'auto', favorites: [], activeFav: null };
+const DEFAULTS = { notify: true, theme: 'auto', favorites: [], activeFav: null, sort: null };
 const THEMES = ['light', 'dark', 'auto'];
 
 export function prefsPath() {

@@ -13,7 +13,7 @@ test('prefsPath respecte XDG_STATE_HOME', () => {
 });
 
 test('loadPrefs : fichier absent → défauts (notify: true, theme: auto)', () => {
-  assert.deepEqual(loadPrefs('/nope/nope/prefs.json'), { notify: true, theme: 'auto', favorites: [], activeFav: null });
+  assert.deepEqual(loadPrefs('/nope/nope/prefs.json'), { notify: true, theme: 'auto', favorites: [], activeFav: null, sort: null });
 });
 
 test('loadPrefs : fichier corrompu → défauts', () => {
@@ -22,7 +22,7 @@ test('loadPrefs : fichier corrompu → défauts', () => {
   savePrefs(p, {}); // écrit un objet valide…
   rmSync(p, { force: true });
   // …puis on relit un chemin inexistant : défaut appliqué
-  assert.deepEqual(loadPrefs(p), { notify: true, theme: 'auto', favorites: [], activeFav: null });
+  assert.deepEqual(loadPrefs(p), { notify: true, theme: 'auto', favorites: [], activeFav: null, sort: null });
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -30,7 +30,7 @@ test('save puis load round-trip (notify: false persisté)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ghnotif-'));
   const p = join(dir, 'sub', 'prefs.json');
   savePrefs(p, { notify: false });
-  assert.deepEqual(loadPrefs(p), { notify: false, theme: 'auto', favorites: [], activeFav: null });
+  assert.deepEqual(loadPrefs(p), { notify: false, theme: 'auto', favorites: [], activeFav: null, sort: null });
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -78,7 +78,7 @@ test('écrire les favoris ne perd ni notify ni theme (piège de la clé écrasé
   prefs.favorites = ['mapado'];
   prefs.activeFav = 'mapado';
   savePrefs(p, prefs);
-  assert.deepEqual(loadPrefs(p), { notify: false, theme: 'dark', favorites: ['mapado'], activeFav: 'mapado' });
+  assert.deepEqual(loadPrefs(p), { notify: false, theme: 'dark', favorites: ['mapado'], activeFav: 'mapado', sort: null });
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -92,6 +92,23 @@ test('loadPrefs : theme persisté conservé, notify complété par défaut', () 
   const dir = mkdtempSync(join(tmpdir(), 'ghnotif-'));
   const p = join(dir, 'prefs.json');
   savePrefs(p, { theme: 'dark' });
-  assert.deepEqual(loadPrefs(p), { notify: true, theme: 'dark', favorites: [], activeFav: null });
+  assert.deepEqual(loadPrefs(p), { notify: true, theme: 'dark', favorites: [], activeFav: null, sort: null });
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('loadPrefs : sort null par défaut, persisté tel quel sans perdre les autres clés', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ghnotif-'));
+  const p = join(dir, 'prefs.json');
+  // Fichier antérieur au tri : la clé apparaît, nulle (normalizeSort fera le défaut).
+  savePrefs(p, { notify: false });
+  assert.equal(loadPrefs(p).sort, null);
+  // Round-trip : on mute l'objet ENTIER puis on le réécrit (piège habituel).
+  const prefs = loadPrefs(p);
+  prefs.sort = { key: 'author', dir: 'asc' };
+  savePrefs(p, prefs);
+  assert.deepEqual(loadPrefs(p), {
+    notify: false, theme: 'auto', favorites: [], activeFav: null,
+    sort: { key: 'author', dir: 'asc' },
+  });
   rmSync(dir, { recursive: true, force: true });
 });
