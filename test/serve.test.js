@@ -562,9 +562,10 @@ test('GET /fragment?hidden : les lignes masquées suivent le même tri', () => {
 });
 
 test('POST /sort : trie, inverse au re-clic, persiste, 400 sur clé inconnue', async () => {
+  let polls = 0;
   const gh = {
     getCurrentUser: async () => 'moi',
-    listNotifications: async () => [],
+    listNotifications: async () => { polls += 1; return []; },
     searchReviewRequested: async () => [
       { repository_url: 'https://api.github.com/repos/o/old', number: 1, title: 'vieille', html_url: 'u', updated_at: '2026-06-24T00:00:00Z' },
       { repository_url: 'https://api.github.com/repos/o/new', number: 2, title: 'récente', html_url: 'u', updated_at: '2026-06-24T00:00:00Z' },
@@ -607,6 +608,9 @@ test('POST /sort : trie, inverse au re-clic, persiste, 400 sur clé inconnue', a
     const bad = await fetch(`http://localhost:${PORT}/sort?key=nope`, { method: 'POST' });
     assert.equal(bad.status, 400);
     assert.deepEqual(loadPrefs(prefsPath()).sort, { key: 'author', dir: 'desc' });
+
+    // POST /sort ne déclenche aucun poll GitHub (recompute local seulement).
+    assert.equal(polls, 1, 'POST /sort ne déclenche aucun poll GitHub');
   } finally {
     server.close();
     rmSync(tmp, { recursive: true, force: true });
