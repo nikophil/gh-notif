@@ -279,6 +279,7 @@ Usage:
   gh notif --watch           Tableaux rafraîchis en continu + notifs desktop
   gh notif --watch -v        + journal des évènements détectés sous les tableaux
   gh notif --serve [--port N]  Page web locale auto-rafraîchie (défaut :7777)
+  gh notif --serve --no-open   Sans ouvrir le navigateur (l'URL reste affichée)
   gh notif --interval N      Secondes entre deux polls (--watch/--serve, plancher 60)
   gh notif --org <org>       Limite à une organisation
   gh notif --repo [o/r]      Limite à un dépôt (sans valeur = dépôt courant)
@@ -309,7 +310,7 @@ q = quitter.
 // (erreur, valeur requise), string=valeur.
 function parseArgs(argv) {
   const args = argv.slice(2);
-  const flags = { all: false, watch: false, serve: false, port: undefined, interval: undefined, help: false, verbose: false, debug: false, showHidden: false, org: undefined, repo: undefined, fav: undefined };
+  const flags = { all: false, watch: false, serve: false, port: undefined, interval: undefined, help: false, verbose: false, debug: false, showHidden: false, org: undefined, repo: undefined, fav: undefined, noOpen: false };
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     const takeValue = () => {
@@ -321,6 +322,7 @@ function parseArgs(argv) {
     else if (a === '--all') flags.all = true;
     else if (a === '--watch') flags.watch = true;
     else if (a === '--serve') flags.serve = true;
+    else if (a === '--no-open') flags.noOpen = true;
     else if (a.startsWith('--port=')) flags.port = Number(a.slice(7));
     else if (a === '--port') { const v = takeValue(); flags.port = v === null ? null : Number(v); }
     else if (a.startsWith('--interval=')) flags.interval = Number(a.slice(11));
@@ -516,7 +518,7 @@ async function main(argv) {
       const me = await gh.getCurrentUser();
       // serve() relit les favoris depuis prefs lui-même : on ne lui passe que le
       // scope ad-hoc éventuel (Array ⇒ mode favoris, qu'il recalcule).
-      serve({ gh, me, scope: Array.isArray(collectScope) ? null : collectScope, all: flags.all, port: flags.port ?? 7777, intervalSeconds });
+      serve({ gh, me, scope: Array.isArray(collectScope) ? null : collectScope, all: flags.all, port: flags.port ?? 7777, intervalSeconds, open: !flags.noOpen });
     } else if (flags.watch) {
       await runWatch(gh, { scope: collectScope, verbose: flags.verbose, showHidden: flags.showHidden, debug: flags.debug, intervalSeconds, favorites, activeFav, prefs, prefsFile });
     } else {

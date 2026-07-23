@@ -147,7 +147,7 @@ function openBrowser(url) {
 // Deux notions à ne pas confondre (cf. ARCHITECTURE.md §14) :
 //  - `scope` (mode ad-hoc) ou l'union des favoris = ce qu'on COLLECTE ;
 //  - `activeFav` = simple filtre d'AFFICHAGE, changé sans aucune requête.
-export function serve({ gh, me, scope: initialScope = null, all = false, port = 7777, intervalSeconds = POLL_SECONDS } = {}) {
+export function serve({ gh, me, scope: initialScope = null, all = false, port = 7777, intervalSeconds = POLL_SECONDS, open = true } = {}) {
   // `scope` non nul ⇒ mode ad-hoc : un scope saisi (--org/--repo ou champ web)
   // prime sur les favoris, qui deviennent purement décoratifs (chips grisées).
   let scope = initialScope;
@@ -387,7 +387,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   server.listen(port, () => {
     const url = `http://localhost:${port}`;
     process.stderr.write(`🔔 gh notif --serve · ${url} · Ctrl-C pour arrêter\n`);
-    openBrowser(url);
+    if (open) openBrowser(url);
   });
   return server;
 }

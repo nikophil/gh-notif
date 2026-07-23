@@ -16,6 +16,8 @@ apostrophes typographiques…). Ne propose ni n'écris de code avant de l'avoir 
 - Avant de conclure une modif : `npm test` vert **et**
   `for f in gh-notif src/*.js test/*.js; do node --check "$f"; done`, plus un smoke test si tu as
   touché l'entrypoint ou le rendu.
+- **Tout smoke test de `--serve` DOIT passer `--no-open`** (sinon chaque lancement ouvre un onglet
+  dans le navigateur de l'utilisateur).
 - L'alignement des tableaux dépend de `render.js#displayWidth` : toute nouvelle icône/emoji doit
   passer le test d'alignement (toutes les lignes d'un tableau ont la même largeur).
 
