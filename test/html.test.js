@@ -384,3 +384,41 @@ test('renderFragment : mine vide sans closedUrl → comportement inchangé', () 
   const out = renderFragment({ mine: [], others: [] }, { now: NOW });
   assert.match(out, /Rien à signaler/);
 });
+
+// ── En-têtes triables (colonne « autres ») ─────────────────────────────────
+
+test('renderFragment avec opts.sort : th cliquables + indicateur sur la colonne active', () => {
+  const data = { mine: [], others: [
+    { repo: 'o/r', number: 1, url: 'u', title: 't', author: 'alice', createdAt: '2026-07-20T00:00:00Z', additions: 0, deletions: 0, triggers: ['review'], ci: 'pass', state: 'open', approvals: 0 },
+  ] };
+  const html = renderFragment(data, { now: Date.parse('2026-07-23T00:00:00Z'), sort: { key: 'date', dir: 'desc' } });
+  assert.match(html, /<th[^>]*data-sort-key="author"[^>]*>Auteur<\/th>/);
+  assert.match(html, /<th[^>]*data-sort-key="date"[^>]*>Ouverte ▾<\/th>/); // colonne active + sens
+  assert.match(html, /<th[^>]*data-sort-key="approvals"/);
+  // asc → ▴
+  const asc = renderFragment(data, { now: Date.parse('2026-07-23T00:00:00Z'), sort: { key: 'author', dir: 'asc' } });
+  assert.match(asc, /<th[^>]*data-sort-key="author"[^>]*>Auteur ▴<\/th>/);
+  assert.match(asc, /<th[^>]*data-sort-key="date"[^>]*>Ouverte<\/th>/); // inactive : pas d'indicateur
+});
+
+test('renderFragment sans opts.sort : sortie inchangée (aucun data-sort-key)', () => {
+  const data = { mine: [], others: [
+    { repo: 'o/r', number: 1, url: 'u', title: 't', author: 'alice', createdAt: null, additions: 0, deletions: 0, triggers: ['review'], ci: 'pass', state: 'open', approvals: 0 },
+  ] };
+  const html = renderFragment(data, { now: 0 });
+  assert.ok(!html.includes('data-sort-key'), 'compat : pas de th triable sans opts.sort');
+});
+
+test('le tableau « Tes PR » n’a jamais d’en-tête triable', () => {
+  const data = { mine: [
+    { repo: 'o/r', number: 1, url: 'u', title: 't', triggers: [], ci: 'pass', state: 'open', approvals: 0 },
+  ], others: [] };
+  const html = renderFragment(data, { now: 0, sort: { key: 'date', dir: 'desc' } });
+  assert.ok(!html.includes('data-sort-key'), 'mine : aucun tri');
+});
+
+test('renderShell : le JS gère le clic sur th[data-sort-key] → POST /sort', () => {
+  const page = renderShell({});
+  assert.match(page, /data-sort-key/);
+  assert.match(page, /\/sort/);
+});

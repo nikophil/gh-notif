@@ -19,6 +19,20 @@ const TRIGGER_META = [
 // En-tête de la colonne « approbations » (icône cryptique → title au survol).
 const APPROVALS_TH = '<abbr title="Approbations" style="text-decoration:none;cursor:help">✅</abbr>';
 
+// Indicateur de tri sur la colonne active (▴ asc / ▾ desc).
+const SORT_ARROW = { asc: ' ▴', desc: ' ▾' };
+
+// En-tête triable : data-sort-key (délégation de clic, cf. renderShell) +
+// indicateur si c'est la colonne active. `sort` absent → th nu (compat).
+function sortableTh(html, key, sort) {
+  if (!sort) return html;
+  const active = sort.key === key;
+  return {
+    attrs: ` data-sort-key="${key}" title="Trier"`,
+    html: active ? `${html}${SORT_ARROW[sort.dir] ?? ''}` : html,
+  };
+}
+
 // Favicon : le logo (mark) GitHub embarqué en data-URI SVG (zéro asset externe,
 // comme le reste des pages). Theme-aware via une media query interne au SVG —
 // mark sombre sur onglet clair, clair sur onglet sombre. ⚠️ Le `#` des couleurs
@@ -79,8 +93,12 @@ const approvalsCell = (n, ready = false) => {
 
 const tableRow = (cells, cls = '') => `<tr${cls ? ` class="${cls}"` : ''}>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`;
 
+// Un en-tête est soit une chaîne (th nu), soit { html, attrs } (th triable —
+// attrs porte data-sort-key pour la délégation de clic côté client).
 function table(headers, rows) {
-  const head = `<thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead>`;
+  const head = `<thead><tr>${headers
+    .map((h) => (typeof h === 'string' ? `<th>${h}</th>` : `<th${h.attrs}>${h.html}</th>`))
+    .join('')}</tr></thead>`;
   const body = `<tbody>${rows.join('')}</tbody>`;
   return `<table>${head}${body}</table>`;
 }
@@ -128,8 +146,15 @@ function otherRow(r, now, hidden) {
   );
 }
 
-function othersTable(others, hiddenRows, now, showHidden) {
-  const headers = ['Dépôt', 'PR', 'Titre', 'Auteur', 'Ouverte', 'Diff', 'État', APPROVALS_TH, 'Triggers', 'CI', ''];
+function othersTable(others, hiddenRows, now, showHidden, sort = null) {
+  const headers = [
+    'Dépôt', 'PR', 'Titre',
+    sortableTh('Auteur', 'author', sort),
+    sortableTh('Ouverte', 'date', sort),
+    'Diff', 'État',
+    sortableTh(APPROVALS_TH, 'approvals', sort),
+    'Triggers', 'CI', '',
+  ];
   const trs = [
     ...others.map((r) => otherRow(r, now, false)),
     ...(showHidden ? hiddenRows.map((r) => otherRow(r, now, true)) : []),
@@ -143,10 +168,13 @@ function othersTable(others, hiddenRows, now, showHidden) {
 // `closedUrl` (optionnel) : lien externe « fermées ↗ » vers mes PR fermées sur
 // GitHub, contextualisé sur la vue (calculé en amont, cf. closedPRsUrl). S'il est
 // fourni, la section « Tes PR » est rendue même vide (accès à l'historique).
+// `sort` (optionnel) = état de tri `{key,dir}` du tableau « autres » — en-têtes
+// cliquables + indicateur ; absent → th nus (compat).
 export function renderFragment(data, opts = {}) {
   const now = opts.now ?? Date.now();
   const showHidden = !!opts.showHidden;
   const closedUrl = opts.closedUrl ?? null;
+  const sort = opts.sort ?? null;
   const mine = data?.mine ?? [];
   const others = data?.others ?? [];
   const hiddenRows = data?.hidden ?? [];
@@ -165,7 +193,7 @@ export function renderFragment(data, opts = {}) {
         ? `(${others.length}, ${hiddenCount} masquée${hiddenCount > 1 ? 's' : ''})`
         : `(${others.length})`;
     blocks.push(
-      `<section><h2>👥 Activité sur les PR des autres ${count}</h2>${othersTable(others, hiddenRows, now, showHidden)}</section>`,
+      `<section><h2>👥 Activité sur les PR des autres ${count}</h2>${othersTable(others, hiddenRows, now, showHidden, sort)}</section>`,
     );
   }
   if (blocks.length === 0) return '<p class="empty">Rien à signaler ✨</p>';
@@ -299,6 +327,8 @@ ${FAVICON}
   th, td { text-align: left; padding: .5rem 1rem; border-bottom: 1px solid var(--border-muted); white-space: nowrap; }
   tbody tr:last-child td { border-bottom: 0; }
   th { font-weight: 600; color: var(--fg-muted); font-size: .75rem; }
+  th[data-sort-key] { cursor: pointer; user-select: none; }
+  th[data-sort-key]:hover { color: var(--accent); }
   /* Colonne Titre : absorbe la largeur restante et tronque sur une seule ligne
      (astuce width:100% + max-width:0 + ellipsis sur un tableau auto-layout). */
   td:nth-child(3) { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -478,6 +508,9 @@ ${FAVICON}
     if (sel) act('/fav', 'value=' + encodeURIComponent(sel.getAttribute('data-fav')));
   });
   content.addEventListener('click', function (e) {
+    // Tri : clic sur un en-tête triable du tableau « autres ».
+    var th = e.target.closest('th[data-sort-key]');
+    if (th) { act('/sort', 'key=' + encodeURIComponent(th.getAttribute('data-sort-key'))); return; }
     var btn = e.target.closest('.act');
     if (!btn) return;
     act('/hide', 'key=' + encodeURIComponent(btn.getAttribute('data-key')));
