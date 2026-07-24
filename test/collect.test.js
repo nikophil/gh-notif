@@ -22,38 +22,38 @@ const reviewReqThread = {
   repository: { full_name: 'o/r' },
 };
 
-test('collectNotifications garde une review demandée', async () => {
+test('collectNotifications keeps a requested review', async () => {
   const items = await collectNotifications(fakeGh({ notifications: [reviewReqThread] }), ME, {});
   assert.equal(items.length, 1);
   assert.equal(items[0].category, 'review_request');
 });
 
-test('collectNotifications drop un thread non-PR', async () => {
+test('collectNotifications drops a non-PR thread', async () => {
   const issue = { ...reviewReqThread, subject: { ...reviewReqThread.subject, type: 'Issue' } };
   const items = await collectNotifications(fakeGh({ notifications: [issue] }), ME, {});
   assert.equal(items.length, 0);
 });
 
-test('collectPending mappe les items de recherche', async () => {
+test('collectPending maps the search items', async () => {
   const search = [{
-    number: 98, title: 'PR à review',
+    number: 98, title: 'PR to review',
     html_url: 'https://github.com/o/r/pull/98',
     updated_at: '2026-06-20T09:00:00Z',
     repository_url: 'https://api.github.com/repos/o/r',
   }];
   const pending = await collectPending(fakeGh({ search }));
   assert.deepEqual(pending[0], {
-    repo: 'o/r', number: 98, title: 'PR à review',
+    repo: 'o/r', number: 98, title: 'PR to review',
     url: 'https://github.com/o/r/pull/98', updatedAt: '2026-06-20T09:00:00Z',
   });
 });
 
 // ── scope ──────────────────────────────────────────────────────────────────
-test('scopeMatches: null=tout, org=préfixe, repo=exact', () => {
+test('scopeMatches: null=everything, org=prefix, repo=exact', () => {
   assert.equal(scopeMatches(null, 'mapado/ticketing'), true);
   assert.equal(scopeMatches({ type: 'org', value: 'mapado' }, 'mapado/ticketing'), true);
   assert.equal(scopeMatches({ type: 'org', value: 'mapado' }, 'other/repo'), false);
-  assert.equal(scopeMatches({ type: 'org', value: 'map' }, 'mapado/x'), false); // pas un simple startsWith de chaîne
+  assert.equal(scopeMatches({ type: 'org', value: 'map' }, 'mapado/x'), false); // not a plain string startsWith
   assert.equal(scopeMatches({ type: 'repo', value: 'mapado/ticketing' }, 'mapado/ticketing'), true);
   assert.equal(scopeMatches({ type: 'repo', value: 'mapado/ticketing' }, 'mapado/web'), false);
 });
@@ -64,30 +64,30 @@ test('scopeQualifier', () => {
   assert.equal(scopeQualifier({ type: 'repo', value: 'mapado/web' }), ' repo:mapado/web');
 });
 
-// ── Scopes multiples (union des favoris) ─────────────────────────────────
+// ── Multiple scopes (union of favorites) ─────────────────────────────────
 
-test('toScopeList : null/objet/tableau → null ou tableau non vide', () => {
+test('toScopeList: null/object/array → null or non-empty array', () => {
   const org = { type: 'org', value: 'mapado' };
   assert.equal(toScopeList(null), null);
-  assert.equal(toScopeList([]), null);       // tableau vide = pas de filtre
-  assert.equal(toScopeList([null]), null);   // entrées nulles élaguées
-  assert.deepEqual(toScopeList(org), [org]); // scope unique = cas particulier
+  assert.equal(toScopeList([]), null);       // empty array = no filter
+  assert.equal(toScopeList([null]), null);   // null entries pruned
+  assert.deepEqual(toScopeList(org), [org]); // single scope = special case
   assert.deepEqual(toScopeList([org]), [org]);
 });
 
-test('matchesAnyScope : union org + repo, null → tout passe', () => {
+test('matchesAnyScope: union of org + repo, null → everything passes', () => {
   const scopes = [{ type: 'org', value: 'mapado' }, { type: 'repo', value: 'noctud/collection' }];
   assert.equal(matchesAnyScope(scopes, 'mapado/api'), true);
   assert.equal(matchesAnyScope(scopes, 'noctud/collection'), true);
-  assert.equal(matchesAnyScope(scopes, 'noctud/autre'), false); // repo ≠ org
+  assert.equal(matchesAnyScope(scopes, 'noctud/other'), false); // repo ≠ org
   assert.equal(matchesAnyScope(scopes, 'zenstruck/foundry'), false);
-  assert.equal(matchesAnyScope(null, 'nimporte/quoi'), true);
-  assert.equal(matchesAnyScope([], 'nimporte/quoi'), true);
-  // rétro-compat : un scope unique se comporte comme avant
+  assert.equal(matchesAnyScope(null, 'anything/whatever'), true);
+  assert.equal(matchesAnyScope([], 'anything/whatever'), true);
+  // backward-compat: a single scope behaves as before
   assert.equal(matchesAnyScope({ type: 'org', value: 'mapado' }, 'mapado/api'), true);
 });
 
-test('scopesQualifier : union OR-isée par GitHub en une seule recherche', () => {
+test('scopesQualifier: union OR-ed by GitHub in a single search', () => {
   assert.equal(scopesQualifier(null), '');
   assert.equal(scopesQualifier([]), '');
   assert.equal(
@@ -96,9 +96,9 @@ test('scopesQualifier : union OR-isée par GitHub en une seule recherche', () =>
   );
 });
 
-test('scopesQualifier : le cas d’usage réel tient largement sous 256 caractères', () => {
-  // Au-delà de 256 caractères, GitHub rejette la recherche — c'est ce que
-  // MAX_QUALIFIER_LENGTH (favorites.js) protège à l'ajout.
+test('scopesQualifier: the real use case stays well under 256 characters', () => {
+  // Beyond 256 characters, GitHub rejects the search — that's what
+  // MAX_QUALIFIER_LENGTH (favorites.js) protects against on add.
   const scopes = [
     { type: 'org', value: 'mapado' },
     { type: 'repo', value: 'noctud/collection' },
@@ -106,22 +106,22 @@ test('scopesQualifier : le cas d’usage réel tient largement sous 256 caractè
   ];
   assert.equal(scopesQualifier(scopes), ' org:mapado repo:noctud/collection org:zenstruck');
   const q = `is:open is:pr review-requested:@me${scopesQualifier(scopes)}`;
-  assert.ok(q.length < 256, `query de ${q.length} caractères`);
+  assert.ok(q.length < 256, `query of ${q.length} characters`);
 });
 
-test('collectNotifications filtre sur l’union des scopes (favoris)', async () => {
+test('collectNotifications filters on the union of scopes (favorites)', async () => {
   const mapado = { ...reviewReqThread, id: 'tm', repository: { full_name: 'mapado/api' }, subject: { ...reviewReqThread.subject, url: 'https://api.github.com/repos/mapado/api/pulls/1' } };
   const zen = { ...reviewReqThread, id: 'tz', repository: { full_name: 'zenstruck/foundry' }, subject: { ...reviewReqThread.subject, url: 'https://api.github.com/repos/zenstruck/foundry/pulls/2' } };
-  const hors = { ...reviewReqThread, id: 'tx', repository: { full_name: 'autre/repo' }, subject: { ...reviewReqThread.subject, url: 'https://api.github.com/repos/autre/repo/pulls/3' } };
+  const outside = { ...reviewReqThread, id: 'tx', repository: { full_name: 'other/repo' }, subject: { ...reviewReqThread.subject, url: 'https://api.github.com/repos/other/repo/pulls/3' } };
   const debug = [];
-  await collectNotifications(fakeGh({ notifications: [mapado, zen, hors] }), ME, {
+  await collectNotifications(fakeGh({ notifications: [mapado, zen, outside] }), ME, {
     scope: [{ type: 'org', value: 'mapado' }, { type: 'org', value: 'zenstruck' }],
     debug,
   });
   assert.deepEqual(debug.map((d) => d.repo), ['mapado/api', 'zenstruck/foundry']);
 });
 
-test('collectPRs passe le qualifier de l’union aux deux recherches', async () => {
+test('collectPRs passes the union qualifier to both searches', async () => {
   const seen = [];
   const gh = {
     ...fakeGh(),
@@ -135,7 +135,7 @@ test('collectPRs passe le qualifier de l’union aux deux recherches', async () 
   ]);
 });
 
-test('collectNotifications filtre par scope avant inspection', async () => {
+test('collectNotifications filters by scope before inspection', async () => {
   const inScope = reviewReqThread; // o/r
   const outScope = { ...reviewReqThread, id: 't9', repository: { full_name: 'x/y' }, subject: { ...reviewReqThread.subject, url: 'https://api.github.com/repos/x/y/pulls/1' } };
   const items = await collectNotifications(fakeGh({ notifications: [inScope, outScope] }), ME, { scope: { type: 'org', value: 'o' } });
@@ -154,47 +154,47 @@ test('ciFromState: SUCCESS→pass, FAILURE/ERROR→fail, PENDING/EXPECTED→pend
   assert.equal(ciFromState('EXPECTED'), 'pending');
 });
 
-test('ciFromChecks: agrège les checks restants (un fail domine, sinon pending, sinon pass, sinon none)', () => {
-  // null/undefined/vide → none
+test('ciFromChecks: aggregates the remaining checks (a fail dominates, otherwise pending, otherwise pass, otherwise none)', () => {
+  // null/undefined/empty → none
   assert.equal(ciFromChecks(null, []), 'none');
   assert.equal(ciFromChecks(undefined, []), 'none');
   assert.equal(ciFromChecks([], []), 'none');
-  // un fail domine
+  // a fail dominates
   assert.equal(ciFromChecks([{ name: 'a', state: 'pass' }, { name: 'b', state: 'fail' }], []), 'fail');
-  // pas de fail, un pending → pending
+  // no fail, one pending → pending
   assert.equal(ciFromChecks([{ name: 'a', state: 'pass' }, { name: 'b', state: 'pending' }], []), 'pending');
-  // que des pass → pass
+  // only passes → pass
   assert.equal(ciFromChecks([{ name: 'a', state: 'pass' }], []), 'pass');
 });
 
-test('ciFromChecks: retire les jobs ignorés (match exact, trimmé) avant d’agréger', () => {
+test('ciFromChecks: removes the ignored jobs (exact match, trimmed) before aggregating', () => {
   const checks = [
     { name: 'continuous-integration/jenkins/branch', state: 'pass' },
     { name: 'Check Pull Requests label for merge block', state: 'fail' },
   ];
-  // sans ignorer : le job label rouge fait échouer
+  // without ignoring: the red label job makes it fail
   assert.equal(ciFromChecks(checks, []), 'fail');
-  // en ignorant le job label : jenkins vert → pass
+  // ignoring the label job: jenkins green → pass
   assert.equal(ciFromChecks(checks, ['Check Pull Requests label for merge block']), 'pass');
-  // trim toléré sur la config
+  // trim tolerated on the config side
   assert.equal(ciFromChecks(checks, ['  Check Pull Requests label for merge block  ']), 'pass');
-  // tout ignoré → none (plus aucun check pertinent)
+  // everything ignored → none (no relevant check left)
   assert.equal(ciFromChecks(checks, ['continuous-integration/jenkins/branch', 'Check Pull Requests label for merge block']), 'none');
-  // casse sensible : un nom mal capitalisé n’ignore rien
+  // case-sensitive: a miscapitalized name ignores nothing
   assert.equal(ciFromChecks(checks, ['check pull requests label for merge block']), 'fail');
 });
 
-test('ciOf : recalcule via ciFromChecks si blocklist, sinon retombe sur ciFromState (compat)', () => {
+test('ciOf: recomputes via ciFromChecks if blocklist, otherwise falls back to ciFromState (compat)', () => {
   const detail = { checks: [{ name: 'behat', state: 'fail' }], statusCheckRollupState: 'FAILURE' };
-  // sans jobs ignorés → ciFromState (le rollup fait foi, compat byte-identique)
+  // without ignored jobs → ciFromState (the rollup rules, byte-identical compat)
   assert.equal(ciOf(detail, []), 'fail');
-  // en ignorant behat → recalcul sur les checks restants (aucun) → none
+  // ignoring behat → recompute on the remaining checks (none) → none
   assert.equal(ciOf(detail, ['behat']), 'none');
-  // rollup SUCCESS sans blocklist → pass, même si checks vides
+  // rollup SUCCESS without blocklist → pass, even if checks empty
   assert.equal(ciOf({ checks: [], statusCheckRollupState: 'SUCCESS' }, []), 'pass');
 });
 
-test('recomputeCi : recalcule le ci de mine/others/hidden depuis row.checks, 0 refetch', () => {
+test('recomputeCi: recomputes the ci of mine/others/hidden from row.checks, 0 refetch', () => {
   const mk = (repo, ci, checks) => ({ repo, number: 1, ci, checks, statusCheckRollupState: 'FAILURE' });
   const data = {
     mine: [mk('mapado/ticketing', 'fail', [{ name: 'jenkins', state: 'fail' }, { name: 'behat', state: 'pass' }])],
@@ -202,25 +202,25 @@ test('recomputeCi : recalcule le ci de mine/others/hidden depuis row.checks, 0 r
     hidden: [mk('mapado/ticketing', 'fail', [{ name: 'jenkins', state: 'fail' }])],
   };
   recomputeCi(data, { 'mapado/ticketing': ['jenkins'] });
-  assert.equal(data.mine[0].ci, 'pass');   // jenkins ignoré → reste behat (pass)
-  assert.equal(data.hidden[0].ci, 'none');  // jenkins ignoré → plus rien
-  assert.equal(data.others[0].ci, 'fail');  // repo sans blocklist → ciFromState(FAILURE)
+  assert.equal(data.mine[0].ci, 'pass');   // jenkins ignored → behat remains (pass)
+  assert.equal(data.hidden[0].ci, 'none');  // jenkins ignored → nothing left
+  assert.equal(data.others[0].ci, 'fail');  // repo without blocklist → ciFromState(FAILURE)
 });
 
-test('countApprovals : users distincts dont la dernière review est APPROVED', () => {
+test('countApprovals: distinct users whose latest review is APPROVED', () => {
   assert.equal(countApprovals(undefined), 0);
   assert.equal(countApprovals([]), 0);
-  // alice approuve, bob commente → 1 approbation
+  // alice approves, bob comments → 1 approval
   assert.equal(countApprovals([
     { author: { login: 'alice' }, state: 'APPROVED', submittedAt: '2026-06-20T10:00:00Z' },
     { author: { login: 'bob' }, state: 'COMMENTED', submittedAt: '2026-06-20T11:00:00Z' },
   ]), 1);
-  // alice approuve puis redemande des changements → ne compte plus
+  // alice approves then requests changes → no longer counts
   assert.equal(countApprovals([
     { author: { login: 'alice' }, state: 'APPROVED', submittedAt: '2026-06-20T10:00:00Z' },
     { author: { login: 'alice' }, state: 'CHANGES_REQUESTED', submittedAt: '2026-06-21T10:00:00Z' },
   ]), 0);
-  // deux approbations du même user → comptées une fois
+  // two approvals from the same user → counted once
   assert.equal(countApprovals([
     { author: { login: 'alice' }, state: 'APPROVED', submittedAt: '2026-06-20T10:00:00Z' },
     { author: { login: 'alice' }, state: 'APPROVED', submittedAt: '2026-06-21T10:00:00Z' },
@@ -228,7 +228,7 @@ test('countApprovals : users distincts dont la dernière review est APPROVED', (
   ]), 2);
 });
 
-test('prState : draft > merged > closed > open', () => {
+test('prState: draft > merged > closed > open', () => {
   assert.equal(prState({ isDraft: true, state: 'OPEN' }), 'draft');
   assert.equal(prState({ state: 'MERGED' }), 'merged');
   assert.equal(prState({ state: 'CLOSED' }), 'closed');
@@ -243,29 +243,29 @@ const reviewReqThread2 = {
   repository: { full_name: 'o/r' },
 };
 
-test('collectPRs: agrège les triggers d’une même PR et sépare mine/others', async () => {
-  // o/r#42 a deux notifs (review_requested + mention) ; détails: auteur = autre.
-  // o/x#7 est une de mes PR (auteur = ME).
+test('collectPRs: aggregates the triggers of the same PR and splits mine/others', async () => {
+  // o/r#42 has two notifs (review_requested + mention); details: author = someone else.
+  // o/x#7 is one of my PRs (author = ME).
   const myThread = {
     id: 't3', reason: 'author', updated_at: '2026-06-24T12:00:00Z',
-    subject: { title: 'Ma PR', url: 'https://api.github.com/repos/o/x/pulls/7', latest_comment_url: 'https://api.github.com/repos/o/x/issues/comments/9', type: 'PullRequest' },
+    subject: { title: 'My PR', url: 'https://api.github.com/repos/o/x/pulls/7', latest_comment_url: 'https://api.github.com/repos/o/x/issues/comments/9', type: 'PullRequest' },
     repository: { full_name: 'o/x' },
   };
   const gh = fakeGh({
     notifications: [reviewReqThread, reviewReqThread2, myThread],
-    comment: { user: { login: 'bob' }, html_url: 'h' }, // pour le thread author
-    // o/r#42 est aussi en attente de review → le trigger « review » vient de la
-    // recherche (source fiable), pas de la notif review_requested collante.
+    comment: { user: { login: 'bob' }, html_url: 'h' }, // for the author thread
+    // o/r#42 is also pending review → the « review » trigger comes from the
+    // search (reliable source), not from the sticky review_requested notif.
     search: [{ number: 42, title: 'PR A', html_url: 'https://github.com/o/r/pull/42', updated_at: '2026-06-24T12:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
     details: (repo, number) => {
       if (repo === 'o/r' && number === 42) return { number: 42, title: 'PR A', author: { login: 'alice' }, createdAt: '2026-06-21T12:00:00Z', additions: 10, deletions: 2, statusCheckRollupState: 'SUCCESS' };
-      if (repo === 'o/x' && number === 7) return { number: 7, title: 'Ma PR', author: { login: ME }, createdAt: '2026-06-23T12:00:00Z', additions: 1, deletions: 0, statusCheckRollupState: null };
+      if (repo === 'o/x' && number === 7) return { number: 7, title: 'My PR', author: { login: ME }, createdAt: '2026-06-23T12:00:00Z', additions: 1, deletions: 0, statusCheckRollupState: null };
       return null;
     },
   });
   const { mine, others, notifications } = await collectPRs(gh, ME, {});
 
-  // notifications : items de notification classifiés, exposés pour --watch.
+  // notifications: classified notification items, exposed for --watch.
   assert.ok(Array.isArray(notifications));
   assert.equal(notifications.length, 3); // review_request + mention (o/r#42) + author (o/x#7)
 
@@ -280,10 +280,10 @@ test('collectPRs: agrège les triggers d’une même PR et sépare mine/others',
   assert.equal(mine[0].repo, 'o/x');
   assert.deepEqual(mine[0].triggers, ['comment']);
   assert.equal(mine[0].ci, 'none');
-  assert.equal(mine[0].url, 'h'); // « commentaire sur ma PR » → lien vers le commentaire
+  assert.equal(mine[0].url, 'h'); // « comment on my PR » → link to the comment
 });
 
-test('collectPRs: le lien d’une réponse en thread pointe sur le commentaire', async () => {
+test('collectPRs: the link of a thread reply points at the comment', async () => {
   const thread = {
     id: 't1', reason: 'subscribed', updated_at: '2026-06-24T12:00:00Z',
     subject: { title: 'PR R', url: 'https://api.github.com/repos/o/r/pulls/50', latest_comment_url: null, type: 'PullRequest' },
@@ -303,48 +303,48 @@ test('collectPRs: le lien d’une réponse en thread pointe sur le commentaire',
   assert.equal(others[0].url, 'https://github.com/o/r/pull/50#discussion_r2');
 });
 
-test('collectPRs: la blocklist par repo recalcule le CI (job ignoré rouge → pass) et expose row.checks', async () => {
+test('collectPRs: the per-repo blocklist recomputes the CI (red ignored job → pass) and exposes row.checks', async () => {
   const checks = [
     { name: 'continuous-integration/jenkins/branch', state: 'pass' },
     { name: 'Check Pull Requests label for merge block', state: 'fail' },
   ];
   const gh = fakeGh({
-    search: [{ number: 60, title: 'À review', html_url: 'https://github.com/mapado/ticketing/pull/60', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/mapado/ticketing' }],
-    // rollup GitHub = FAILURE (le job label rouge), mais le vrai job est vert
-    details: () => ({ number: 60, title: 'À review', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, statusCheckRollupState: 'FAILURE', checks }),
+    search: [{ number: 60, title: 'To review', html_url: 'https://github.com/mapado/ticketing/pull/60', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/mapado/ticketing' }],
+    // GitHub rollup = FAILURE (the red label job), but the real job is green
+    details: () => ({ number: 60, title: 'To review', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, statusCheckRollupState: 'FAILURE', checks }),
   });
   const opts = { ignoredChecks: { 'mapado/ticketing': ['Check Pull Requests label for merge block'] } };
   const { others } = await collectPRs(gh, ME, opts);
-  assert.equal(others[0].ci, 'pass');                 // recalculé sans le job ignoré
-  assert.deepEqual(others[0].checks, checks);         // liste brute exposée (vue debug)
+  assert.equal(others[0].ci, 'pass');                 // recomputed without the ignored job
+  assert.deepEqual(others[0].checks, checks);         // raw list exposed (debug view)
 });
 
-test('collectPRs: sans blocklist pour le repo, le CI reste le rollup GitHub (compat byte-identique)', async () => {
+test('collectPRs: without a blocklist for the repo, the CI stays the GitHub rollup (byte-identical compat)', async () => {
   const checks = [{ name: 'continuous-integration/jenkins/branch', state: 'pass' }];
   const gh = fakeGh({
     search: [{ number: 61, title: 'PR', html_url: 'https://github.com/o/r/pull/61', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
-    // rollup FAILURE alors que les checks connus sont verts : sans config on NE recalcule PAS
+    // rollup FAILURE while the known checks are green: without config we do NOT recompute
     details: () => ({ number: 61, title: 'PR', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, statusCheckRollupState: 'FAILURE', checks }),
   });
-  // blocklist présente mais pour un AUTRE repo → n’affecte pas o/r
-  const { others } = await collectPRs(gh, ME, { ignoredChecks: { 'autre/repo': ['x'] } });
-  assert.equal(others[0].ci, 'fail'); // ciFromState(FAILURE), pas le recalcul
+  // blocklist present but for ANOTHER repo → does not affect o/r
+  const { others } = await collectPRs(gh, ME, { ignoredChecks: { 'other/repo': ['x'] } });
+  assert.equal(others[0].ci, 'fail'); // ciFromState(FAILURE), not the recompute
 });
 
-test('collectPRs: une review en attente (sans commentaire) garde le lien vers la PR', async () => {
+test('collectPRs: a pending review (without a comment) keeps the link to the PR', async () => {
   const gh = fakeGh({
-    search: [{ number: 60, title: 'À review', html_url: 'https://github.com/o/r/pull/60', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
-    details: () => ({ number: 60, title: 'À review', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, statusCheckRollupState: 'SUCCESS' }),
+    search: [{ number: 60, title: 'To review', html_url: 'https://github.com/o/r/pull/60', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
+    details: () => ({ number: 60, title: 'To review', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, statusCheckRollupState: 'SUCCESS' }),
   });
   const { others } = await collectPRs(gh, ME, {});
-  assert.equal(others[0].url, 'https://github.com/o/r/pull/60'); // lien PR (pas de commentaire)
+  assert.equal(others[0].url, 'https://github.com/o/r/pull/60'); // PR link (no comment)
 });
 
-test('collectPRs: une PR ouverte que j’ai écrite (sans activité) apparaît dans mine, triggers vides', async () => {
+test('collectPRs: an open PR I authored (without activity) appears in mine, empty triggers', async () => {
   const gh = fakeGh({
     notifications: [],
-    authored: [{ number: 20, title: 'Ma PR sans activité', html_url: 'https://github.com/o/x/pull/20', repository_url: 'https://api.github.com/repos/o/x' }],
-    details: () => ({ number: 20, title: 'Ma PR sans activité', author: { login: ME }, createdAt: '2026-06-22T12:00:00Z', additions: 5, deletions: 1, statusCheckRollupState: 'SUCCESS' }),
+    authored: [{ number: 20, title: 'My PR without activity', html_url: 'https://github.com/o/x/pull/20', repository_url: 'https://api.github.com/repos/o/x' }],
+    details: () => ({ number: 20, title: 'My PR without activity', author: { login: ME }, createdAt: '2026-06-22T12:00:00Z', additions: 5, deletions: 1, statusCheckRollupState: 'SUCCESS' }),
   });
   const { mine, others } = await collectPRs(gh, ME, {});
   assert.equal(others.length, 0);
@@ -354,14 +354,14 @@ test('collectPRs: une PR ouverte que j’ai écrite (sans activité) apparaît d
   assert.equal(mine[0].ci, 'pass');
 });
 
-test('collectPRs: notif review_requested collante mais déjà review (absente du search, sans réponse) → ignorée', async () => {
-  // Régression #7036 : la notif garde reason=review_requested à vie. Comme la PR
-  // n'est plus dans review-requested:@me (déjà review) et qu'aucune réponse ne vise
-  // mon fil, elle ne doit produire AUCUNE ligne (ni « review », ni autre).
+test('collectPRs: sticky review_requested notif but already reviewed (absent from search, no reply) → ignored', async () => {
+  // Regression #7036: the notif keeps reason=review_requested forever. Since the PR
+  // is no longer in review-requested:@me (already reviewed) and no reply targets
+  // my thread, it must produce NO row (neither « review » nor anything else).
   const gh = fakeGh({
     notifications: [reviewReqThread], // o/r#42, reason review_requested
-    search: [],                        // plus en attente
-    reviewComments: [],                // aucune réponse à mon fil
+    search: [],                        // no longer pending
+    reviewComments: [],                // no reply to my thread
     details: () => ({ number: 42, title: 'PR A', author: { login: 'alice' }, createdAt: '2026-06-21T12:00:00Z', additions: 1, deletions: 0, statusCheckRollupState: null }),
   });
   const { mine, others } = await collectPRs(gh, ME, {});
@@ -369,10 +369,10 @@ test('collectPRs: notif review_requested collante mais déjà review (absente du
   assert.equal(others.length, 0);
 });
 
-test('collectPRs: notif review_requested collante AVEC réponse à mon fil → ligne « reply » (pas « review »)', async () => {
+test('collectPRs: sticky review_requested notif WITH a reply to my thread → « reply » row (not « review »)', async () => {
   const gh = fakeGh({
     notifications: [reviewReqThread], // o/r#42, reason review_requested
-    search: [],                        // plus en attente
+    search: [],                        // no longer pending
     reviewComments: [
       { id: 1, user: { login: ME }, created_at: '2026-06-24T10:00:00Z', html_url: 'mine' },
       { id: 2, in_reply_to_id: 1, user: { login: 'alice' }, created_at: '2026-06-24T11:00:00Z', html_url: 'https://github.com/o/r/pull/42#discussion_r2' },
@@ -384,18 +384,18 @@ test('collectPRs: notif review_requested collante AVEC réponse à mon fil → l
   assert.deepEqual(others[0].triggers, ['reply']);
 });
 
-test('collectPRs: PR mergée, review demandée, AUCUNE réponse à mon fil → ignorée', async () => {
-  // Règle : review demandée + pas de réponse à mon fil + PR mergée ⇒ rien.
-  // (#7027 réel : mergée, j'avais commenté mais personne ne m'a répondu.)
-  // L'état mergé n'a pas à être interrogé : pas en attente (search vide) +
-  // item review_requested ignoré ⇒ aucune ligne.
+test('collectPRs: merged PR, review requested, NO reply to my thread → ignored', async () => {
+  // Rule: review requested + no reply to my thread + merged PR ⇒ nothing.
+  // (real #7027: merged, I had commented but no one replied to me.)
+  // The merged state need not be queried: not pending (empty search) +
+  // review_requested item ignored ⇒ no row.
   const gh = fakeGh({
-    notifications: [reviewReqThread], // o/r#42, reason review_requested collant
-    search: [],                        // mergée donc absente de review-requested:@me (is:open)
+    notifications: [reviewReqThread], // o/r#42, sticky reason review_requested
+    search: [],                        // merged so absent from review-requested:@me (is:open)
     reviewComments: [
       { id: 1, user: { login: 'bjulien' }, created_at: '2026-06-23T09:00:00Z', html_url: 'root' },
       { id: 2, in_reply_to_id: 1, user: { login: ME }, created_at: '2026-06-23T12:00:00Z', html_url: 'mine' },
-    ], // j'ai répondu à bjulien, mais personne après moi
+    ], // I replied to bjulien, but no one after me
     details: () => ({ number: 42, title: 'PR A', author: { login: 'alice' }, createdAt: '2026-06-21T12:00:00Z', additions: 1, deletions: 0, statusCheckRollupState: null }),
   });
   const { mine, others } = await collectPRs(gh, ME, {});
@@ -403,17 +403,17 @@ test('collectPRs: PR mergée, review demandée, AUCUNE réponse à mon fil → i
   assert.equal(others.length, 0);
 });
 
-test('collectPRs: PR mergée mais réponse à mon fil → reste visible (trigger reply)', async () => {
-  // Règle : si on m'a répondu, la notif reste visible même PR mergée.
-  // getPullDetails ne renvoie pas l'état merged → l'état mergé est invisible
-  // pour la logique : seule la présence d'une réponse compte.
+test('collectPRs: merged PR but reply to my thread → stays visible (trigger reply)', async () => {
+  // Rule: if someone replied to me, the notif stays visible even for a merged PR.
+  // getPullDetails does not return the merged state → the merged state is invisible
+  // to the logic: only the presence of a reply matters.
   const gh = fakeGh({
     notifications: [reviewReqThread], // o/r#42
-    search: [],                        // mergée
+    search: [],                        // merged
     reviewComments: [
       { id: 1, user: { login: ME }, created_at: '2026-06-23T09:00:00Z', html_url: 'mine' },
       { id: 2, in_reply_to_id: 1, user: { login: 'alice' }, created_at: '2026-06-23T12:00:00Z', html_url: 'https://github.com/o/r/pull/42#discussion_rX' },
-    ], // alice m'a répondu après mon commentaire
+    ], // alice replied to me after my comment
     details: () => ({ number: 42, title: 'PR A', author: { login: 'alice' }, createdAt: '2026-06-21T12:00:00Z', additions: 1, deletions: 0, statusCheckRollupState: null }),
   });
   const { others } = await collectPRs(gh, ME, {});
@@ -421,28 +421,28 @@ test('collectPRs: PR mergée mais réponse à mon fil → reste visible (trigger
   assert.deepEqual(others[0].triggers, ['reply']);
 });
 
-test('collectPRs: les PR draft des autres sont masquées, mes drafts restent', async () => {
+test('collectPRs: others\' draft PRs are hidden, my drafts stay', async () => {
   const gh = fakeGh({
-    // une review demandée sur une PR draft d'un autre + une de mes PR draft
-    search: [{ number: 80, title: 'Draft autre', html_url: 'https://github.com/o/r/pull/80', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
-    authored: [{ number: 81, title: 'Mon draft', html_url: 'https://github.com/o/x/pull/81', repository_url: 'https://api.github.com/repos/o/x' }],
+    // a review requested on someone else's draft PR + one of my draft PRs
+    search: [{ number: 80, title: 'Other draft', html_url: 'https://github.com/o/r/pull/80', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
+    authored: [{ number: 81, title: 'My draft', html_url: 'https://github.com/o/x/pull/81', repository_url: 'https://api.github.com/repos/o/x' }],
     details: (repo, number) => {
-      if (number === 80) return { number: 80, title: 'Draft autre', author: { login: 'alice' }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, isDraft: true, state: 'OPEN', statusCheckRollupState: 'SUCCESS' };
-      if (number === 81) return { number: 81, title: 'Mon draft', author: { login: ME }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, isDraft: true, state: 'OPEN', statusCheckRollupState: 'SUCCESS' };
+      if (number === 80) return { number: 80, title: 'Other draft', author: { login: 'alice' }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, isDraft: true, state: 'OPEN', statusCheckRollupState: 'SUCCESS' };
+      if (number === 81) return { number: 81, title: 'My draft', author: { login: ME }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, isDraft: true, state: 'OPEN', statusCheckRollupState: 'SUCCESS' };
       return null;
     },
   });
   const { mine, others } = await collectPRs(gh, ME, {});
-  assert.equal(others.length, 0);              // PR draft d'un autre → masquée
-  assert.equal(mine.length, 1);                // mon draft → conservé
+  assert.equal(others.length, 0);              // someone else's draft PR → hidden
+  assert.equal(mine.length, 1);                // my draft → kept
   assert.equal(mine[0].state, 'draft');
 });
 
-test('collectPRs: une review en attente non vue ajoute une PR « autres » avec trigger review', async () => {
+test('collectPRs: an unseen pending review adds an « others » PR with a review trigger', async () => {
   const gh = fakeGh({
     notifications: [],
-    search: [{ number: 98, title: 'À review', html_url: 'https://github.com/o/r/pull/98', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
-    details: () => ({ number: 98, title: 'À review', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 3, deletions: 3, statusCheckRollupState: 'PENDING', state: 'OPEN', isDraft: false, reviews: [
+    search: [{ number: 98, title: 'To review', html_url: 'https://github.com/o/r/pull/98', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
+    details: () => ({ number: 98, title: 'To review', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 3, deletions: 3, statusCheckRollupState: 'PENDING', state: 'OPEN', isDraft: false, reviews: [
       { author: { login: 'dan' }, state: 'APPROVED', submittedAt: '2026-06-20T10:00:00Z' },
       { author: { login: 'eve' }, state: 'COMMENTED', submittedAt: '2026-06-20T11:00:00Z' },
     ] }),
@@ -456,11 +456,11 @@ test('collectPRs: une review en attente non vue ajoute une PR « autres » avec 
   assert.equal(others[0].approvals, 1);
 });
 
-// ── approbations (data.approvalEvents) ───────────────────────────────────────
-test('collectPRs: data.approvalEvents — un évènement par approbation sur MES PR ouvertes', async () => {
+// ── approvals (data.approvalEvents) ───────────────────────────────────────────
+test('collectPRs: data.approvalEvents — one event per approval on MY open PRs', async () => {
   const gh = fakeGh({
-    authored: [{ number: 81, title: 'Ma PR', html_url: 'https://github.com/o/x/pull/81', repository_url: 'https://api.github.com/repos/o/x' }],
-    details: () => ({ number: 81, title: 'Ma PR', author: { login: ME }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, state: 'OPEN', isDraft: false, statusCheckRollupState: 'SUCCESS', reviews: [
+    authored: [{ number: 81, title: 'My PR', html_url: 'https://github.com/o/x/pull/81', repository_url: 'https://api.github.com/repos/o/x' }],
+    details: () => ({ number: 81, title: 'My PR', author: { login: ME }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, state: 'OPEN', isDraft: false, statusCheckRollupState: 'SUCCESS', reviews: [
       { author: { login: 'alice' }, state: 'APPROVED', submittedAt: '2026-06-20T10:00:00Z' },
       { author: { login: 'bob' }, state: 'APPROVED', submittedAt: '2026-06-21T12:00:00Z' },
       { author: { login: 'carol' }, state: 'COMMENTED', submittedAt: '2026-06-21T13:00:00Z' },
@@ -473,26 +473,26 @@ test('collectPRs: data.approvalEvents — un évènement par approbation sur MES
   const a = approvalEvents.find((e) => e.actor === 'alice');
   assert.equal(a.repo, 'o/x');
   assert.equal(a.number, 81);
-  assert.equal(a.title, 'Ma PR');
-  assert.equal(a.count, 2); // nb total d'approbations de la PR
+  assert.equal(a.title, 'My PR');
+  assert.equal(a.count, 2); // total number of approvals of the PR
   assert.equal(a.submittedAt, '2026-06-20T10:00:00Z');
   assert.equal(a.url, 'https://github.com/o/x/pull/81');
 });
 
-test('collectPRs: approvalEvents exclut les PR draft/mergées et les PR des autres', async () => {
+test('collectPRs: approvalEvents excludes draft/merged PRs and others\' PRs', async () => {
   const gh = fakeGh({
-    // PR d'un autre, approuvée → ne doit PAS produire d'approvalEvent
-    search: [{ number: 98, title: 'PR autre', html_url: 'https://github.com/o/r/pull/98', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
-    // mes PR : une draft, une mergée — toutes deux approuvées mais exclues
+    // someone else's PR, approved → must NOT produce an approvalEvent
+    search: [{ number: 98, title: 'Other PR', html_url: 'https://github.com/o/r/pull/98', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
+    // my PRs: one draft, one merged — both approved but excluded
     authored: [
-      { number: 81, title: 'Mon draft', html_url: 'https://github.com/o/x/pull/81', repository_url: 'https://api.github.com/repos/o/x' },
-      { number: 82, title: 'Ma mergée', html_url: 'https://github.com/o/x/pull/82', repository_url: 'https://api.github.com/repos/o/x' },
+      { number: 81, title: 'My draft', html_url: 'https://github.com/o/x/pull/81', repository_url: 'https://api.github.com/repos/o/x' },
+      { number: 82, title: 'My merged', html_url: 'https://github.com/o/x/pull/82', repository_url: 'https://api.github.com/repos/o/x' },
     ],
     details: (repo, number) => {
       const reviews = [{ author: { login: 'alice' }, state: 'APPROVED', submittedAt: '2026-06-20T10:00:00Z' }];
-      if (number === 98) return { number: 98, title: 'PR autre', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, state: 'OPEN', isDraft: false, statusCheckRollupState: 'SUCCESS', reviews };
-      if (number === 81) return { number: 81, title: 'Mon draft', author: { login: ME }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, state: 'OPEN', isDraft: true, statusCheckRollupState: 'SUCCESS', reviews };
-      if (number === 82) return { number: 82, title: 'Ma mergée', author: { login: ME }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, state: 'MERGED', isDraft: false, statusCheckRollupState: 'SUCCESS', reviews };
+      if (number === 98) return { number: 98, title: 'Other PR', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, state: 'OPEN', isDraft: false, statusCheckRollupState: 'SUCCESS', reviews };
+      if (number === 81) return { number: 81, title: 'My draft', author: { login: ME }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, state: 'OPEN', isDraft: true, statusCheckRollupState: 'SUCCESS', reviews };
+      if (number === 82) return { number: 82, title: 'My merged', author: { login: ME }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, state: 'MERGED', isDraft: false, statusCheckRollupState: 'SUCCESS', reviews };
       return null;
     },
   });
@@ -500,11 +500,11 @@ test('collectPRs: approvalEvents exclut les PR draft/mergées et les PR des autr
   assert.deepEqual(approvalEvents, []);
 });
 
-// ── masquage (hidden) ────────────────────────────────────────────────────────
-test('collectPRs: une PR « autres » masquée sort de others et passe dans hidden', async () => {
+// ── hiding (hidden) ────────────────────────────────────────────────────────
+test('collectPRs: a hidden « others » PR leaves others and moves into hidden', async () => {
   const gh = fakeGh({
-    search: [{ number: 60, title: 'À review', html_url: 'https://github.com/o/r/pull/60', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
-    details: () => ({ number: 60, title: 'À review', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, statusCheckRollupState: 'SUCCESS' }),
+    search: [{ number: 60, title: 'To review', html_url: 'https://github.com/o/r/pull/60', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
+    details: () => ({ number: 60, title: 'To review', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, statusCheckRollupState: 'SUCCESS' }),
   });
   const hidden = { 'o/r#60': { at: 'x', seen: [] } };
   const { others, hidden: hiddenRows, hiddenCount } = await collectPRs(gh, ME, { hidden });
@@ -513,18 +513,18 @@ test('collectPRs: une PR « autres » masquée sort de others et passe dans hidd
   assert.equal(hiddenRows[0].number, 60);
 });
 
-test('collectPRs: on ne masque JAMAIS une PR à moi', async () => {
+test('collectPRs: we NEVER hide a PR of mine', async () => {
   const gh = fakeGh({
-    authored: [{ number: 81, title: 'Ma PR', html_url: 'https://github.com/o/x/pull/81', repository_url: 'https://api.github.com/repos/o/x' }],
-    details: () => ({ number: 81, title: 'Ma PR', author: { login: ME }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, statusCheckRollupState: 'SUCCESS' }),
+    authored: [{ number: 81, title: 'My PR', html_url: 'https://github.com/o/x/pull/81', repository_url: 'https://api.github.com/repos/o/x' }],
+    details: () => ({ number: 81, title: 'My PR', author: { login: ME }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, statusCheckRollupState: 'SUCCESS' }),
   });
-  const hidden = { 'o/x#81': { at: 'x', seen: [] } }; // même si présente dans la map
+  const hidden = { 'o/x#81': { at: 'x', seen: [] } }; // even if present in the map
   const { mine, hiddenCount } = await collectPRs(gh, ME, { hidden });
-  assert.equal(mine.length, 1);     // reste dans mine
-  assert.equal(hiddenCount, 0);     // jamais comptée comme masquée
+  assert.equal(mine.length, 1);     // stays in mine
+  assert.equal(hiddenCount, 0);     // never counted as hidden
 });
 
-test('collectPRs: dé-masquage au nouveau trigger (reconcile) + hiddenChanged', async () => {
+test('collectPRs: un-hiding on a new trigger (reconcile) + hiddenChanged', async () => {
   const thread = {
     id: 't1', reason: 'subscribed', updated_at: '2026-06-24T12:00:00Z',
     subject: { title: 'PR R', url: 'https://api.github.com/repos/o/r/pulls/50', latest_comment_url: null, type: 'PullRequest' },
@@ -538,32 +538,32 @@ test('collectPRs: dé-masquage au nouveau trigger (reconcile) + hiddenChanged', 
     ],
     details: () => ({ number: 50, title: 'PR R', author: { login: 'bob' }, createdAt: '2026-06-20T12:00:00Z', additions: 1, deletions: 1, statusCheckRollupState: 'SUCCESS' }),
   });
-  // masquée avec un instantané vide → l'évènement #discussion_r2 est « nouveau »
+  // hidden with an empty snapshot → the #discussion_r2 event is « new »
   const hidden = { 'o/r#50': { at: 'x', seen: [] } };
   const { others, hiddenCount, hiddenChanged } = await collectPRs(gh, ME, { hidden });
-  assert.equal(others.length, 1);    // réapparue
+  assert.equal(others.length, 1);    // reappeared
   assert.equal(hiddenCount, 0);
-  assert.equal(hiddenChanged, true); // reconcile a modifié la map
+  assert.equal(hiddenChanged, true); // reconcile modified the map
   assert.equal('o/r#50' in hidden, false);
 });
 
-// ── cache d'inspection + commentaires incrémentaux ─────────────────────────
-test('mergeReviewComments : fusion par id (fresh gagne), ordre created_at', () => {
+// ── inspection cache + incremental comments ─────────────────────────────────
+test('mergeReviewComments: merge by id (fresh wins), created_at order', () => {
   const merged = mergeReviewComments(
     [{ id: 1, created_at: 'a', x: 'old' }, { id: 3, created_at: 'c' }],
     [{ id: 1, created_at: 'a', x: 'new' }, { id: 2, created_at: 'b' }],
   );
   assert.deepEqual(merged.map((c) => c.id), [1, 2, 3]);
-  assert.equal(merged.find((c) => c.id === 1).x, 'new'); // fresh écrase
+  assert.equal(merged.find((c) => c.id === 1).x, 'new'); // fresh overwrites
 });
 
-test('watermarkOf : max updated_at (fallback created_at), null si vide', () => {
+test('watermarkOf: max updated_at (fallback created_at), null if empty', () => {
   assert.equal(watermarkOf([{ updated_at: '2026-06-01' }, { updated_at: '2026-06-03' }]), '2026-06-03');
   assert.equal(watermarkOf([{ created_at: '2026-06-02' }]), '2026-06-02');
   assert.equal(watermarkOf([]), null);
 });
 
-// gh stub comptant les appels getReviewComments + capturant `since`.
+// gh stub counting getReviewComments calls + capturing `since`.
 function countingGh(thread, comments) {
   const calls = [];
   return {
@@ -580,7 +580,7 @@ function countingGh(thread, comments) {
   };
 }
 
-test('collectNotifications : cache → thread inchangé = 0 requête getReviewComments', async () => {
+test('collectNotifications: cache → unchanged thread = 0 getReviewComments request', async () => {
   const thread = {
     id: 't1', reason: 'review_requested', updated_at: '2026-06-24T12:00:00Z',
     subject: { title: 'PR', url: 'https://api.github.com/repos/o/r/pulls/42', latest_comment_url: null, type: 'PullRequest' },
@@ -588,14 +588,14 @@ test('collectNotifications : cache → thread inchangé = 0 requête getReviewCo
   };
   const { gh, calls } = countingGh(thread, [{ id: 1, created_at: '2026-06-24T10:00:00Z', updated_at: '2026-06-24T10:00:00Z' }]);
   const cache = new Map();
-  await collectNotifications(gh, ME, { cache });   // 1er poll : inspecte
+  await collectNotifications(gh, ME, { cache });   // 1st poll: inspects
   assert.equal(calls.length, 1);
-  assert.equal(calls[0], null);                     // 1re fois : pas de since
-  await collectNotifications(gh, ME, { cache });   // 2e poll, même updated_at
-  assert.equal(calls.length, 1, 'pas de nouvel appel : cache hit');
+  assert.equal(calls[0], null);                     // 1st time: no since
+  await collectNotifications(gh, ME, { cache });   // 2nd poll, same updated_at
+  assert.equal(calls.length, 1, 'no new call: cache hit');
 });
 
-test('collectNotifications : thread modifié → ré-inspection avec since = watermark', async () => {
+test('collectNotifications: modified thread → re-inspection with since = watermark', async () => {
   const base = {
     id: 't1', reason: 'review_requested',
     subject: { title: 'PR', url: 'https://api.github.com/repos/o/r/pulls/42', latest_comment_url: null, type: 'PullRequest' },
@@ -606,15 +606,15 @@ test('collectNotifications : thread modifié → ré-inspection avec since = wat
     [{ id: 1, created_at: '2026-06-24T10:00:00Z', updated_at: '2026-06-24T11:00:00Z' }],
   );
   const cache = new Map();
-  await collectNotifications(gh, ME, { cache });   // inspecte, watermark = 11:00
-  // thread bumpé : nouvel updated_at → ré-inspection incrémentale
+  await collectNotifications(gh, ME, { cache });   // inspects, watermark = 11:00
+  // bumped thread: new updated_at → incremental re-inspection
   gh.listNotifications = async () => [{ ...base, updated_at: '2026-06-24T13:00:00Z' }];
   await collectNotifications(gh, ME, { cache });
   assert.equal(calls.length, 2);
-  assert.equal(calls[1], '2026-06-24T11:00:00Z', 'since = watermark précédent');
+  assert.equal(calls[1], '2026-06-24T11:00:00Z', 'since = previous watermark');
 });
 
-test('collectNotifications : cache élagué quand le thread disparaît', async () => {
+test('collectNotifications: cache pruned when the thread disappears', async () => {
   const thread = {
     id: 't1', reason: 'review_requested', updated_at: '2026-06-24T12:00:00Z',
     subject: { title: 'PR', url: 'https://api.github.com/repos/o/r/pulls/42', latest_comment_url: null, type: 'PullRequest' },
@@ -624,12 +624,12 @@ test('collectNotifications : cache élagué quand le thread disparaît', async (
   const cache = new Map();
   await collectNotifications(gh, ME, { cache });
   assert.equal(cache.has('t1'), true);
-  gh.listNotifications = async () => []; // thread disparu
+  gh.listNotifications = async () => []; // thread gone
   await collectNotifications(gh, ME, { cache });
-  assert.equal(cache.has('t1'), false, 'entrée élaguée');
+  assert.equal(cache.has('t1'), false, 'entry pruned');
 });
 
-test('collectNotifications : sans cache, comportement inchangé (toujours ré-inspecter)', async () => {
+test('collectNotifications: without cache, unchanged behavior (always re-inspect)', async () => {
   const thread = {
     id: 't1', reason: 'review_requested', updated_at: '2026-06-24T12:00:00Z',
     subject: { title: 'PR', url: 'https://api.github.com/repos/o/r/pulls/42', latest_comment_url: null, type: 'PullRequest' },
@@ -638,11 +638,11 @@ test('collectNotifications : sans cache, comportement inchangé (toujours ré-in
   const { gh, calls } = countingGh(thread, []);
   await collectNotifications(gh, ME, {});
   await collectNotifications(gh, ME, {});
-  assert.equal(calls.length, 2, 'sans cache : ré-inspection à chaque fois');
+  assert.equal(calls.length, 2, 'without cache: re-inspection every time');
 });
 
-// ── debug : verdict du pipeline (data.debug) ───────────────────────────────
-test('collectPRs : data.debug expose le verdict (gardé/droppé + raison) par thread', async () => {
+// ── debug: pipeline verdict (data.debug) ───────────────────────────────────
+test('collectPRs: data.debug exposes the verdict (kept/dropped + reason) per thread', async () => {
   const reviewThread = {
     id: 't1', reason: 'review_requested', updated_at: '2026-06-24T12:00:00Z',
     subject: { title: 'PR A', url: 'https://api.github.com/repos/o/r/pulls/42', latest_comment_url: null, type: 'PullRequest' },
@@ -650,7 +650,7 @@ test('collectPRs : data.debug expose le verdict (gardé/droppé + raison) par th
   };
   const authorThread = {
     id: 't2', reason: 'author', updated_at: '2026-06-24T12:00:00Z',
-    subject: { title: 'Ma PR', url: 'https://api.github.com/repos/o/x/pulls/7', latest_comment_url: null, type: 'PullRequest' },
+    subject: { title: 'My PR', url: 'https://api.github.com/repos/o/x/pulls/7', latest_comment_url: null, type: 'PullRequest' },
     repository: { full_name: 'o/x' },
   };
   const gh = fakeGh({ notifications: [reviewThread, authorThread], reviewComments: [] });
@@ -665,9 +665,9 @@ test('collectPRs : data.debug expose le verdict (gardé/droppé + raison) par th
   assert.equal(a.ghReason, 'review_requested');
 
   const b = debug.find((d) => d.number === 7);
-  assert.equal(b.verdict.kept, false);            // ma propre PR sans activité d'un autre → droppée
+  assert.equal(b.verdict.kept, false);            // my own PR without activity from anyone else → dropped
   assert.equal(b.verdict.category, null);
-  assert.match(b.verdict.reason, /ta propre action/);
+  assert.match(b.verdict.reason, /your own action/);
   assert.equal(b.ghReason, 'author');
   assert.equal(b.repo, 'o/x');
 });

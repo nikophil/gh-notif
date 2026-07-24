@@ -19,16 +19,16 @@ import { serve } from './src/serve.js';
 import { isRateLimitError, nextBackoffSeconds } from './src/ratelimit.js';
 
 const POLL_SECONDS = 60;
-const BACKOFF_CAP = 600; // plafond du recul en cas de rate-limit (10 min)
+const BACKOFF_CAP = 600; // backoff ceiling in case of rate-limit (10 min)
 const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
-const now = () => new Date().toLocaleTimeString('fr-FR');
+const now = () => new Date().toLocaleTimeString('en-US');
 
-// Interactivité seulement en vrai terminal (stdin ET stdout TTY) : en
-// pipe/redirection, on garde le comportement « affiche puis rend la main ».
+// Interactivity only in a real terminal (stdin AND stdout TTY): in
+// pipe/redirection, we keep the "print then hand back control" behavior.
 const interactive = () => process.stdin.isTTY && process.stdout.isTTY;
 
-// Lignes « autres » à afficher (+ flags masqué) selon le mode courant. La
-// sélection se fait au numéro de PR (colonne « PR »), pas à un index.
+// "Others" rows to display (+ hidden flags) according to the current mode. The
+// selection is done by PR number (the "PR" column), not by an index.
 function viewModel(data, { showHidden }) {
   const rows = showHidden ? [...data.others, ...data.hidden] : data.others;
   const hiddenFlags = showHidden
@@ -37,8 +37,8 @@ function viewModel(data, { showHidden }) {
   return { rows, hiddenFlags };
 }
 
-// Re-filtre others/hidden depuis les données déjà en mémoire (pas de refetch)
-// après un toggle interactif.
+// Re-filter others/hidden from the data already in memory (no refetch)
+// after an interactive toggle.
 function recompute(data, hidden) {
   const all = [...data.others, ...data.hidden];
   const others = all.filter((r) => !isHidden(hidden, keyOf(r)));
@@ -46,39 +46,39 @@ function recompute(data, hidden) {
   return { ...data, others, hidden: hiddenRows, hiddenCount: hiddenRows.length };
 }
 
-// Index de la ligne dont le numéro de PR == saisie (1re occurrence), ou -1.
+// Index of the row whose PR number == input (1st occurrence), or -1.
 function rowIndexForInput(rows, buffer) {
   return assignLabels(rows).indexOf(buffer.replace(/^#/, ''));
 }
 
-// Bandeau d'aide sous les tableaux. En mode masquage : invite « # de la PR ».
-// `quitHint` ajoute la touche de sortie propre au contexte (q en one-shot).
-// `favBar` (barre de favoris) est affichée au-dessus, uniquement si des favoris
-// existent — et l'indice « f » n'apparaît que dans ce cas.
+// Help banner under the tables. In hide mode: prompts for "PR #".
+// `quitHint` adds the context-specific exit key (q in one-shot).
+// `favBar` (favorites bar) is displayed above, only if favorites
+// exist — and the "f" hint appears only in that case.
 function helpBanner(hideMode, buffer, quitHint = '', favBar = '') {
   const bar = favBar ? `\n${favBar}\n` : '';
   if (hideMode) {
-    return `${bar}\n\x1b[2mn° de la PR à masquer/restaurer : \x1b[0m#${buffer}\x1b[2m_  ·  Entrée valide · Esc annule\x1b[0m\n`;
+    return `${bar}\n\x1b[2mPR # to hide/restore: \x1b[0m#${buffer}\x1b[2m_  ·  Enter confirms · Esc cancels\x1b[0m\n`;
   }
-  const favHint = favBar ? `\x1b[0mf\x1b[2m pour changer de favori · \x1b[0m` : '';
-  return `${bar}\n\x1b[2m↳ ${favHint}\x1b[2mappuie sur \x1b[0mh\x1b[2m pour masquer/restaurer une PR des autres${quitHint}\x1b[0m\n`;
+  const favHint = favBar ? `\x1b[0mf\x1b[2m to switch favorite · \x1b[0m` : '';
+  return `${bar}\n\x1b[2m↳ ${favHint}\x1b[2mpress \x1b[0mh\x1b[2m to hide/restore one of the others' PRs${quitHint}\x1b[0m\n`;
 }
 
-// Ligne de journal (--watch -v) quand une PR est masquée/restaurée à la main.
+// Log line (--watch -v) when a PR is hidden/restored by hand.
 function hideEventLine(nowHidden, row, time) {
-  const what = nowHidden ? '🙈 PR masquée' : '👁  PR restaurée';
+  const what = nowHidden ? '🙈 PR hidden' : '👁  PR restored';
   return `\x1b[2m${time}\x1b[0m  ${what}  ·  ${row.repo} #${row.number} ${row.title}`;
 }
 
-// Boucle clavier partagée (one-shot). Résout quand l'utilisateur quitte (q hors
-// mode masquage). `draw(hideMode, buffer)` redessine ; `rowsFor()` renvoie les
-// lignes « autres » courantes ; `onToggle(row)` masque/restaure ;
-// `onCycleFav()` passe au favori suivant (filtre local, aucune requête). On quitte
-// le mode masquage dès qu'une PR a été (dé)masquée.
+// Shared keyboard loop (one-shot). Resolves when the user quits (q outside
+// hide mode). `draw(hideMode, buffer)` redraws; `rowsFor()` returns the
+// current "others" rows; `onToggle(row)` hides/restores;
+// `onCycleFav()` moves to the next favorite (local filter, no request). We leave
+// hide mode as soon as a PR has been (un)hidden.
 function runInteractive({ draw, rowsFor, onToggle, onCycleFav }) {
   return new Promise((resolve) => {
     let hideMode = false;
-    let buffer = ''; // chiffres du numéro de PR saisi en mode masquage
+    let buffer = ''; // digits of the PR number typed in hide mode
     readline.emitKeypressEvents(process.stdin);
     process.stdin.setRawMode(true);
     process.stdin.resume();
@@ -91,22 +91,22 @@ function runInteractive({ draw, rowsFor, onToggle, onCycleFav }) {
       if (key.ctrl && key.name === 'c') { cleanup(); process.stdout.write('\n'); resolve(); return; }
       if (!hideMode) {
         if (str === 'h') { hideMode = true; buffer = ''; draw(true, buffer); }
-        // `f` hors mode masquage seulement : en mode masquage, la saisie est
-        // numérique et `f` n'a pas à voler la frappe.
+        // `f` outside hide mode only: in hide mode, the input is
+        // numeric and `f` must not steal the keystroke.
         else if (str === 'f' && onCycleFav) { onCycleFav(); draw(false, ''); }
         else if (str === 'q') { cleanup(); resolve(); }
         return;
       }
-      // mode masquage : buffer du n° de PR, Entrée valide, Backspace efface, Esc annule
+      // hide mode: buffer of the PR #, Enter confirms, Backspace deletes, Esc cancels
       if (key.name === 'escape') { hideMode = false; buffer = ''; draw(false, ''); return; }
       if (key.name === 'return' || key.name === 'enter') {
         const rows = rowsFor();
         const idx = rowIndexForInput(rows, buffer);
         if (idx >= 0) {
           onToggle(rows[idx]);
-          hideMode = false; buffer = ''; draw(false, ''); // sortie auto après action
+          hideMode = false; buffer = ''; draw(false, ''); // auto-exit after action
         } else {
-          buffer = ''; draw(true, buffer); // numéro inconnu : on réinitialise la saisie
+          buffer = ''; draw(true, buffer); // unknown number: reset the input
         }
         return;
       }
@@ -119,42 +119,42 @@ function runInteractive({ draw, rowsFor, onToggle, onCycleFav }) {
 }
 
 
-const RECENT_MAX = 8; // évènements de session affichés sous les tableaux
+const RECENT_MAX = 8; // session events displayed under the tables
 
 async function runWatch(gh, { scope, verbose, showHidden, debug, intervalSeconds = POLL_SECONDS, favorites = [], activeFav = null, prefs = null, prefsFile = null }) {
   const me = await gh.getCurrentUser();
-  const ignoredChecks = ignoredChecksOf(prefs); // blocklist CI par repo (recalcul du verdict)
+  const ignoredChecks = ignoredChecksOf(prefs); // CI blocklist per repo (verdict recomputation)
   const path = statePath();
   const hiddenFile = hiddenPath();
   const hidden = loadHidden(hiddenFile);
-  let primed = existsSync(path); // un état existe déjà : on notifie normalement
+  let primed = existsSync(path); // a state already exists: we notify normally
   const state = loadState(path);
-  const recent = []; // lignes d'évènements (plus récent en tête)
-  const inspectCache = new Map(); // thread inchangé entre polls = 0 requête
-  const seenApprovals = new Set(); // approbations déjà vues (par process)
-  let primedApprovals = false; // 1er poll = amorçage silencieux
-  let backoff = 0; // secondes ajoutées à l'intervalle après un rate-limit
+  const recent = []; // event lines (most recent first)
+  const inspectCache = new Map(); // thread unchanged between polls = 0 request
+  const seenApprovals = new Set(); // approvals already seen (per process)
+  let primedApprovals = false; // 1st poll = silent priming
+  let backoff = 0; // seconds added to the interval after a rate-limit
   let data = null;
   let hideMode = false;
   let buffer = '';
-  // `data` reste brut (union des favoris) : les notifs desktop couvrent TOUS les
-  // favoris, y compris ceux qu'on ne regarde pas. `view()` filtre à l'affichage.
+  // `data` stays raw (union of favorites): the desktop notifs cover ALL the
+  // favorites, including those we're not looking at. `view()` filters at display time.
   let current = activeFav;
   const view = () => filterDataByScope(data, parseScope(current));
 
-  // Redessine : en-tête + les deux tableaux + bandeau (indice ou saisie) + journal.
+  // Redraws: header + the two tables + banner (hint or input) + log.
   const redraw = () => {
     if (!data) return;
     const shown = view();
     const vm = viewModel(shown, { showHidden });
     if (process.stdout.isTTY) process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
-    process.stdout.write(`\x1b[2m🔄 gh notif --watch · maj ${now()} · toutes les ${intervalSeconds}s · Ctrl-C pour arrêter\x1b[0m\n\n`);
+    process.stdout.write(`\x1b[2m🔄 gh notif --watch · upd ${now()} · every ${intervalSeconds}s · Ctrl-C to stop\x1b[0m\n\n`);
     process.stdout.write(renderList({ mine: shown.mine, others: vm.rows, hiddenCount: shown.hiddenCount },
       { showHidden, hiddenFlags: vm.hiddenFlags }));
-    // indice « h » en permanence (mode normal) ou invite de saisie (mode masquage)
+    // "h" hint permanently (normal mode) or input prompt (hide mode)
     if (interactive()) process.stdout.write(helpBanner(hideMode, buffer, '', favoritesBar(favorites, current)));
     if (verbose && recent.length > 0) {
-      process.stdout.write(`\n\x1b[1m🔔 Évènements détectés (session)\x1b[0m\n`);
+      process.stdout.write(`\n\x1b[1m🔔 Detected events (session)\x1b[0m\n`);
       for (const line of recent) process.stdout.write(`${line}\n`);
     }
     if (debug) process.stdout.write(`\n${renderDebugText(shown.debug, { rows: debugRows(shown), ignoredChecks })}`);
@@ -167,7 +167,7 @@ async function runWatch(gh, { scope, verbose, showHidden, debug, intervalSeconds
       if (key.ctrl && key.name === 'c') { try { process.stdin.setRawMode(false); } catch {} process.stdout.write('\n'); process.exit(0); }
       if (!hideMode) {
         if (str === 'h' && data) { hideMode = true; buffer = ''; redraw(); }
-        // Changement de favori = filtre local : pas de poll, pas de gel de boucle.
+        // Switching favorite = local filter: no poll, no loop freeze.
         else if (str === 'f' && favorites.length > 0) {
           current = cycleFavorite(favorites, current);
           if (prefs && prefsFile) { prefs.activeFav = current; savePrefs(prefsFile, prefs); }
@@ -184,9 +184,9 @@ async function runWatch(gh, { scope, verbose, showHidden, debug, intervalSeconds
           const nowHidden = toggleHidden(hidden, keyOf(row), data.notifications);
           saveHidden(hiddenFile, hidden);
           data = recompute(data, hidden);
-          recent.unshift(hideEventLine(nowHidden, row, now())); // journal (-v)
+          recent.unshift(hideEventLine(nowHidden, row, now())); // log (-v)
           while (recent.length > RECENT_MAX) recent.pop();
-          hideMode = false; // sortie auto après action
+          hideMode = false; // auto-exit after action
         }
         buffer = ''; redraw(); return;
       }
@@ -195,13 +195,13 @@ async function runWatch(gh, { scope, verbose, showHidden, debug, intervalSeconds
     });
   }
 
-  // Attente paçant les polls. Gelée pendant le mode masquage (ni écriture ni
-  // décompte) pour ne pas écraser l'écran sous l'utilisateur.
+  // Wait spacing out the polls. Frozen during hide mode (no writing nor
+  // countdown) so as not to overwrite the screen under the user.
   const waitNextPoll = async () => {
-    const total = intervalSeconds + backoff; // recul en cas de rate-limit
+    const total = intervalSeconds + backoff; // backoff in case of rate-limit
     for (let n = total; n > 0; ) {
       if (hideMode) { await sleep(0.2); continue; }
-      if (process.stdout.isTTY) process.stdout.write(`\r\x1b[2m⏳ prochain check dans ${String(n).padStart(2)}s…\x1b[0m\x1b[K`);
+      if (process.stdout.isTTY) process.stdout.write(`\r\x1b[2m⏳ next check in ${String(n).padStart(2)}s…\x1b[0m\x1b[K`);
       await sleep(1);
       n--;
     }
@@ -211,16 +211,16 @@ async function runWatch(gh, { scope, verbose, showHidden, debug, intervalSeconds
   for (;;) {
     if (!hideMode) {
       try {
-        const stop = startSpinner('Mise à jour…');
+        const stop = startSpinner('Updating…');
         try {
           data = await collectPRs(gh, me, { all: false, scope, hidden, cache: inspectCache, ignoredChecks });
         } finally {
           stop();
         }
-        backoff = 0; // succès : on repart à l'intervalle normal
+        backoff = 0; // success: back to the normal interval
         if (data.hiddenChanged) saveHidden(hiddenFile, hidden);
-        // Approbations sur mes PR (hors threads de notif) : amorçage silencieux au
-        // 1er poll, puis notif desktop + journal (-v) sur chaque nouvel approve.
+        // Approvals on my PRs (outside notif threads): silent priming on the
+        // 1st poll, then desktop notif + log (-v) on each new approve.
         const freshApprovals = diffApprovals({ events: data.approvalEvents ?? [], seen: seenApprovals, primed: primedApprovals });
         primedApprovals = true;
         for (const e of freshApprovals) {
@@ -230,20 +230,20 @@ async function runWatch(gh, { scope, verbose, showHidden, debug, intervalSeconds
         }
         const items = data.notifications ?? [];
         if (!primed) {
-          // Premier run : on enregistre le backlog existant sans alerter,
-          // pour ne notifier que les évènements survenant après le démarrage.
+          // First run: we record the existing backlog without alerting,
+          // to only notify events occurring after startup.
           for (const item of items) markSeen(state, item);
           saveState(path, state);
           primed = true;
         } else {
-          // PR encore ouvertes/pending (visibles, masquées ou miennes) : sert à ne pas
-          // notifier une demande de review sur une PR déjà fermée/mergée (cf. #7004).
-          // On inclut data.hidden : une PR masquée reste « ouverte ».
+          // PRs still open/pending (visible, hidden or mine): used to avoid
+          // notifying a review request on a PR already closed/merged (cf. #7004).
+          // We include data.hidden: a hidden PR stays "open".
           const openKeys = new Set([...data.mine, ...data.others, ...data.hidden].map((r) => `${r.repo}#${r.number}`));
           const fresh = items.filter((i) => isNew(state, i));
           for (const item of fresh) {
             markSeen(state, item);
-            // une demande de review n'a de sens que sur une PR ouverte
+            // a review request only makes sense on an open PR
             if (item.category === CATEGORY.REVIEW_REQUEST && !openKeys.has(`${item.repo}#${item.number}`)) continue;
             sendNotification(item);
             recent.unshift(watchEventLine(item, now(), { hyperlinks: process.stdout.isTTY }));
@@ -255,7 +255,7 @@ async function runWatch(gh, { scope, verbose, showHidden, debug, intervalSeconds
       } catch (err) {
         if (isRateLimitError(err.message)) {
           backoff = nextBackoffSeconds(backoff, intervalSeconds, BACKOFF_CAP);
-          const msg = `⏳ rate-limité par GitHub — reprise dans ${intervalSeconds + backoff}s`;
+          const msg = `⏳ rate-limited by GitHub — retrying in ${intervalSeconds + backoff}s`;
           if (verbose) {
             recent.unshift(`\x1b[2m${now()}\x1b[0m  ${msg}`);
             while (recent.length > RECENT_MAX) recent.pop();
@@ -272,51 +272,51 @@ async function runWatch(gh, { scope, verbose, showHidden, debug, intervalSeconds
   }
 }
 
-const HELP = `gh notif — notifications GitHub filtrées
+const HELP = `gh notif — filtered GitHub notifications
 
 Usage:
-  gh notif                   Deux tableaux : tes PR / les PR des autres
-  gh notif --all             Inclut les notifications déjà lues
-  gh notif --watch           Tableaux rafraîchis en continu + notifs desktop
-  gh notif --watch -v        + journal des évènements détectés sous les tableaux
-  gh notif --serve [--port N]  Page web locale auto-rafraîchie (défaut :7777)
-  gh notif --serve --no-open   Sans ouvrir le navigateur (l'URL reste affichée)
-  gh notif --interval N      Secondes entre deux polls (--watch/--serve, plancher 60)
-  gh notif --org <org>       Limite à une organisation
-  gh notif --repo [o/r]      Limite à un dépôt (sans valeur = dépôt courant)
-  gh notif --fav <scope>     Démarre sur ce favori (doit être dans la liste)
-  gh notif --show-hidden     Affiche aussi les PR masquées (grisées, 🙈)
-  gh notif --debug           Dump du verdict de classification par thread (terminal)
-  gh notif --help            Affiche cette aide
+  gh notif                   Two tables: your PRs / others' PRs
+  gh notif --all             Includes already-read notifications
+  gh notif --watch           Continuously refreshed tables + desktop notifs
+  gh notif --watch -v        + log of detected events below the tables
+  gh notif --serve [--port N]  Local auto-refreshing web page (default :7777)
+  gh notif --serve --no-open   Without opening the browser (URL stays printed)
+  gh notif --interval N      Seconds between two polls (--watch/--serve, floor 60)
+  gh notif --org <org>       Limit to one organization
+  gh notif --repo [o/r]      Limit to one repository (no value = current repo)
+  gh notif --fav <scope>     Start on this favorite (must be in the list)
+  gh notif --show-hidden     Also show hidden PRs (greyed out, 🙈)
+  gh notif --debug           Dump the classification verdict per thread (terminal)
+  gh notif --help            Show this help
 
-Favoris (scopes épinglés) :
-  gh notif fav list          Liste les favoris (⭐ = celui affiché)
-  gh notif fav add <scope>   Épingle une org (mapado) ou un dépôt (owner/repo)
-  gh notif fav rm <scope>    Retire un favori
+Favorites (pinned scopes) :
+  gh notif fav list          List favorites (⭐ = the one shown)
+  gh notif fav add <scope>   Pin an org (mapado) or a repository (owner/repo)
+  gh notif fav rm <scope>    Remove a favorite
 
-Dès qu'un favori existe, la collecte porte sur l'UNION des favoris — donc les
-notifications desktop de tous arrivent en permanence — et seul le favori actif
-est affiché. Changer de favori ne coûte aucune requête GitHub.
+As soon as a favorite exists, collection covers the UNION of favorites — so the
+desktop notifications of all of them arrive continuously — and only the active
+favorite is shown. Switching favorite costs no GitHub request.
 
---org et --repo sont mutuellement exclusifs. Ils s'appliquent aussi à --watch et
-priment sur les favoris (alors ignorés).
+--org and --repo are mutually exclusive. They also apply to --watch and take
+precedence over favorites (then ignored).
 
-Touches (terminal interactif) : f = favori suivant · h = masquer/restaurer une PR
-des autres · (en mode masquage) n° de PR + Entrée = valider · Esc = annuler ·
-q = quitter.
+Keys (interactive terminal): f = next favorite · h = hide/restore one of the
+others' PRs · (in hide mode) PR # + Enter = confirm · Esc = cancel ·
+q = quit.
 
-Jobs de CI ignorés : pour qu'un job peu important (ex. un rappel de label) ne fasse
-plus passer une PR en ❌, ajoute-le à la blocklist du repo dans prefs-v1.json :
-  "ignoredChecks": { "owner/repo": ["nom exact du check"] }
-Le verdict CI est alors recalculé sans ce job. Le nom EXACT du check se copie
-depuis la section « Checks par repo » du mode --debug (ou de la page /debug en --serve).
-En --serve, cette section est interactive : coche/décoche un job pour l'ignorer sans
-éditer le fichier (le verdict se met à jour sans appel GitHub).
+Ignored CI jobs: so that an unimportant job (e.g. a label reminder) no longer
+turns a PR to ❌, add it to the repo blocklist in prefs-v1.json :
+  "ignoredChecks": { "owner/repo": ["exact check name"] }
+The CI verdict is then recomputed without that job. The EXACT check name is copied
+from the « Checks by repo » section of --debug mode (or the /debug page in --serve).
+In --serve, that section is interactive: check/uncheck a job to ignore it without
+editing the file (the verdict updates with no GitHub call).
 `;
 
-// Parse les arguments. repo: undefined=absent, null=donné sans valeur (dépôt
-// courant), string=valeur. org: undefined=absent, null=donné sans valeur
-// (erreur, valeur requise), string=valeur.
+// Parse the arguments. repo: undefined=absent, null=given without value (current
+// repo), string=value. org: undefined=absent, null=given without value
+// (error, value required), string=value.
 function parseArgs(argv) {
   const args = argv.slice(2);
   const flags = { all: false, watch: false, serve: false, port: undefined, interval: undefined, help: false, verbose: false, debug: false, showHidden: false, org: undefined, repo: undefined, fav: undefined, noOpen: false };
@@ -349,41 +349,41 @@ function parseArgs(argv) {
   return flags;
 }
 
-// Intervalle de poll effectif : plancher GitHub à 60 s. Une valeur fournie plus
-// basse est ramenée à 60 (message informatif sur stderr).
+// Effective poll interval: GitHub floor at 60 s. A provided value lower than
+// that is raised to 60 (informative message on stderr).
 function effectiveInterval(flags) {
   if (flags.interval === undefined) return POLL_SECONDS;
   if (!Number.isInteger(flags.interval)) {
-    throw new Error('--interval requiert un entier (secondes, ex. --interval 120)');
+    throw new Error('--interval requires an integer (seconds, e.g. --interval 120)');
   }
   if (flags.interval < POLL_SECONDS) {
-    process.stderr.write(`gh notif: --interval ${flags.interval}s sous le plancher GitHub, ramené à ${POLL_SECONDS}s\n`);
+    process.stderr.write(`gh notif: --interval ${flags.interval}s below the GitHub floor, raised to ${POLL_SECONDS}s\n`);
     return POLL_SECONDS;
   }
   return flags.interval;
 }
 
-// Scope ad-hoc demandé en ligne de commande (--org / --repo), ou null.
+// Ad-hoc scope requested on the command line (--org / --repo), or null.
 async function resolveScope(gh, flags) {
   if (flags.org !== undefined && flags.repo !== undefined) {
-    throw new Error('--org et --repo sont mutuellement exclusifs');
+    throw new Error('--org and --repo are mutually exclusive');
   }
   if (flags.org !== undefined) {
-    if (!flags.org) throw new Error('--org requiert une valeur (ex. --org mapado)');
+    if (!flags.org) throw new Error('--org requires a value (e.g. --org mapado)');
     return { type: 'org', value: flags.org };
   }
   if (flags.repo !== undefined) {
     const value = flags.repo ?? (await gh.currentRepo());
-    if (!value) throw new Error('--repo sans valeur : impossible de déterminer le dépôt courant (pas dans un dépôt git ?)');
+    if (!value) throw new Error('--repo without value: cannot determine the current repository (not in a git repo?)');
     return { type: 'repo', value };
   }
   return null;
 }
 
-// Résout ce qu'on COLLECTE et ce qu'on AFFICHE, par priorité décroissante :
-//   1. --org/--repo explicite → ce scope seul, favoris hors-jeu ;
-//   2. des favoris existent   → union des favoris, filtrée sur le favori actif ;
-//   3. sinon                  → tout GitHub (comportement historique).
+// Resolves what we COLLECT and what we DISPLAY, in decreasing priority:
+//   1. explicit --org/--repo → that scope alone, favorites out of play;
+//   2. favorites exist       → union of favorites, filtered on the active favorite;
+//   3. otherwise             → all of GitHub (historical behavior).
 async function resolveScopes(gh, flags, prefs) {
   const adhoc = await resolveScope(gh, flags);
   const favorites = normalizeFavorites(prefs.favorites);
@@ -391,21 +391,21 @@ async function resolveScopes(gh, flags, prefs) {
 
   let activeFav = activeFavoriteOf(prefs, favorites);
   if (flags.fav !== undefined) {
-    if (!flags.fav) throw new Error('--fav requiert une valeur (ex. --fav mapado)');
+    if (!flags.fav) throw new Error('--fav requires a value (e.g. --fav mapado)');
     if (!favorites.includes(flags.fav)) {
-      const known = favorites.length > 0 ? favorites.join(', ') : 'aucun (gh notif fav add <scope>)';
-      throw new Error(`--fav ${flags.fav} : favori inconnu. Favoris connus : ${known}`);
+      const known = favorites.length > 0 ? favorites.join(', ') : 'none (gh notif fav add <scope>)';
+      throw new Error(`--fav ${flags.fav}: unknown favorite. Known favorites: ${known}`);
     }
     activeFav = flags.fav;
   }
   return { collectScope: favoriteScopes(favorites), favorites, activeFav };
 }
 
-// Sous-commande `gh notif fav [add|rm|list] [scope]` : gestion de la liste des
-// favoris (prefs-v1.json). Seul `add` touche le réseau : une vérification rapide
-// que le scope existe sur GitHub (org/user OU dépôt) — pas le droit d'épingler
-// une coquille. Tri-état de scopeExists : false → refus net ; null (réseau,
-// rate-limit…) → fail-open avec avertissement, on ne bloque pas à tort.
+// Subcommand `gh notif fav [add|rm|list] [scope]`: management of the favorites
+// list (prefs-v1.json). Only `add` touches the network: a quick check
+// that the scope exists on GitHub (org/user OR repo) — no right to pin
+// a typo. Tri-state of scopeExists: false → hard refusal; null (network,
+// rate-limit…) → fail-open with a warning, we don't block wrongly.
 async function runFav(args) {
   const prefsFile = prefsPath();
   const prefs = loadPrefs(prefsFile);
@@ -419,34 +419,34 @@ async function runFav(args) {
         const exists = await makeGh().scopeExists(s);
         if (exists === false) {
           throw new Error(s.type === 'repo'
-            ? `dépôt ${s.value} introuvable sur GitHub`
-            : `org/utilisateur ${s.value} introuvable sur GitHub`);
+            ? `repository ${s.value} not found on GitHub`
+            : `org/user ${s.value} not found on GitHub`);
         }
-        if (exists === null) process.stderr.write(`gh notif fav: impossible de vérifier « ${s.value} » (réseau ?) — ajouté quand même\n`);
+        if (exists === null) process.stderr.write(`gh notif fav: unable to verify « ${s.value} » (network?) — added anyway\n`);
       }
       favorites = addFavorite(favorites, value);
     } else {
       favorites = removeFavorite(favorites, value);
     }
-    // ⚠️ muter puis réécrire l'objet EN ENTIER : savePrefs({favorites}) perdrait
-    // notify/theme (cf. ARCHITECTURE.md §préférences persistées).
+    // ⚠️ mutate then rewrite the object IN FULL: savePrefs({favorites}) would lose
+    // notify/theme (cf. ARCHITECTURE.md §persisted preferences).
     prefs.favorites = favorites;
-    prefs.activeFav = activeFavoriteOf(prefs, favorites); // favori retiré → « tous »
+    prefs.activeFav = activeFavoriteOf(prefs, favorites); // favorite removed → "all"
     savePrefs(prefsFile, prefs);
   } else if (action !== undefined && action !== 'list') {
-    throw new Error(`fav : action inconnue « ${action} » (add | rm | list)`);
+    throw new Error(`fav: unknown action « ${action} » (add | rm | list)`);
   }
 
   if (favorites.length === 0) {
-    process.stdout.write('Aucun favori. Ajoute-en un : gh notif fav add mapado\n');
+    process.stdout.write('No favorites. Add one: gh notif fav add mapado\n');
     return;
   }
   const active = activeFavoriteOf(prefs, favorites);
   process.stdout.write(`${favoritesBar(favorites, active)}\n`);
 }
 
-// Rows d'une vue (mine + others + masquées) pour la section « Checks par repo » du
-// mode --debug : liste les jobs de CI et leur état, marque les ignorés.
+// Rows of a view (mine + others + hidden) for the "Checks by repo" section of
+// --debug mode: lists the CI jobs and their state, marks the ignored ones.
 function debugRows(shown) {
   return [...(shown.mine ?? []), ...(shown.others ?? []), ...(shown.hidden ?? [])];
 }
@@ -454,8 +454,8 @@ function debugRows(shown) {
 async function runList(gh, { all, scope, showHidden, debug, favorites = [], activeFav = null, prefs = null, prefsFile = null }) {
   const hiddenFile = hiddenPath();
   const hidden = loadHidden(hiddenFile);
-  const ignoredChecks = ignoredChecksOf(prefs); // blocklist CI par repo (recalcul du verdict)
-  const stop = startSpinner('Récupération des PRs et notifications…');
+  const ignoredChecks = ignoredChecksOf(prefs); // CI blocklist per repo (verdict recomputation)
+  const stop = startSpinner('Fetching PRs and notifications…');
   let data;
   try {
     const me = await gh.getCurrentUser();
@@ -465,12 +465,12 @@ async function runList(gh, { all, scope, showHidden, debug, favorites = [], acti
   }
   if (data.hiddenChanged) saveHidden(hiddenFile, hidden);
 
-  // `data` reste BRUT (union des favoris) : c'est lui qui alimente le masquage.
-  // `view()` n'applique le filtre du favori actif qu'au moment de l'affichage.
+  // `data` stays RAW (union of favorites): it's what feeds the hiding.
+  // `view()` only applies the active favorite filter at display time.
   let current = activeFav;
   const view = () => filterDataByScope(data, parseScope(current));
 
-  // Hors TTY (pipe/redirection) : affiche puis rend la main, sans interaction.
+  // Outside TTY (pipe/redirection): print then hand back control, without interaction.
   if (!interactive()) {
     const shown = view();
     const vm = viewModel(shown, { showHidden });
@@ -480,7 +480,7 @@ async function runList(gh, { all, scope, showHidden, debug, favorites = [], acti
     return;
   }
 
-  // Terminal interactif : on reste vivant pour permettre le masquage au clavier.
+  // Interactive terminal: we stay alive to allow keyboard hiding.
   await runInteractive({
     draw: (hideMode, buffer) => {
       const shown = view();
@@ -488,12 +488,12 @@ async function runList(gh, { all, scope, showHidden, debug, favorites = [], acti
       process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
       process.stdout.write(renderList({ mine: shown.mine, others: vm.rows, hiddenCount: shown.hiddenCount },
         { showHidden, hiddenFlags: vm.hiddenFlags }));
-      process.stdout.write(helpBanner(hideMode, buffer, ' · q pour quitter', favoritesBar(favorites, current)));
+      process.stdout.write(helpBanner(hideMode, buffer, ' · q to quit', favoritesBar(favorites, current)));
       if (debug) process.stdout.write(`\n${renderDebugText(shown.debug, { rows: debugRows(shown), ignoredChecks })}`);
     },
     rowsFor: () => viewModel(view(), { showHidden }).rows,
     onToggle: (row) => { toggleHidden(hidden, keyOf(row), data.notifications); saveHidden(hiddenFile, hidden); data = recompute(data, hidden); },
-    // Filtre local : aucune requête GitHub, juste un redraw + persistance.
+    // Local filter: no GitHub request, just a redraw + persistence.
     onCycleFav: () => {
       current = cycleFavorite(favorites, current);
       if (prefs && prefsFile) { prefs.activeFav = current; savePrefs(prefsFile, prefs); }
@@ -502,7 +502,7 @@ async function runList(gh, { all, scope, showHidden, debug, favorites = [], acti
 }
 
 async function main(argv) {
-  // Sous-commande `fav` : gérée à part, avant le parsing des flags.
+  // Subcommand `fav`: handled separately, before parsing the flags.
   if (argv[2] === 'fav') {
     try {
       await runFav(argv.slice(3));
@@ -520,8 +520,8 @@ async function main(argv) {
     const prefsFile = prefsPath();
     const prefs = loadPrefs(prefsFile);
     const { collectScope, favorites, activeFav } = await resolveScopes(gh, flags, prefs);
-    // `--fav` vaut choix explicite : on le persiste, sinon --serve (qui relit
-    // prefs de son côté) l'ignorerait. Muter + réécrire en entier (cf. prefs.js).
+    // `--fav` counts as an explicit choice: we persist it, otherwise --serve (which
+    // re-reads prefs on its side) would ignore it. Mutate + rewrite in full (cf. prefs.js).
     if (flags.fav !== undefined && prefs.activeFav !== activeFav) {
       prefs.activeFav = activeFav;
       savePrefs(prefsFile, prefs);
@@ -529,11 +529,11 @@ async function main(argv) {
     const intervalSeconds = effectiveInterval(flags);
     if (flags.serve) {
       if (flags.port !== undefined && flags.port !== null && !Number.isInteger(flags.port)) {
-        throw new Error('--port requiert un entier (ex. --port 7777)');
+        throw new Error('--port requires an integer (e.g. --port 7777)');
       }
       const me = await gh.getCurrentUser();
-      // serve() relit les favoris depuis prefs lui-même : on ne lui passe que le
-      // scope ad-hoc éventuel (Array ⇒ mode favoris, qu'il recalcule).
+      // serve() re-reads the favorites from prefs itself: we only pass it the
+      // eventual ad-hoc scope (Array ⇒ favorites mode, which it recomputes).
       serve({ gh, me, scope: Array.isArray(collectScope) ? null : collectScope, all: flags.all, port: flags.port ?? 7777, intervalSeconds, open: !flags.noOpen });
     } else if (flags.watch) {
       await runWatch(gh, { scope: collectScope, verbose: flags.verbose, showHidden: flags.showHidden, debug: flags.debug, intervalSeconds, favorites, activeFav, prefs, prefsFile });

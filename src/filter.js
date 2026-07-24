@@ -3,13 +3,13 @@ export const CATEGORY = {
   MENTION: 'mention',
   ON_MY_PR: 'on_my_pr',
   THREAD_REPLY: 'thread_reply',
-  APPROVAL: 'approval', // approbation reçue sur MA PR (hors threads de notif, cf. approvals.js)
+  APPROVAL: 'approval', // approval received on MY PR (outside notif threads, cf. approvals.js)
 };
 
-// Triggers dérivés des notifications (volontairement SANS review_request : la
-// `reason` review_requested est collante, cf. ARCHITECTURE §1). Défini ici — où
-// vit déjà CATEGORY — pour être partagé entre collect.js et hidden.js sans cycle
-// d'import (collect → hidden → filter).
+// Triggers derived from notifications (deliberately WITHOUT review_request: the
+// review_requested `reason` is sticky, cf. ARCHITECTURE §1). Defined here — where
+// CATEGORY already lives — to be shared between collect.js and hidden.js without an
+// import cycle (collect → hidden → filter).
 export const TRIGGER_FOR = {
   [CATEGORY.MENTION]: 'mention',
   [CATEGORY.THREAD_REPLY]: 'reply',
@@ -40,44 +40,44 @@ function baseItem(thread, extra) {
   };
 }
 
-// Verdict du pipeline pour un thread : { item, reason }. `item` est l'élément
-// classifié (ou null s'il est écarté), `reason` explique la décision (gardé /
-// pourquoi droppé) — utilisé par le mode debug. `classify` n'en garde que `item`.
+// Pipeline verdict for a thread: { item, reason }. `item` is the classified
+// element (or null if discarded), `reason` explains the decision (kept /
+// why dropped) — used by debug mode. `classify` keeps only `item`.
 export function classifyVerdict(thread, me, inspection) {
   if (thread.subject?.type !== 'PullRequest') {
-    return { item: null, reason: 'pas une Pull Request' };
+    return { item: null, reason: 'not a Pull Request' };
   }
   const reason = thread.reason;
   if (!ALLOWED_REASONS.has(reason)) {
-    return { item: null, reason: `reason GitHub ignorée (${reason})` };
+    return { item: null, reason: `GitHub reason ignored (${reason})` };
   }
 
-  // Une vraie réponse dans un fil où j'ai participé est le signal le plus précis :
-  // elle prime sur la `reason` (qui reste « collante » sur review_requested/mention/
-  // author/subscribed même quand l'évènement réel est une réponse de quelqu'un d'autre).
+  // A real reply in a thread where I participated is the most precise signal:
+  // it takes precedence over the `reason` (which stays "sticky" on review_requested/mention/
+  // author/subscribed even when the real event is a reply from someone else).
   const reply = findReplyToMe(inspection?.reviewComments ?? [], me, thread.last_read_at);
   if (reply) {
     return {
       item: baseItem(thread, { category: CATEGORY.THREAD_REPLY, actor: reply.user.login, url: reply.html_url }),
-      reason: `réponse de @${reply.user.login} à ton fil`,
+      reason: `reply from @${reply.user.login} to your thread`,
     };
   }
 
-  // Fallback review_requested : sert UNIQUEMENT au `--watch` (notification desktop
-  // d'une nouvelle demande de review). En mode liste, la `reason` est collante et peu
-  // fiable (reste après ta review) ; le trigger « review » y vient exclusivement de la
-  // recherche `review-requested:@me` (collectPending), pas de cet item. Voir collect.js.
+  // review_requested fallback: used ONLY by `--watch` (desktop notification
+  // of a new review request). In list mode, the `reason` is sticky and not very
+  // reliable (stays after your review); there the "review" trigger comes exclusively from
+  // the `review-requested:@me` search (collectPending), not from this item. See collect.js.
   if (reason === 'review_requested') {
     return {
       item: baseItem(thread, { category: CATEGORY.REVIEW_REQUEST, actor: null, url: prHtmlUrl(thread) }),
-      reason: 'demande de review (signalée en --watch uniquement)',
+      reason: 'review request (reported in --watch only)',
     };
   }
 
   if (reason === 'mention' || reason === 'team_mention') {
     const since = thread.last_read_at;
     const c = inspection?.latestComment;
-    // Jamais lue : la mention est réellement nouvelle → on fait confiance.
+    // Never read: the mention is genuinely new → we trust it.
     if (!since) {
       return {
         item: baseItem(thread, {
@@ -88,62 +88,62 @@ export function classifyVerdict(thread, me, inspection) {
         reason: c?.user?.login ? `mention (@${c.user.login})` : 'mention',
       };
     }
-    // Déjà lue : `reason: mention` est collante. On n'émet que si une VRAIE mention
-    // de moi (@moi), par un autre, est arrivée APRÈS ma lecture — sinon c'est un
-    // re-bump (merge : réel #7014 ; commentaire tiers sans @moi : réel #6431) → bruit.
+    // Already read: `reason: mention` is sticky. We emit only if a REAL mention
+    // of me (@me), by someone else, arrived AFTER my read — otherwise it's a
+    // re-bump (merge: real #7014; third-party comment without @me: real #6431) → noise.
     const hit = latestMentionOfMe([c, ...(inspection?.reviewComments ?? [])], me, since);
     if (hit) {
       return {
         item: baseItem(thread, { category: CATEGORY.MENTION, actor: hit.user.login, url: hit.html_url }),
-        reason: `mention de @${hit.user.login}`,
+        reason: `mention from @${hit.user.login}`,
       };
     }
-    return { item: null, reason: 'mention déjà lue, re-bumpée sans nouvelle @moi (merge / commentaire tiers) → bruit' };
+    return { item: null, reason: 'mention already read, re-bumped without a new @me (merge / third-party comment) → noise' };
   }
 
   if (reason === 'author') {
-    // Commentaire principal d'un autre sur ma PR.
+    // Main comment from someone else on my PR.
     const c = inspection?.latestComment;
     if (c && c.user?.login !== me) {
       return {
         item: baseItem(thread, { category: CATEGORY.ON_MY_PR, actor: c.user.login, url: c.html_url }),
-        reason: `commentaire de @${c.user.login} sur ta PR`,
+        reason: `comment from @${c.user.login} on your PR`,
       };
     }
-    // Sinon : commentaire de review (inline) d'un autre sur ma PR. La notif n'a pas
-    // toujours de `latest_comment_url` pour ces commentaires → on inspecte les
-    // review-comments (les réponses à MON fil sont déjà captées plus haut).
+    // Otherwise: (inline) review comment from someone else on my PR. The notif does not
+    // always have a `latest_comment_url` for these comments → we inspect the
+    // review-comments (replies to MY thread are already captured above).
     const rc = latestOtherComment(inspection?.reviewComments ?? [], me, thread.last_read_at);
     if (rc) {
       return {
         item: baseItem(thread, { category: CATEGORY.ON_MY_PR, actor: rc.user.login, url: rc.html_url }),
-        reason: `review-comment de @${rc.user.login} sur ta PR`,
+        reason: `review-comment from @${rc.user.login} on your PR`,
       };
     }
-    return { item: null, reason: 'ta propre action / maj de PR (aucune activité d’un autre)' };
+    return { item: null, reason: 'your own action / PR update (no activity from anyone else)' };
   }
 
-  // comment / subscribed / manual sans réponse à moi → bruit
-  return { item: null, reason: 'pas de réponse à ton fil → bruit' };
+  // comment / subscribed / manual without a reply to me → noise
+  return { item: null, reason: 'no reply to your thread → noise' };
 }
 
 export function classify(thread, me, inspection) {
   return classifyVerdict(thread, me, inspection).item;
 }
 
-// Vrai si `body` mentionne explicitement `@me` (frontière de mot pour ne pas
-// matcher `@meXY`). Insensible à la casse (les logins GitHub le sont).
+// True if `body` explicitly mentions `@me` (word boundary so as not to
+// match `@meXY`). Case-insensitive (GitHub logins are).
 export function mentionsMe(body, me) {
   if (!body || !me) return false;
   const esc = me.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return new RegExp(`@${esc}(?![\\w-])`, 'i').test(body);
 }
 
-// Commentaire le plus récent d'un AUTRE que `me`, postérieur à `since`, dont le
-// corps me mentionne (@me). Confirme qu'une notif `reason: mention` (collante)
-// correspond à une VRAIE nouvelle mention et non à un re-bump (merge, commentaire
-// tiers). Ne voit que le contenu fetché (latestComment + review-comments) : une
-// mention dans le corps de la PR n'est pas détectée (cas marginal). null si aucun.
+// Most recent comment from someone OTHER than `me`, after `since`, whose
+// body mentions me (@me). Confirms that a `reason: mention` notif (sticky)
+// corresponds to a REAL new mention and not to a re-bump (merge, third-party
+// comment). Only sees the fetched content (latestComment + review-comments): a
+// mention in the PR body is not detected (marginal case). null if none.
 export function latestMentionOfMe(comments, me, since = null) {
   let best = null;
   for (const c of comments) {
@@ -155,9 +155,9 @@ export function latestMentionOfMe(comments, me, since = null) {
   return best;
 }
 
-// Commentaire de review le plus récent d'un AUTRE que `me`, postérieur à `since`
-// (= last_read_at). Sert à détecter un commentaire (inline) sur MA PR quand la notif
-// n'a pas de latest_comment_url. null si aucun.
+// Most recent review comment from someone OTHER than `me`, after `since`
+// (= last_read_at). Used to detect an (inline) comment on MY PR when the notif
+// has no latest_comment_url. null if none.
 export function latestOtherComment(reviewComments, me, since = null) {
   let best = null;
   for (const c of reviewComments) {
@@ -168,13 +168,13 @@ export function latestOtherComment(reviewComments, me, since = null) {
   return best;
 }
 
-// Regroupe les review-comments par fil (racine = remontée des in_reply_to_id).
-// Dans un fil où `me` a participé, renvoie le commentaire le plus récent d'un
-// autre auteur POSTÉRIEUR à mon dernier commentaire de ce fil (= une vraie
-// réponse arrivée après ma participation). null si aucun.
-// `since` (optionnel, = last_read_at de la notif) : on ignore les réponses
-// antérieures ou égales, déjà lues — sinon une activité tierce qui rebumpe la
-// notif re-signalerait une vieille réponse comme une nouveauté.
+// Groups review-comments by thread (root = walking up the in_reply_to_id chain).
+// In a thread where `me` participated, returns the most recent comment from
+// another author AFTER my last comment in that thread (= a real
+// reply that arrived after my participation). null if none.
+// `since` (optional, = last_read_at of the notif): we ignore replies
+// earlier than or equal to it, already read — otherwise third-party activity that
+// re-bumps the notif would re-report an old reply as something new.
 export function findReplyToMe(reviewComments, me, since = null) {
   const byId = new Map(reviewComments.map((c) => [c.id, c]));
   const rootId = (c) => {
@@ -196,7 +196,7 @@ export function findReplyToMe(reviewComments, me, since = null) {
     for (const c of comments) {
       if (c.user?.login === me) continue;
       if (c.created_at <= myLatest) continue;
-      if (since && c.created_at <= since) continue; // réponse déjà lue → pas une nouveauté
+      if (since && c.created_at <= since) continue; // reply already read → not new
       if (!best || c.created_at > best.created_at) best = c;
     }
   }

@@ -1,5 +1,5 @@
-// Détection du rate-limit GitHub et calcul du backoff. Fonctions pures (le
-// message d'erreur vient de `gh` via child_process), testées sur fixtures.
+// GitHub rate-limit detection and backoff computation. Pure functions (the
+// error message comes from `gh` via child_process), tested on fixtures.
 
 const RATE_LIMIT_PATTERNS = [
   'rate limit',
@@ -9,16 +9,16 @@ const RATE_LIMIT_PATTERNS = [
   '429',
 ];
 
-// Vrai si le message d'erreur `gh` ressemble à un dépassement de quota (primaire
-// ou secondaire / abuse) ou à un 403/429. Insensible à la casse.
+// True if the `gh` error message looks like a quota overrun (primary or
+// secondary / abuse) or a 403/429. Case-insensitive.
 export function isRateLimitError(message) {
   if (!message) return false;
   const m = String(message).toLowerCase();
   return RATE_LIMIT_PATTERNS.some((p) => m.includes(p));
 }
 
-// Prochain backoff (en secondes) : 0 → `baseInterval`, sinon double, plafonné à
-// `cap`. Sert à reculer le prochain poll quand on est rate-limité.
+// Next backoff (in seconds): 0 → `baseInterval`, otherwise double, capped at
+// `cap`. Used to push back the next poll when we are rate-limited.
 export function nextBackoffSeconds(currentBackoff, baseInterval, cap) {
   if (!currentBackoff) return baseInterval;
   return Math.min(currentBackoff * 2, cap);

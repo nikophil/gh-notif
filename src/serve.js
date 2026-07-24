@@ -1,9 +1,9 @@
-// Mode `gh notif --serve` : un petit serveur HTTP local (node:http, zéro
-// dépendance) qui sert la même donnée que `gh notif` dans une page web
-// auto-rafraîchie et interactive (masquage, filtre org/repo, rafraîchissement
-// manuel). Une seule boucle de poll alimente un snapshot en mémoire ; les
-// requêtes HTTP le servent (plusieurs onglets ≠ plus d'appels GitHub). Comme
-// `--watch`, chaque nouvel évènement pousse une notification desktop.
+// Mode `gh notif --serve`: a small local HTTP server (node:http, zero
+// dependency) that serves the same data as `gh notif` in an auto-refreshed
+// and interactive web page (hiding, org/repo filter, manual refresh). A single
+// poll loop feeds an in-memory snapshot; the HTTP requests serve it (several
+// tabs ≠ more GitHub calls). Like `--watch`, each new event pushes a desktop
+// notification.
 import http from 'node:http';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -24,30 +24,30 @@ import { startSpinner } from './spinner.js';
 import { renderShell, renderFragment, renderLoading, renderDebug, renderDebugShell, renderFavorites, escapeHtml } from './html.js';
 
 const POLL_SECONDS = 60;
-const BACKOFF_CAP = 600; // plafond du recul en cas de rate-limit (10 min)
-const REFRESH_MIN_AGE_MS = 10_000; // débounce de POST /refresh (voir shouldRefresh)
+const BACKOFF_CAP = 600; // ceiling of the backoff on rate-limit (10 min)
+const REFRESH_MIN_AGE_MS = 10_000; // debounce of POST /refresh (see shouldRefresh)
 
-// `parseScope` vit dans favorites.js (module pur, sans node:http) car le CLI et
-// les favoris en ont besoin ; ré-exporté ici où il a toujours été consommé.
+// `parseScope` lives in favorites.js (pure module, without node:http) because the CLI
+// and the favorites need it; re-exported here where it has always been consumed.
 export { parseScope };
 
-// Libellé d'un scope pour préremplir le champ de saisie ('' = tout).
-// En mode favoris, `scope` est un TABLEAU (l'union) : le champ reste vide, ce
-// sont les chips qui portent l'information.
+// Label of a scope to pre-fill the input field ('' = all).
+// In favorites mode, `scope` is an ARRAY (the union): the field stays empty, it is
+// the chips that carry the information.
 export function scopeLabel(scope) {
   return scope && !Array.isArray(scope) ? scope.value : '';
 }
 
-// Débounce du POST /refresh : le client en envoie un à CHAQUE chargement de
-// page (ctrl+R = « rafraîchis vraiment »), donc on ne re-poll GitHub que si le
-// snapshot a plus de `minAgeMs` (sinon spammer ctrl+R = spammer GitHub, cf.
-// rate-limit §11). `updatedAt` null (1er poll pas fini) → toujours poller.
+// Debounce of POST /refresh: the client sends one on EVERY page load
+// (ctrl+R = « really refresh »), so we only re-poll GitHub if the
+// snapshot is older than `minAgeMs` (otherwise spamming ctrl+R = spamming GitHub, cf.
+// rate-limit §11). `updatedAt` null (1st poll not done) → always poll.
 export function shouldRefresh(updatedAt, now, minAgeMs = REFRESH_MIN_AGE_MS) {
   return updatedAt == null || now - updatedAt >= minAgeMs;
 }
 
-// Re-filtre others/hidden depuis les données en mémoire après un toggle, sans
-// refetch GitHub (même logique que l'entrypoint terminal).
+// Re-filters others/hidden from the in-memory data after a toggle, without
+// refetching GitHub (same logic as the terminal entrypoint).
 function recompute(data, hidden) {
   const all = [...(data.others ?? []), ...(data.hidden ?? [])];
   const others = all.filter((r) => !isHidden(hidden, keyOf(r)));
@@ -55,50 +55,50 @@ function recompute(data, hidden) {
   return { ...data, others, hidden: hiddenRows, hiddenCount: hiddenRows.length };
 }
 
-// Corps HTML du fragment selon l'état du snapshot : erreur → bannière échappée ;
-// pas encore de données (1er poll en cours) → spinner ; sinon → les tableaux.
-// ⚠️ Le snapshot contient les données de l'UNION des favoris ; le filtre du
-// favori actif s'applique ICI, au rendu — jamais à la collecte (cf. §14).
+// HTML body of the fragment according to the snapshot state: error → escaped banner;
+// no data yet (1st poll in progress) → spinner; otherwise → the tables.
+// ⚠️ The snapshot contains the data of the UNION of favorites; the active
+// favorite filter is applied HERE, at render time — never at collection (cf. §14).
 function fragmentBody(snapshot, { now, showHidden, viewScope = null, closedUrl = null, sort = null } = {}) {
-  if (snapshot.error) return `<p class="empty offline">⚠️ Erreur : ${escapeHtml(snapshot.error)}</p>`;
+  if (snapshot.error) return `<p class="empty offline">⚠️ Error: ${escapeHtml(snapshot.error)}</p>`;
   if (!snapshot.updatedAt) return renderLoading();
   let data = filterDataByScope(snapshot.data ?? { mine: [], others: [] }, viewScope);
-  // Tri d'affichage du tableau « autres » (les masquées suivent, cohérence en
-  // mode ?hidden=1). `sort` absent → ordre de collecte inchangé (compat).
+  // Display sort of the « others » table (the hidden ones follow, consistency in
+  // ?hidden=1 mode). `sort` absent → collection order unchanged (compat).
   if (sort) data = { ...data, others: sortRows(data.others, sort), hidden: sortRows(data.hidden, sort) };
   return renderFragment(data, { now, showHidden, closedUrl, sort });
 }
 
-// Scope(s) que la vue AFFICHE, pour contextualiser le lien « fermées ↗ » :
-// ad-hoc > favori actif > union des favoris > null (tout GitHub). Distinct de
-// `viewScope` (filtre d'affichage), qui est nul en ad-hoc (collecte déjà ciblée)
-// et nul sur « tous » (l'union est déjà collectée).
+// Scope(s) that the view DISPLAYS, to contextualize the « closed ↗ » link:
+// ad-hoc > active favorite > union of favorites > null (all of GitHub). Distinct from
+// `viewScope` (display filter), which is null in ad-hoc (collection already targeted)
+// and null on « all » (the union is already collected).
 function linkScopes({ scope = null, activeFav = null, favorites = [] } = {}) {
   return scope ?? parseScope(activeFav) ?? favoriteScopes(favorites);
 }
 
-// Corps du fragment de debug (verdict du pipeline) — même gestion erreur/chargement.
+// Body of the debug fragment (pipeline verdict) — same error/loading handling.
 function debugBody(snapshot, { now, viewScope = null, ignoredChecks = {} } = {}) {
-  if (snapshot.error) return `<p class="empty offline">⚠️ Erreur : ${escapeHtml(snapshot.error)}</p>`;
+  if (snapshot.error) return `<p class="empty offline">⚠️ Error: ${escapeHtml(snapshot.error)}</p>`;
   if (!snapshot.updatedAt) return renderLoading();
   const data = filterDataByScope(snapshot.data ?? {}, viewScope);
-  // rows = mine + others + masquées → section « Checks par PR » (noms de jobs pour la blocklist).
+  // rows = mine + others + hidden → « Checks by PR » section (job names for the blocklist).
   const rows = [...(data.mine ?? []), ...(data.others ?? []), ...(data.hidden ?? [])];
   return renderDebug(data?.debug ?? [], { now, rows, ignoredChecks });
 }
 
-// Routing des lectures (GET) — pur, aucune I/O. Testable sans socket.
+// Routing of the reads (GET) — pure, no I/O. Testable without a socket.
 export function handleRequest(pathname, snapshot, opts = {}) {
   const {
     now, intervalMs, showHidden, scope, notifyEnabled = true, theme = 'auto',
     favorites = [], activeFav = null, adhoc = false, sort = null, ignoredChecks = {},
   } = opts;
-  // Filtre d'affichage : le favori actif, sauf en mode ad-hoc (le scope saisi
-  // pilote déjà la collecte, re-filtrer serait redondant).
+  // Display filter: the active favorite, except in ad-hoc mode (the entered scope
+  // already drives the collection, re-filtering would be redundant).
   const viewScope = adhoc ? null : parseScope(activeFav);
-  // Lien « fermées ↗ » contextualisé sur ce que la vue affiche.
+  // « closed ↗ » link contextualized on what the view displays.
   const closedUrl = closedPRsUrl(linkScopes({ scope, activeFav, favorites }));
-  // Compteurs des puces = activité des autres par scope, sur l'UNION brute.
+  // Chip counters = others' activity per scope, on the raw UNION.
   const counts = favoriteCounts(favorites, snapshot.data?.others);
   if (pathname === '/') {
     return { status: 200, type: 'text/html; charset=utf-8', body: renderShell({ intervalMs, scopeLabel: scopeLabel(scope), notifyEnabled, theme, favorites, activeFav, adhoc, counts }) };
@@ -106,8 +106,8 @@ export function handleRequest(pathname, snapshot, opts = {}) {
   if (pathname === '/fragment') {
     return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, sort }) };
   }
-  // Poll unifié du client : tableaux filtrés + barre de favoris (compteurs à jour)
-  // + updatedAt (le client sonde jusqu'à ce qu'il change après un ajout/retrait).
+  // Unified poll of the client: filtered tables + favorites bar (up-to-date counters)
+  // + updatedAt (the client probes until it changes after an add/remove).
   if (pathname === '/view') {
     return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify({
       chips: renderFavorites(favorites, activeFav, { adhoc, counts }),
@@ -118,7 +118,7 @@ export function handleRequest(pathname, snapshot, opts = {}) {
   if (pathname === '/api/state') {
     return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify(snapshot) };
   }
-  // Mode debug (always-on) : page autonome + son fragment + JSON brut.
+  // Debug mode (always-on): standalone page + its fragment + raw JSON.
   if (pathname === '/debug') {
     return { status: 200, type: 'text/html; charset=utf-8', body: renderDebugShell({ intervalMs }) };
   }
@@ -131,7 +131,7 @@ export function handleRequest(pathname, snapshot, opts = {}) {
   return { status: 404, type: 'text/plain; charset=utf-8', body: 'Not found' };
 }
 
-// Ouvre le navigateur sur l'URL (best-effort, échec silencieux).
+// Opens the browser on the URL (best-effort, silent failure).
 function openBrowser(url) {
   const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
   try {
@@ -139,67 +139,67 @@ function openBrowser(url) {
     child.on('error', () => {});
     child.unref();
   } catch {
-    /* navigateur non ouvrable : on a déjà loggé l'URL */
+    /* browser not openable: we already logged the URL */
   }
 }
 
-// Démarre la boucle de poll + le serveur HTTP. Le scope est mutable (filtre UI).
-// Renvoie le server pour permettre une fermeture propre en test.
+// Starts the poll loop + the HTTP server. The scope is mutable (UI filter).
+// Returns the server to allow a clean shutdown in tests.
 //
-// Deux notions à ne pas confondre (cf. ARCHITECTURE.md §14) :
-//  - `scope` (mode ad-hoc) ou l'union des favoris = ce qu'on COLLECTE ;
-//  - `activeFav` = simple filtre d'AFFICHAGE, changé sans aucune requête.
+// Two notions not to be confused (cf. ARCHITECTURE.md §14):
+//  - `scope` (ad-hoc mode) or the union of favorites = what we COLLECT;
+//  - `activeFav` = a simple DISPLAY filter, changed without any request.
 export function serve({ gh, me, scope: initialScope = null, all = false, port = 7777, intervalSeconds = POLL_SECONDS, open = true } = {}) {
-  // `scope` non nul ⇒ mode ad-hoc : un scope saisi (--org/--repo ou champ web)
-  // prime sur les favoris, qui deviennent purement décoratifs (chips grisées).
+  // `scope` non-null ⇒ ad-hoc mode: an entered scope (--org/--repo or web field)
+  // takes precedence over the favorites, which become purely decorative (greyed chips).
   let scope = initialScope;
   const snapshot = { data: { mine: [], others: [] }, updatedAt: null, error: null };
 
-  // Cache d'inspection réutilisé entre polls (thread inchangé = 0 requête).
+  // Inspection cache reused between polls (unchanged thread = 0 request).
   const inspectCache = new Map();
-  let backoff = 0; // secondes ajoutées à l'intervalle après un rate-limit
+  let backoff = 0; // seconds added to the interval after a rate-limit
 
-  // Masquage : reflète l'état persisté (même vue que `gh notif`).
+  // Hiding: reflects the persisted state (same view as `gh notif`).
   const hiddenFile = hiddenPath();
   const hidden = loadHidden(hiddenFile);
 
-  // Notifications desktop (comme --watch) : dédup par URL via state.js, seed
-  // silencieux au 1er run (on n'alerte que sur ce qui arrive ensuite).
+  // Desktop notifications (like --watch): dedup by URL via state.js, silent
+  // seed on the 1st run (we only alert on what arrives afterwards).
   const sPath = statePath();
   let primed = existsSync(sPath);
   const state = loadState(sPath);
 
-  // Préférences UI persistées sur disque. On garde l'objet `prefs` en mémoire et
-  // on le mute+sauve EN ENTIER (sinon un POST /notify écraserait la clé `theme`, et
-  // inversement — bug de clé perdue). notify : notifs desktop (checkbox).
-  // theme : skin CSS (auto/light/dark, switcher). Pilotés par POST /notify & /theme.
+  // UI preferences persisted on disk. We keep the `prefs` object in memory and
+  // mutate+save it IN FULL (otherwise a POST /notify would overwrite the `theme` key, and
+  // vice versa — lost-key bug). notify: desktop notifs (checkbox).
+  // theme: CSS skin (auto/light/dark, switcher). Driven by POST /notify & /theme.
   const prefsFile = prefsPath();
   const prefs = loadPrefs(prefsFile);
   let notifyEnabled = isNotifyEnabled(prefs);
   let theme = themeOf(prefs);
-  let sort = normalizeSort(prefs.sort); // tri du tableau « autres » (persisté)
-  // favorites : scopes épinglés (persistés). activeFav : celui qu'on regarde
-  // (null = tous). collectScope : ce qu'on demande réellement à GitHub.
+  let sort = normalizeSort(prefs.sort); // sort of the « others » table (persisted)
+  // favorites: pinned scopes (persisted). activeFav: the one we are looking at
+  // (null = all). collectScope: what we actually request from GitHub.
   let favorites = normalizeFavorites(prefs.favorites);
   let activeFav = activeFavoriteOf(prefs, favorites);
   const collectScope = () => (scope ? scope : favoriteScopes(favorites));
-  // Blocklist CI par repo (édition manuelle du fichier prefs) : chargée une fois au
-  // démarrage. Recalcule le verdict CI sans les jobs ignorés. ⚠️ Éditer le fichier
-  // pendant qu'un --serve tourne serait écrasé au prochain POST (objet prefs réécrit
-  // en entier) → éditer serveur arrêté, puis relancer.
-  let ignoredChecks = ignoredChecksOf(prefs); // mutable : POST /ignore-check le rebascule
+  // CI blocklist per repo (manual edit of the prefs file): loaded once at
+  // startup. Recomputes the CI verdict without the ignored jobs. ⚠️ Editing the file
+  // while a --serve is running would be overwritten at the next POST (prefs object rewritten
+  // in full) → edit with the server stopped, then relaunch.
+  let ignoredChecks = ignoredChecksOf(prefs); // mutable: POST /ignore-check toggles it
 
-  // Approbations sur mes PR : état en mémoire (par process), indépendant de l'état
-  // disque des notifs. 1er poll = amorçage silencieux (pas de rafale au démarrage).
+  // Approvals on my PRs: in-memory state (per process), independent of the disk
+  // state of the notifs. 1st poll = silent seeding (no burst at startup).
   const seenApprovals = new Set();
   let primedApprovals = false;
 
   const notifyNew = (data) => {
-    // Approbations d'abord (indépendant du seed disque ci-dessous) : un approve
-    // nouveau → notif desktop, comme --watch. Voir approvals.js / spec.
-    // diffApprovals mémorise TOUJOURS dans seenApprovals (même quand on ne notifie
-    // pas) → désactiver les notifs = « marquer vu en silence », pas de rafale au
-    // ré-activation.
+    // Approvals first (independent of the disk seed below): a new approve
+    // → desktop notif, like --watch. See approvals.js / spec.
+    // diffApprovals ALWAYS records in seenApprovals (even when we do not notify)
+    // → disabling the notifs = « mark seen silently », no burst on
+    // re-enabling.
     const freshApprovals = diffApprovals({ events: data.approvalEvents ?? [], seen: seenApprovals, primed: primedApprovals });
     primedApprovals = true;
     if (notifyEnabled) for (const e of freshApprovals) sendNotification({ ...e, category: CATEGORY.APPROVAL });
@@ -211,12 +211,12 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       primed = true;
       return;
     }
-    // PR encore ouvertes/pending (visibles, masquées ou miennes) : évite de
-    // notifier une demande de review sur une PR déjà fermée/mergée (cf. #7004).
+    // PRs still open/pending (visible, hidden or mine): avoids
+    // notifying a review request on an already closed/merged PR (cf. #7004).
     const openKeys = new Set([...data.mine, ...data.others, ...(data.hidden ?? [])].map((r) => `${r.repo}#${r.number}`));
     const fresh = items.filter((i) => isNew(state, i));
     for (const item of fresh) {
-      markSeen(state, item); // toujours marqué vu, même notifs off (pas de rafale au ré-activation)
+      markSeen(state, item); // always marked seen, even notifs off (no burst on re-enabling)
       if (!notifyEnabled) continue;
       if (item.category === CATEGORY.REVIEW_REQUEST && !openKeys.has(`${item.repo}#${item.number}`)) continue;
       sendNotification(item);
@@ -225,22 +225,22 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   };
 
   const refresh = async () => {
-    const stop = startSpinner('Mise à jour…'); // spinner terminal (no-op hors TTY)
+    const stop = startSpinner('Updating…'); // terminal spinner (no-op outside TTY)
     try {
-      // Collecte sur l'UNION des favoris (ou le scope ad-hoc). notifyNew reçoit
-      // ces données brutes : c'est ce qui fait arriver les notifs desktop des
-      // favoris qu'on ne regarde pas. Le filtrage se fait au rendu (fragmentBody).
+      // Collection over the UNION of favorites (or the ad-hoc scope). notifyNew receives
+      // this raw data: this is what makes the desktop notifs of the
+      // favorites we are not looking at arrive. The filtering is done at render (fragmentBody).
       const data = await collectPRs(gh, me, { all, scope: collectScope(), hidden, cache: inspectCache, ignoredChecks });
       if (data.hiddenChanged) saveHidden(hiddenFile, hidden);
       notifyNew(data);
       snapshot.data = data;
       snapshot.updatedAt = Date.now();
       snapshot.error = null;
-      backoff = 0; // succès : on repart à l'intervalle normal
+      backoff = 0; // success: we restart at the normal interval
     } catch (err) {
       if (isRateLimitError(err.message)) {
         backoff = nextBackoffSeconds(backoff, intervalSeconds, BACKOFF_CAP);
-        snapshot.error = `⏳ rate-limité par GitHub — reprise dans ${backoff}s`;
+        snapshot.error = `⏳ rate-limited by GitHub — retrying in ${backoff}s`;
       } else {
         snapshot.error = err.message;
       }
@@ -249,8 +249,8 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
     }
   };
 
-  // Boucle reprogrammée par setTimeout (et non setInterval) pour intégrer le
-  // backoff : le prochain poll est différé de `intervalSeconds + backoff`.
+  // Loop rescheduled by setTimeout (and not setInterval) to integrate the
+  // backoff: the next poll is deferred by `intervalSeconds + backoff`.
   let timer = null;
   const loop = async () => {
     await refresh();
@@ -258,10 +258,10 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   };
   loop();
 
-  // Réponse unifiée des actions (JSON {chips, fragment, updatedAt}) : la barre de
-  // favoris vit dans le <header> (hors #content), on renvoie donc les deux
-  // morceaux et le client les injecte séparément — les compteurs restent à jour.
-  // (À l'inverse de /notify & /theme, dont le widget n'a rien à re-rendre → 204.)
+  // Unified response of the actions (JSON {chips, fragment, updatedAt}): the favorites
+  // bar lives in the <header> (outside #content), so we return both
+  // pieces and the client injects them separately — the counters stay up to date.
+  // (Unlike /notify & /theme, whose widget has nothing to re-render → 204.)
   const currentView = (showHidden) => {
     const counts = favoriteCounts(favorites, snapshot.data?.others);
     return JSON.stringify({
@@ -285,8 +285,8 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
 
     if (req.method === 'POST') {
       if (pathname === '/refresh') {
-        // Débouncé : snapshot frais (< 10 s) → on répond la vue courante sans
-        // toucher GitHub (le client force /refresh à chaque chargement de page).
+        // Debounced: fresh snapshot (< 10 s) → we respond with the current view without
+        // touching GitHub (the client forces /refresh on every page load).
         if (shouldRefresh(snapshot.updatedAt, Date.now())) await refresh();
         return send(200, json, currentView(showHidden));
       }
@@ -300,33 +300,33 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         return send(200, json, currentView(showHidden));
       }
       if (pathname === '/scope') {
-        // Saisie manuelle → mode ad-hoc (les chips passent en grisé) ; champ vidé
-        // → retour au mode favoris (ou tout GitHub si aucun favori).
+        // Manual entry → ad-hoc mode (the chips go greyed); field cleared
+        // → back to favorites mode (or all of GitHub if no favorite).
         scope = parseScope(url.searchParams.get('value'));
         await refresh();
         return send(200, json, currentView(showHidden));
       }
       if (pathname === '/fav') {
-        // Changement de favori actif = filtre d'affichage pur : AUCUN appel
-        // GitHub… sauf si on sortait du mode ad-hoc (l'union n'est pas collectée).
+        // Changing the active favorite = pure display filter: NO GitHub
+        // call… except if we were leaving ad-hoc mode (the union is not collected).
         const value = (url.searchParams.get('value') || '').trim();
         activeFav = favorites.includes(value) ? value : null;
-        prefs.activeFav = activeFav; // ⚠️ muter + réécrire EN ENTIER (sinon notify/theme perdus)
+        prefs.activeFav = activeFav; // ⚠️ mutate + rewrite IN FULL (otherwise notify/theme lost)
         savePrefs(prefsFile, prefs);
         if (scope) { scope = null; await refresh(); }
         return send(200, json, currentView(showHidden));
       }
       if (pathname === '/fav/add' || pathname === '/fav/rm') {
         const value = url.searchParams.get('value') || '';
-        // Pas le droit d'épingler un scope qui n'existe pas sur GitHub (une
-        // vérification rapide, ~1 requête). Tri-état : false → 400 net ; null
-        // (réseau, rate-limit…) → fail-open, on n'empêche pas l'ajout à tort.
+        // Not allowed to pin a scope that does not exist on GitHub (a
+        // quick check, ~1 request). Tri-state: false → clean 400; null
+        // (network, rate-limit…) → fail-open, we do not wrongly prevent the add.
         if (pathname === '/fav/add' && typeof gh.scopeExists === 'function') {
           const s = parseScope(value);
           if (s && (await gh.scopeExists(s)) === false) {
             return send(400, 'text/plain; charset=utf-8', s.type === 'repo'
-              ? `dépôt ${s.value} introuvable sur GitHub`
-              : `org/utilisateur ${s.value} introuvable sur GitHub`);
+              ? `repository ${s.value} not found on GitHub`
+              : `org/user ${s.value} not found on GitHub`);
           }
         }
         try {
@@ -334,35 +334,35 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         } catch (err) {
           return send(400, 'text/plain; charset=utf-8', err.message);
         }
-        activeFav = activeFavoriteOf({ activeFav }, favorites); // favori retiré → « tous »
+        activeFav = activeFavoriteOf({ activeFav }, favorites); // removed favorite → « all »
         prefs.favorites = favorites;
         prefs.activeFav = activeFav;
         savePrefs(prefsFile, prefs);
-        scope = null; // épingler/retirer, c'est vouloir la vue favoris
-        // ⚠️ refresh en ARRIÈRE-PLAN : la réponse part tout de suite (la puce
-        // apparaît sans attendre le poll) ; le client sonde /view jusqu'à ce que
-        // updatedAt change pour voir compteurs et tableaux se mettre à jour.
+        scope = null; // pinning/removing means wanting the favorites view
+        // ⚠️ refresh in the BACKGROUND: the response leaves right away (the chip
+        // appears without waiting for the poll); the client probes /view until
+        // updatedAt changes to see counters and tables update.
         refresh().catch(() => {});
         return send(200, json, currentView(showHidden));
       }
       if (pathname === '/sort') {
-        // Tri = état d'affichage pur : recompute local, AUCUN appel GitHub.
+        // Sort = pure display state: local recompute, NO GitHub call.
         const key = url.searchParams.get('key');
-        if (!SORT_KEYS.includes(key)) return send(400, 'text/plain; charset=utf-8', `clé de tri inconnue : ${key ?? ''}`);
+        if (!SORT_KEYS.includes(key)) return send(400, 'text/plain; charset=utf-8', `unknown sort key: ${key ?? ''}`);
         sort = toggleSort(sort, key);
-        prefs.sort = sort; // ⚠️ muter + réécrire EN ENTIER (sinon notify/theme perdus)
+        prefs.sort = sort; // ⚠️ mutate + rewrite IN FULL (otherwise notify/theme lost)
         savePrefs(prefsFile, prefs);
         return send(200, json, currentView(showHidden));
       }
       if (pathname === '/ignore-check') {
-        // Case à cocher de la vue debug : bascule un job dans la blocklist du repo,
-        // persiste, puis RECOMPUTE LOCAL le ci de toutes les lignes (0 appel GitHub :
-        // row.checks est déjà en mémoire). Répond le fragment debug ré-rendu (cases +
-        // verdicts à jour) ; le dashboard reprend les icônes CI à son prochain /view.
+        // Checkbox of the debug view: toggles a job in the repo blocklist,
+        // persists, then RECOMPUTES LOCALLY the ci of all the rows (0 GitHub call:
+        // row.checks is already in memory). Responds with the re-rendered debug fragment (checkboxes +
+        // up-to-date verdicts); the dashboard picks up the CI icons on its next /view.
         const repo = url.searchParams.get('repo');
         const name = url.searchParams.get('name');
         if (repo && name) {
-          toggleIgnoredCheck(prefs, repo, name); // ⚠️ mute prefs.ignoredChecks (réécrit EN ENTIER)
+          toggleIgnoredCheck(prefs, repo, name); // ⚠️ mutates prefs.ignoredChecks (rewritten IN FULL)
           savePrefs(prefsFile, prefs);
           ignoredChecks = ignoredChecksOf(prefs);
           if (snapshot.data) recomputeCi(snapshot.data, ignoredChecks);
@@ -374,13 +374,13 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         notifyEnabled = url.searchParams.get('enabled') !== '0';
         prefs.notify = notifyEnabled;
         savePrefs(prefsFile, prefs);
-        // La case vit dans l'en-tête (hors #content) : pas besoin de re-rendre les
-        // tableaux, un accusé suffit.
+        // The checkbox lives in the header (outside #content): no need to re-render the
+        // tables, an acknowledgment is enough.
         return send(204, 'text/plain; charset=utf-8', '');
       }
       if (pathname === '/theme') {
-        // Normalise (valeur inconnue → auto). Le switcher vit dans l'en-tête et
-        // applique déjà data-theme côté client → un accusé suffit.
+        // Normalizes (unknown value → auto). The switcher lives in the header and
+        // already applies data-theme on the client side → an acknowledgment is enough.
         theme = themeOf({ theme: url.searchParams.get('value') });
         prefs.theme = theme;
         savePrefs(prefsFile, prefs);
@@ -391,8 +391,8 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
 
     const { status, type, body } = handleRequest(pathname, snapshot, {
       now: Date.now(),
-      // Le rafraîchissement de la page suit le vrai intervalle de poll GitHub
-      // (le re-fetch ne fait que relire le snapshot du serveur, 0 appel GitHub).
+      // The page refresh follows the real GitHub poll interval
+      // (the re-fetch only re-reads the server snapshot, 0 GitHub call).
       intervalMs: intervalSeconds * 1000,
       showHidden,
       scope,
@@ -410,7 +410,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   server.on('close', () => clearTimeout(timer));
   server.listen(port, () => {
     const url = `http://localhost:${port}`;
-    process.stderr.write(`🔔 gh notif --serve · ${url} · Ctrl-C pour arrêter\n`);
+    process.stderr.write(`🔔 gh notif --serve · ${url} · Ctrl-C to stop\n`);
     if (open) openBrowser(url);
   });
   return server;

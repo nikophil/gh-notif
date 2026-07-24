@@ -2,11 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { approvalsOf, approvalKey, isReady, newApprovals, diffApprovals, READY_THRESHOLD } from '../src/approvals.js';
 
-test('approvalsOf : reviewers dont la dernière review est APPROVED (login + submittedAt)', () => {
+test('approvalsOf: reviewers whose latest review is APPROVED (login + submittedAt)', () => {
   assert.deepEqual(approvalsOf(undefined), []);
   assert.deepEqual(approvalsOf([]), []);
 
-  // COMMENTED ignoré, APPROVED gardé
+  // COMMENTED ignored, APPROVED kept
   assert.deepEqual(
     approvalsOf([
       { author: { login: 'alice' }, state: 'APPROVED', submittedAt: '2026-06-20T10:00:00Z' },
@@ -15,7 +15,7 @@ test('approvalsOf : reviewers dont la dernière review est APPROVED (login + sub
     [{ login: 'alice', submittedAt: '2026-06-20T10:00:00Z' }],
   );
 
-  // approbation annulée par une review ultérieure du même user → ne compte plus
+  // approval cancelled by a later review from the same user → no longer counts
   assert.deepEqual(
     approvalsOf([
       { author: { login: 'alice' }, state: 'APPROVED', submittedAt: '2026-06-20T10:00:00Z' },
@@ -24,7 +24,7 @@ test('approvalsOf : reviewers dont la dernière review est APPROVED (login + sub
     [],
   );
 
-  // deux reviewers distincts APPROVED (on garde le submittedAt de la review la plus récente)
+  // two distinct reviewers APPROVED (we keep the submittedAt of the most recent review)
   assert.deepEqual(
     approvalsOf([
       { author: { login: 'alice' }, state: 'APPROVED', submittedAt: '2026-06-20T10:00:00Z' },
@@ -38,19 +38,19 @@ test('approvalsOf : reviewers dont la dernière review est APPROVED (login + sub
   );
 });
 
-test('approvalKey : clé stable repo#number:login:submittedAt', () => {
+test('approvalKey: stable key repo#number:login:submittedAt', () => {
   assert.equal(
     approvalKey('o/r', 42, 'alice', '2026-06-20T10:00:00Z'),
     'o/r#42:alice:2026-06-20T10:00:00Z',
   );
-  // deux clés différentes pour deux reviewers de la même PR
+  // two different keys for two reviewers of the same PR
   assert.notEqual(
     approvalKey('o/r', 42, 'alice', '2026-06-20T10:00:00Z'),
     approvalKey('o/r', 42, 'bob', '2026-06-20T10:00:00Z'),
   );
 });
 
-test('isReady : ≥ READY_THRESHOLD (2)', () => {
+test('isReady: ≥ READY_THRESHOLD (2)', () => {
   assert.equal(READY_THRESHOLD, 2);
   assert.equal(isReady(0), false);
   assert.equal(isReady(1), false);
@@ -58,7 +58,7 @@ test('isReady : ≥ READY_THRESHOLD (2)', () => {
   assert.equal(isReady(3), true);
 });
 
-test('newApprovals : renvoie les évènements absents du Set, sans muter le Set', () => {
+test('newApprovals: returns the events absent from the Set, without mutating the Set', () => {
   const events = [
     { repo: 'o/r', number: 42, actor: 'alice', submittedAt: '2026-06-20T10:00:00Z' },
     { repo: 'o/r', number: 42, actor: 'bob', submittedAt: '2026-06-21T12:00:00Z' },
@@ -66,29 +66,29 @@ test('newApprovals : renvoie les évènements absents du Set, sans muter le Set'
   const seen = new Set([approvalKey('o/r', 42, 'alice', '2026-06-20T10:00:00Z')]);
 
   const fresh = newApprovals(events, seen);
-  assert.deepEqual(fresh, [events[1]]); // alice déjà vue, bob nouveau
-  assert.equal(seen.size, 1); // pas de mutation
+  assert.deepEqual(fresh, [events[1]]); // alice already seen, bob new
+  assert.equal(seen.size, 1); // no mutation
 });
 
-test('newApprovals : tout est nouveau face à un Set vide', () => {
+test('newApprovals: everything is new against an empty Set', () => {
   const events = [
     { repo: 'o/r', number: 1, actor: 'alice', submittedAt: '2026-06-20T10:00:00Z' },
   ];
   assert.deepEqual(newApprovals(events, new Set()), events);
 });
 
-test('diffApprovals : 1er poll (non amorcé) → amorçage silencieux, rien à notifier', () => {
+test('diffApprovals: 1st poll (not primed) → silent priming, nothing to notify', () => {
   const events = [
     { repo: 'o/r', number: 42, actor: 'alice', submittedAt: '2026-06-20T10:00:00Z' },
     { repo: 'o/r', number: 42, actor: 'bob', submittedAt: '2026-06-21T12:00:00Z' },
   ];
   const seen = new Set();
   const fresh = diffApprovals({ events, seen, primed: false });
-  assert.deepEqual(fresh, []);       // pas de rafale au démarrage
-  assert.equal(seen.size, 2);        // tout mémorisé
+  assert.deepEqual(fresh, []);       // no burst at startup
+  assert.equal(seen.size, 2);        // everything memorized
 });
 
-test('diffApprovals : poll suivant → seuls les nouveaux remontent, et sont mémorisés', () => {
+test('diffApprovals: subsequent poll → only the new ones surface, and are memorized', () => {
   const events = [
     { repo: 'o/r', number: 42, actor: 'alice', submittedAt: '2026-06-20T10:00:00Z' },
     { repo: 'o/r', number: 42, actor: 'bob', submittedAt: '2026-06-21T12:00:00Z' },
@@ -96,7 +96,7 @@ test('diffApprovals : poll suivant → seuls les nouveaux remontent, et sont mé
   const seen = new Set([approvalKey('o/r', 42, 'alice', '2026-06-20T10:00:00Z')]);
   const fresh = diffApprovals({ events, seen, primed: true });
   assert.deepEqual(fresh.map((e) => e.actor), ['bob']);
-  assert.equal(seen.size, 2);        // bob désormais mémorisé
-  // re-poll identique → plus rien
+  assert.equal(seen.size, 2);        // bob now memorized
+  // identical re-poll → nothing left
   assert.deepEqual(diffApprovals({ events, seen, primed: true }), []);
 });

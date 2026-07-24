@@ -15,12 +15,12 @@ function fakeRunner(map) {
   return run;
 }
 
-test('getCurrentUser renvoie le login', async () => {
+test('getCurrentUser returns the login', async () => {
   const gh = makeGh(fakeRunner([['api user', JSON.stringify({ login: 'nikophil' })]]));
   assert.equal(await gh.getCurrentUser(), 'nikophil');
 });
 
-test('listNotifications parse le tableau et passe all=true', async () => {
+test('listNotifications parses the array and passes all=true', async () => {
   const runner = fakeRunner([['/notifications', JSON.stringify([{ id: '1' }])]]);
   const gh = makeGh(runner);
   const out = await gh.listNotifications({ all: true });
@@ -28,12 +28,12 @@ test('listNotifications parse le tableau et passe all=true', async () => {
   assert.ok(runner.calls[0].join(' ').includes('all=true'));
 });
 
-test('getComment renvoie null sur stdout vide', async () => {
+test('getComment returns null on empty stdout', async () => {
   const gh = makeGh(fakeRunner([['repos/o/r', '']]));
   assert.equal(await gh.getComment('https://api.github.com/repos/o/r/issues/comments/1'), null);
 });
 
-test('getReviewComments construit le bon chemin (per_page, sans since)', async () => {
+test('getReviewComments builds the correct path (per_page, without since)', async () => {
   const runner = fakeRunner([['/pulls/42/comments', JSON.stringify([{ id: 1 }])]]);
   const gh = makeGh(runner);
   const out = await gh.getReviewComments('o/r', 42);
@@ -43,17 +43,17 @@ test('getReviewComments construit le bon chemin (per_page, sans since)', async (
   assert.ok(!q.includes('since='));
 });
 
-test('getReviewComments incrémental : since + sort=updated&direction=asc', async () => {
+test('getReviewComments incremental: since + sort=updated&direction=asc', async () => {
   const runner = fakeRunner([['/pulls/42/comments', JSON.stringify([])]]);
   const gh = makeGh(runner);
   await gh.getReviewComments('o/r', 42, { since: '2026-06-26T00:00:00Z' });
   const q = runner.calls[0].join(' ');
-  assert.ok(q.includes('since='), 'contient le param since');
+  assert.ok(q.includes('since='), 'contains the since param');
   assert.ok(q.includes('sort=updated'));
   assert.ok(q.includes('direction=asc'));
 });
 
-test('searchAuthored interroge author:@me et accepte un qualifier', async () => {
+test('searchAuthored queries author:@me and accepts a qualifier', async () => {
   const runner = fakeRunner([['search/issues', JSON.stringify({ items: [{ number: 7 }] })]]);
   const gh = makeGh(runner);
   const out = await gh.searchAuthored(' org:mapado');
@@ -63,14 +63,14 @@ test('searchAuthored interroge author:@me et accepte un qualifier', async () => 
   assert.ok(q.includes('org:mapado'));
 });
 
-test('currentRepo renvoie nameWithOwner, null si hors dépôt', async () => {
+test('currentRepo returns nameWithOwner, null if outside a repo', async () => {
   const gh = makeGh(fakeRunner([['repo view', JSON.stringify({ nameWithOwner: 'mapado/ticketing' })]]));
   assert.equal(await gh.currentRepo(), 'mapado/ticketing');
   const ghErr = makeGh(async () => { throw new Error('not a git repo'); });
   assert.equal(await ghErr.currentRepo(), null);
 });
 
-test('getPullDetailsBatch : une requête GraphQL, alias par PR, forme normalisée', async () => {
+test('getPullDetailsBatch: one GraphQL request, alias per PR, normalized shape', async () => {
   const gqlResponse = JSON.stringify({ data: {
     p0: { pullRequest: {
       number: 42, title: 'A', author: { login: 'alice' }, createdAt: 'd1', additions: 10, deletions: 2,
@@ -78,7 +78,7 @@ test('getPullDetailsBatch : une requête GraphQL, alias par PR, forme normalisé
       latestOpinionatedReviews: { nodes: [{ author: { login: 'bob' }, state: 'APPROVED', submittedAt: 's1' }] },
       commits: { nodes: [{ commit: { statusCheckRollup: { state: 'SUCCESS' } } }] },
     } },
-    p1: { pullRequest: null }, // PR introuvable → null
+    p1: { pullRequest: null }, // PR not found → null
   } });
   const runner = fakeRunner([['api graphql', gqlResponse]]);
   const gh = makeGh(runner);
@@ -92,7 +92,7 @@ test('getPullDetailsBatch : une requête GraphQL, alias par PR, forme normalisé
   assert.deepEqual(out[0].reviews, [{ author: { login: 'bob' }, state: 'APPROVED', submittedAt: 's1' }]);
   assert.equal(out[1], null);
 
-  // une seule requête, contient les alias et le repo
+  // a single request, contains the aliases and the repo
   assert.equal(runner.calls.length, 1);
   const q = runner.calls[0].join(' ');
   assert.ok(q.includes('p0: repository(owner: "o", name: "r")'));
@@ -100,7 +100,7 @@ test('getPullDetailsBatch : une requête GraphQL, alias par PR, forme normalisé
   assert.ok(q.includes('pullRequest(number: 99)'));
 });
 
-test('getPullDetailsBatch : normalise les checks (CheckRun + StatusContext) en {name,state}', async () => {
+test('getPullDetailsBatch: normalizes the checks (CheckRun + StatusContext) to {name,state}', async () => {
   const gqlResponse = JSON.stringify({ data: {
     p0: { pullRequest: {
       number: 42, title: 'A', author: { login: 'alice' }, createdAt: 'd1', additions: 1, deletions: 0,
@@ -125,17 +125,17 @@ test('getPullDetailsBatch : normalise les checks (CheckRun + StatusContext) en {
   assert.deepEqual(pr.checks, [
     { name: 'Check Pull Requests label for merge block', state: 'fail' },
     { name: 'continuous-integration/jenkins/branch', state: 'pass' },
-    { name: 'build', state: 'pending' },   // conclusion null + en cours
-    { name: 'lint', state: 'pass' },        // SKIPPED = non-bloquant
+    { name: 'build', state: 'pending' },   // conclusion null + running
+    { name: 'lint', state: 'pass' },        // SKIPPED = non-blocking
     { name: 'deploy', state: 'pending' },   // StatusContext PENDING
   ]);
-  // la requête demande bien les contexts
+  // the request does ask for the contexts
   const q = runner.calls[0].join(' ');
   assert.ok(q.includes('contexts'));
   assert.ok(q.includes('StatusContext'));
 });
 
-test('getPullDetailsBatch : rollup sans contexts → checks vide', async () => {
+test('getPullDetailsBatch: rollup without contexts → empty checks', async () => {
   const gqlResponse = JSON.stringify({ data: { p0: { pullRequest: {
     number: 1, title: 'A', author: { login: 'a' }, createdAt: 'd', additions: 0, deletions: 0,
     isDraft: false, state: 'OPEN', latestOpinionatedReviews: { nodes: [] },
@@ -147,14 +147,14 @@ test('getPullDetailsBatch : rollup sans contexts → checks vide', async () => {
   assert.equal(pr.statusCheckRollupState, null);
 });
 
-test('getPullDetailsBatch : liste vide → aucune requête', async () => {
+test('getPullDetailsBatch: empty list → no request', async () => {
   const runner = fakeRunner([]);
   const gh = makeGh(runner);
   assert.deepEqual(await gh.getPullDetailsBatch([]), []);
   assert.equal(runner.calls.length, 0);
 });
 
-test('scopeExists : org/user → GET users/…, repo → GET repos/…', async () => {
+test('scopeExists: org/user → GET users/…, repo → GET repos/…', async () => {
   const runner = fakeRunner([['api users/mapado', '{"id":1}'], ['api repos/o/r', '{"id":2}']]);
   const gh = makeGh(runner);
   assert.equal(await gh.scopeExists({ type: 'org', value: 'mapado' }), true);
@@ -163,12 +163,12 @@ test('scopeExists : org/user → GET users/…, repo → GET repos/…', async (
   assert.ok(runner.calls[1].join(' ').startsWith('api repos/o/r'));
 });
 
-test('scopeExists : 404 → false, autre échec (réseau…) → null (indéterminé)', async () => {
+test('scopeExists: 404 → false, other failure (network…) → null (undetermined)', async () => {
   const gh404 = makeGh(async () => { const e = new Error('gh: Not Found (HTTP 404)'); throw e; });
   assert.equal(await gh404.scopeExists({ type: 'org', value: 'nope' }), false);
   const ghStderr = makeGh(async () => { const e = new Error('exit 1'); e.stderr = 'gh: Not Found (HTTP 404)'; throw e; });
   assert.equal(await ghStderr.scopeExists({ type: 'repo', value: 'o/nope' }), false);
   const ghDown = makeGh(async () => { throw new Error('connect ETIMEDOUT'); });
   assert.equal(await ghDown.scopeExists({ type: 'org', value: 'mapado' }), null);
-  assert.equal(await ghDown.scopeExists(null), null); // scope invalide : indéterminé
+  assert.equal(await ghDown.scopeExists(null), null); // invalid scope: undetermined
 });

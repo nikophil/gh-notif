@@ -1,37 +1,37 @@
 import { scopeMatches, scopesQualifier } from './collect.js';
 
-// Favoris de scope : une liste de chaînes (`mapado`, `noctud/collection`, …)
-// épinglées par l'utilisateur, persistées dans prefs-v1.json.
+// Scope favorites: a list of strings (`mapado`, `noctud/collection`, …)
+// pinned by the user, persisted in prefs-v1.json.
 //
-// ⚠️ Décision structurante (cf. ARCHITECTURE.md §14) : la **collecte** porte sur
-// l'UNION des favoris (pour que les notifs desktop de tous les périmètres
-// arrivent en permanence), et le favori actif n'est qu'un **filtre d'affichage**
-// appliqué en aval, sur des données déjà en mémoire. Changer de favori ne coûte
-// donc aucune requête GitHub.
+// ⚠️ Structuring decision (cf. ARCHITECTURE.md §14): **collection** covers the
+// UNION of favorites (so that the desktop notifs of every perimeter arrive
+// continuously), and the active favorite is only a **display filter** applied
+// downstream, on data already in memory. Switching favorite therefore costs
+// no GitHub request.
 //
-// Tout est pur ici (comme hidden.js / state.js) ; la persistance vit dans prefs.js.
+// Everything is pure here (like hidden.js / state.js); persistence lives in prefs.js.
 
-// Garde-fou : GitHub limite une query de recherche à 256 caractères, et le
-// qualifier d'union grandit avec la liste. La vraie contrainte est donc la
-// LONGUEUR, pas le nombre (10 favoris aux noms courts passent, 6 aux noms très
-// longs non). On refuse à l'ajout, avec un message clair, plutôt que de tronquer
-// silencieusement à la collecte. Budget = 256 moins la plus longue des requêtes
-// de base (`is:open is:pr review-requested:@me`, 34 caractères) + marge.
+// Guard rail: GitHub limits a search query to 256 characters, and the union
+// qualifier grows with the list. The real constraint is therefore the LENGTH,
+// not the count (10 favorites with short names pass, 6 with very long names
+// don't). We refuse at add time, with a clear message, rather than silently
+// truncating at collection. Budget = 256 minus the longest of the base queries
+// (`is:open is:pr review-requested:@me`, 34 characters) + margin.
 export const MAX_QUALIFIER_LENGTH = 200;
 
-// Valeur de scope (favori ou champ de saisie) → objet scope, même sémantique que
-// --org/--repo. Vide → null (tout). Contient « / » → repo (owner/name). Sinon → org.
-// Vit ici (module le plus pur) et non dans serve.js : les favoris et le CLI en ont
-// besoin sans tirer node:http.
+// Scope value (favorite or input field) → scope object, same semantics as
+// --org/--repo. Empty → null (all). Contains « / » → repo (owner/name). Otherwise → org.
+// Lives here (the purest module) and not in serve.js: favorites and the CLI need it
+// without pulling in node:http.
 export function parseScope(value) {
   const v = (value || '').trim();
   if (!v) return null;
   return v.includes('/') ? { type: 'repo', value: v } : { type: 'org', value: v };
 }
 
-// Liste de favoris assainie : chaînes non vides, trimmées, dédupliquées, ordre
-// préservé. Robuste face à un prefs-v1.json ancien ou trafiqué (même philosophie
-// que themeOf) — n'importe quelle valeur non exploitable est simplement ignorée.
+// Sanitized favorites list: non-empty strings, trimmed, deduplicated, order
+// preserved. Robust against an old or tampered prefs-v1.json (same philosophy
+// as themeOf) — any unusable value is simply ignored.
 export function normalizeFavorites(raw) {
   if (!Array.isArray(raw)) return [];
   const out = [];
@@ -43,48 +43,48 @@ export function normalizeFavorites(raw) {
   return out;
 }
 
-// Ajoute un favori (idempotent). Lève si la valeur est vide ou si la liste
-// résultante dépasserait le budget de longueur de query — l'appelant (CLI / route
-// web) remonte le message tel quel.
+// Adds a favorite (idempotent). Throws if the value is empty or if the
+// resulting list would exceed the query length budget — the caller (CLI / web
+// route) surfaces the message as-is.
 export function addFavorite(list, value) {
   const favorites = normalizeFavorites(list);
   const v = (value || '').trim();
-  if (!v) throw new Error('un favori requiert une valeur (ex. mapado ou noctud/collection)');
+  if (!v) throw new Error('a favorite requires a value (e.g. mapado or noctud/collection)');
   if (favorites.includes(v)) return favorites;
   const next = [...favorites, v];
   if (scopesQualifier(favoriteScopes(next)).length > MAX_QUALIFIER_LENGTH) {
     throw new Error(
-      `trop de favoris : la recherche GitHub dépasserait ${MAX_QUALIFIER_LENGTH} caractères. `
-      + 'Retires-en un (gh notif fav rm <scope>) ou préfère une org à plusieurs dépôts.',
+      `too many favorites: the GitHub search would exceed ${MAX_QUALIFIER_LENGTH} characters. `
+      + 'Remove one (gh notif fav rm <scope>) or prefer an org over several repos.',
     );
   }
   return next;
 }
 
-// Retire un favori. Valeur absente → liste inchangée (no-op, pas d'erreur).
+// Removes a favorite. Missing value → list unchanged (no-op, no error).
 export function removeFavorite(list, value) {
   const v = (value || '').trim();
   return normalizeFavorites(list).filter((f) => f !== v);
 }
 
-// Liste de favoris → liste d'objets scope, pour la collecte (union).
-// Liste vide → null, qui vaut « pas de filtre » partout en aval.
+// Favorites list → list of scope objects, for collection (union).
+// Empty list → null, which means « no filter » everywhere downstream.
 export function favoriteScopes(list) {
   const scopes = normalizeFavorites(list).map(parseScope).filter(Boolean);
   return scopes.length > 0 ? scopes : null;
 }
 
-// Favori actif validé : null (= « tous les favoris ») si absent, inconnu, ou
-// retiré de la liste depuis la dernière sauvegarde.
+// Validated active favorite: null (= « all favorites ») if absent, unknown, or
+// removed from the list since the last save.
 export function activeFavoriteOf(prefs, list) {
   const favorites = normalizeFavorites(list);
   const active = typeof prefs?.activeFav === 'string' ? prefs.activeFav.trim() : '';
   return active && favorites.includes(active) ? active : null;
 }
 
-// Favori suivant dans le cycle de la touche `f` :
-// null (tous) → list[0] → … → list[n-1] → null. Un `current` inconnu repart du
-// début ; une liste vide reste sur null.
+// Next favorite in the `f` key cycle:
+// null (all) → list[0] → … → list[n-1] → null. An unknown `current` restarts from
+// the beginning; an empty list stays on null.
 export function cycleFavorite(list, current) {
   const favorites = normalizeFavorites(list);
   if (favorites.length === 0) return null;
@@ -93,19 +93,19 @@ export function cycleFavorite(list, current) {
   return i + 1 < favorites.length ? favorites[i + 1] : null;
 }
 
-// Libellé d'affichage d'un favori : une **org** devient `mapado/*` (« tous ses
-// dépôts »), un **dépôt** reste `owner/name`. ⚠️ Purement cosmétique — la valeur
-// stockée, le `data-fav` et l'argument d'URL restent la chaîne brute (`mapado`).
+// Display label of a favorite: an **org** becomes `mapado/*` (« all its
+// repos »), a **repo** stays `owner/name`. ⚠️ Purely cosmetic — the stored
+// value, the `data-fav` and the URL argument stay the raw string (`mapado`).
 export function favoriteLabel(value) {
   const v = (value || '').trim();
   if (!v) return '';
   return v.includes('/') ? v : `${v}/*`;
 }
 
-// Badge par favori = nombre de PR dans « activité sur les PR des autres »
-// (`data.others`, déjà hors masquées) qui tombent sous ce scope ; `total` = toutes.
-// ⚠️ Calculé sur l'UNION brute (pas la vue filtrée) pour que chaque favori affiche
-// **son propre** nombre, y compris ceux qu'on ne regarde pas.
+// Badge per favorite = number of PRs in « activity on others' PRs »
+// (`data.others`, already excluding hidden ones) that fall under this scope; `total` = all.
+// ⚠️ Computed on the raw UNION (not the filtered view) so that each favorite displays
+// **its own** count, including those we're not looking at.
 export function favoriteCounts(favorites, others) {
   const rows = Array.isArray(others) ? others : [];
   const byFav = {};
@@ -116,17 +116,17 @@ export function favoriteCounts(favorites, others) {
   return { total: rows.length, byFav };
 }
 
-// Lien externe vers MES PR fermées (mergées + closes) sur GitHub, contextualisé
-// sur le(s) scope(s) affiché(s) — null, un scope, ou l'union (tableau). Aucune
-// collecte ni pagination côté gh-notif : GitHub gère l'affichage.
+// External link to MY closed PRs (merged + closed) on GitHub, contextualized
+// on the displayed scope(s) — null, a single scope, or the union (array). No
+// collection nor pagination on the gh-notif side: GitHub handles the display.
 export function closedPRsUrl(scopes) {
   return `https://github.com/pulls?q=${encodeURIComponent(`is:pr author:@me is:closed${scopesQualifier(scopes)}`)}`;
 }
 
-// Filtre d'AFFICHAGE : restreint des données déjà collectées à un scope.
-// ⚠️ À n'appliquer qu'en aval de collectPRs ET de notifyNew — filtrer en amont
-// casserait les notifs desktop des favoris inactifs, l'élagage de `hidden`
-// (reconcile) et la dédup de state.js (cf. ARCHITECTURE.md §14).
+// DISPLAY filter: restricts already-collected data to a scope.
+// ⚠️ Apply only downstream of collectPRs AND notifyNew — filtering upstream
+// would break the desktop notifs of inactive favorites, the pruning of `hidden`
+// (reconcile) and the dedup of state.js (cf. ARCHITECTURE.md §14).
 export function filterDataByScope(data, scope) {
   if (!scope || !data) return data;
   const keep = (r) => scopeMatches(scope, r?.repo);

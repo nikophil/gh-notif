@@ -14,270 +14,270 @@ const otherRow = (over = {}) => ({
   createdAt: '2026-06-21T12:00:00Z', additions: 412, deletions: 38, state: 'open', approvals: 2, ...over,
 });
 
-test('escapeHtml : échappe & < > " \'', () => {
+test('escapeHtml: escapes & < > " \'', () => {
   assert.equal(escapeHtml('a <b> & "c" \'d\''), 'a &lt;b&gt; &amp; &quot;c&quot; &#39;d&#39;');
 });
 
-test('escapeHtml : non-string → chaîne vide', () => {
+test('escapeHtml: non-string → empty string', () => {
   assert.equal(escapeHtml(null), '');
   assert.equal(escapeHtml(undefined), '');
   assert.equal(escapeHtml(42), '42');
 });
 
-test('renderFragment : titres de section avec compteurs', () => {
+test('renderFragment: section titles with counters', () => {
   const out = renderFragment({ mine: [myRow()], others: [otherRow(), otherRow({ number: 9 })] }, { now: NOW });
-  assert.match(out, /📥 Tes PR ouvertes \(1\)/);
-  assert.match(out, /👥 Activité sur les PR des autres \(2\)/);
+  assert.match(out, /📥 Your open PRs \(1\)/);
+  assert.match(out, /👥 Activity on others' PRs \(2\)/);
 });
 
-test('renderFragment : lien vers la PR', () => {
+test('renderFragment: link to the PR', () => {
   const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW });
   assert.ok(out.includes('href="https://github.com/mapado/web/pull/120"'));
 });
 
-test('renderFragment : titre dangereux échappé (pas d’injection)', () => {
+test('renderFragment: dangerous title escaped (no injection)', () => {
   const out = renderFragment({ mine: [myRow({ title: '[X] <script>alert(1)</script> & co' })], others: [] }, { now: NOW });
-  assert.ok(out.includes('&lt;script&gt;'), 'le titre doit être échappé');
-  assert.ok(!out.includes('<script>alert(1)'), 'aucune balise script brute injectée');
+  assert.ok(out.includes('&lt;script&gt;'), 'the title must be escaped');
+  assert.ok(!out.includes('<script>alert(1)'), 'no raw script tag injected');
   assert.ok(out.includes('&amp; co'));
 });
 
-test('renderFragment : emojis état / CI / triggers', () => {
+test('renderFragment: state / CI / triggers emojis', () => {
   const out = renderFragment({ mine: [myRow({ state: 'draft', ci: 'fail', triggers: ['mention', 'reply'] })], others: [] }, { now: NOW });
-  assert.ok(out.includes('📝'));        // état draft
+  assert.ok(out.includes('📝'));        // draft state
   assert.ok(out.includes('❌'));        // CI fail
   assert.ok(out.includes('💬'));        // trigger mention
   assert.ok(out.includes('↩️'));        // trigger reply
 });
 
-test('renderFragment : tooltips (title) sur les icônes', () => {
+test('renderFragment: tooltips (title) on the icons', () => {
   const out = renderFragment(
     { mine: [myRow({ state: 'merged', ci: 'pass', triggers: ['review', 'comment'], approvals: 2 })], others: [] },
     { now: NOW },
   );
-  assert.match(out, /title="Mergée"/);
-  assert.match(out, /title="CI : succès"/);
-  assert.match(out, /title="Review demandée"/);
-  assert.match(out, /title="Commentaire sur ta PR"/);
-  assert.match(out, /title="2 approbations"/);
+  assert.match(out, /title="Merged"/);
+  assert.match(out, /title="CI: success"/);
+  assert.match(out, /title="Review requested"/);
+  assert.match(out, /title="Comment on your PR"/);
+  assert.match(out, /title="2 approvals"/);
 });
 
-test('renderFragment : tooltip « Aucune approbation » quand 0', () => {
+test('renderFragment: « No approval » tooltip when 0', () => {
   const out = renderFragment({ mine: [myRow({ approvals: 0 })], others: [] }, { now: NOW });
-  assert.match(out, /title="Aucune approbation"/);
+  assert.match(out, /title="No approval"/);
 });
 
-test('renderFragment : badge 🎉 prête à merger si PR à moi ouverte & ≥2 approbations', () => {
+test('renderFragment: 🎉 ready-to-merge badge if my open PR & ≥2 approvals', () => {
   const out = renderFragment({ mine: [myRow({ state: 'open', approvals: 2 })], others: [] }, { now: NOW });
-  assert.ok(out.includes('🎉'), 'badge présent');
-  assert.match(out, /title="Prête à merger"/);
+  assert.ok(out.includes('🎉'), 'badge present');
+  assert.match(out, /title="Ready to merge"/);
 });
 
-test('renderFragment : pas de badge 🎉 sous le seuil ni sur draft/mergée', () => {
+test('renderFragment: no 🎉 badge below threshold nor on draft/merged', () => {
   assert.ok(!renderFragment({ mine: [myRow({ state: 'open', approvals: 1 })], others: [] }, { now: NOW }).includes('🎉'));
   assert.ok(!renderFragment({ mine: [myRow({ state: 'draft', approvals: 3 })], others: [] }, { now: NOW }).includes('🎉'));
   assert.ok(!renderFragment({ mine: [myRow({ state: 'merged', approvals: 3 })], others: [] }, { now: NOW }).includes('🎉'));
 });
 
-test('renderFragment : approbations (nombre, · si zéro)', () => {
+test('renderFragment: approvals (number, · if zero)', () => {
   const out = renderFragment({ mine: [myRow({ approvals: 3 })], others: [myRow({ number: 7, approvals: 0 })] }, { now: NOW });
   assert.ok(out.includes('3'));
 });
 
-test('renderFragment : autres → auteur, date relative, diff +/−', () => {
+test('renderFragment: others → author, relative date, diff +/−', () => {
   const out = renderFragment({ mine: [], others: [otherRow({ state: 'merged', approvals: 4 })] }, { now: NOW });
   assert.ok(out.includes('@alice'));
-  assert.ok(out.includes('il y a 3j'));     // relativeDate
-  assert.ok(out.includes('+412'));          // diff ajouts
-  assert.ok(out.includes('−38'));           // diff retraits (U+2212)
-  assert.ok(out.includes('🟣'));            // état mergée
+  assert.ok(out.includes('3d ago'));        // relativeDate
+  assert.ok(out.includes('+412'));          // diff additions
+  assert.ok(out.includes('−38'));           // diff deletions (U+2212)
+  assert.ok(out.includes('🟣'));            // merged state
 });
 
-test('renderFragment : diff en deux spans distincts (ajouts vert / retraits rouge)', () => {
+test('renderFragment: diff in two distinct spans (green additions / red deletions)', () => {
   const out = renderFragment({ mine: [], others: [otherRow()] }, { now: NOW });
   assert.match(out, /class="add"[^>]*>\+412</);
   assert.match(out, /class="del"[^>]*>−38</);
 });
 
-test('renderFragment : état vide → « Rien à signaler »', () => {
+test('renderFragment: empty state → « Nothing to report »', () => {
   const out = renderFragment({ mine: [], others: [] }, { now: NOW });
-  assert.match(out, /Rien à signaler/);
+  assert.match(out, /Nothing to report/);
 });
 
-test('renderFragment : seulement « mine » (others vide) n’affiche pas la section autres', () => {
+test('renderFragment: only « mine » (others empty) doesn’t show the others section', () => {
   const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW });
-  assert.match(out, /Tes PR ouvertes/);
-  assert.doesNotMatch(out, /Activité sur les PR des autres/);
+  assert.match(out, /Your open PRs/);
+  assert.doesNotMatch(out, /Activity on others' PRs/);
 });
 
-test('renderFragment : liens en nouvel onglet (_blank + noopener)', () => {
+test('renderFragment: links in a new tab (_blank + noopener)', () => {
   const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW });
   assert.match(out, /target="_blank"/);
   assert.match(out, /rel="noopener"/);
 });
 
-test('renderFragment : bouton de masquage (✕) sur les lignes « autres », pas sur les miennes', () => {
+test('renderFragment: hide button (✕) on « others » rows, not on mine', () => {
   const out = renderFragment({ mine: [myRow()], others: [otherRow()] }, { now: NOW });
-  // un bouton d'action ciblant la PR des autres
+  // an action button targeting the others' PR
   assert.match(out, /class="act"[^>]*data-key="mapado\/api#55"[^>]*data-act="hide"/);
-  // la section « mine » (1re section) n'a pas de bouton act
+  // the « mine » section (1st section) has no act button
   const mineSection = out.split('👥')[0];
   assert.ok(!mineSection.includes('class="act"'));
 });
 
-test('renderFragment : showHidden affiche les lignes masquées (grisées + restaurer)', () => {
+test('renderFragment: showHidden shows hidden rows (greyed out + restore)', () => {
   const data = {
     mine: [],
     others: [otherRow()],
-    hidden: [otherRow({ repo: 'mapado/old', number: 9, title: 'vieille PR' })],
+    hidden: [otherRow({ repo: 'mapado/old', number: 9, title: 'old PR' })],
     hiddenCount: 1,
   };
   const shown = renderFragment(data, { now: NOW, showHidden: true });
-  assert.match(shown, /class="hid"/);                       // ligne grisée
-  assert.match(shown, /data-key="mapado\/old#9"[^>]*data-act="show"/); // bouton restaurer
-  assert.match(shown, /1 masquée/);                          // compteur dans le titre
-  // sans showHidden : la ligne masquée n'apparaît pas
+  assert.match(shown, /class="hid"/);                       // greyed-out row
+  assert.match(shown, /data-key="mapado\/old#9"[^>]*data-act="show"/); // restore button
+  assert.match(shown, /1 hidden/);                          // counter in the title
+  // without showHidden: the hidden row does not appear
   const hiddenView = renderFragment(data, { now: NOW, showHidden: false });
   assert.ok(!hiddenView.includes('mapado/old#9'));
-  assert.match(hiddenView, /1 masquée/); // compteur affiché même replié
+  assert.match(hiddenView, /1 hidden/); // counter shown even collapsed
 });
 
 // ── renderShell (page + polling) ───────────────────────────────────────────
-test('renderShell : page HTML complète avec polling de /view', () => {
+test('renderShell: complete HTML page with polling of /view', () => {
   const out = renderShell({ intervalMs: 10000 });
-  assert.ok(out.startsWith('<!doctype html'), 'commence par le doctype');
-  assert.ok(out.includes('id="content"'), 'conteneur rafraîchi');
-  // Le poll client passe par /view ({chips, fragment, updatedAt}) : la barre de
-  // favoris (compteurs) se rafraîchit au même rythme que les tableaux.
-  assert.ok(out.includes("'/view'"), 'endpoint poll unifié');
-  assert.ok(out.includes('10000'), 'intervalle injecté dans le JS');
+  assert.ok(out.startsWith('<!doctype html'), 'starts with the doctype');
+  assert.ok(out.includes('id="content"'), 'refreshed container');
+  // The client poll goes through /view ({chips, fragment, updatedAt}): the favorites
+  // bar (counters) refreshes at the same rhythm as the tables.
+  assert.ok(out.includes("'/view'"), 'unified poll endpoint');
+  assert.ok(out.includes('10000'), 'interval injected in the JS');
 });
 
-test('renderShell : aucun asset externe (tout inline)', () => {
+test('renderShell: no external asset (all inline)', () => {
   const out = renderShell({ intervalMs: 10000 });
-  assert.ok(!/src="https?:/.test(out), 'pas de script externe');
-  assert.ok(!/href="https?:[^"]*\.css/.test(out), 'pas de feuille de style externe');
+  assert.ok(!/src="https?:/.test(out), 'no external script');
+  assert.ok(!/href="https?:[^"]*\.css/.test(out), 'no external stylesheet');
 });
 
-test('renderShell : intervalMs par défaut si absent', () => {
+test('renderShell: default intervalMs if absent', () => {
   const out = renderShell();
   assert.ok(out.startsWith('<!doctype html'));
 });
 
-test('renderShell : embarque le style + l’usage du spinner', () => {
+test('renderShell: embeds the style + the spinner usage', () => {
   const out = renderShell({ intervalMs: 10000 });
-  assert.match(out, /@keyframes ghn-spin/);     // animation définie
-  assert.match(out, /class="spinner"/);          // utilisé (indicateur d'activité)
+  assert.match(out, /@keyframes ghn-spin/);     // animation defined
+  assert.match(out, /class="spinner"/);          // used (activity indicator)
 });
 
-test('renderShell : le stamp « maj » reflète updatedAt du snapshot, pas l’heure du reload', () => {
+test('renderShell: the « upd » stamp reflects the snapshot updatedAt, not the reload time', () => {
   const out = renderShell({ intervalMs: 10000 });
-  // setContent reçoit l'updatedAt du serveur : après un ctrl+R, « maj HH:MM:SS »
-  // est l'heure du vrai poll GitHub, pas celle de l'affichage.
-  assert.ok(out.includes('setContent(d.fragment, d.updatedAt)'), 'updatedAt propagé au stamp');
+  // setContent receives the server updatedAt: after a ctrl+R, « upd HH:MM:SS »
+  // is the time of the real GitHub poll, not the display time.
+  assert.ok(out.includes('setContent(d.fragment, d.updatedAt)'), 'updatedAt propagated to the stamp');
 });
 
-test('renderShell : le chargement de page force un vrai poll (débouncé serveur)', () => {
+test('renderShell: page load forces a real poll (server-debounced)', () => {
   const out = renderShell({ intervalMs: 10000 });
-  // Boot : affiche le snapshot tout de suite, puis POST /refresh (le serveur
-  // ignore si le snapshot est frais) → ctrl+R rafraîchit vraiment les données.
-  assert.match(out, /load\(\)\.then\([\s\S]*act\('\/refresh'\)/, 'boot = load puis /refresh');
+  // Boot: shows the snapshot right away, then POST /refresh (the server
+  // ignores it if the snapshot is fresh) → ctrl+R really refreshes the data.
+  assert.match(out, /load\(\)\.then\([\s\S]*act\('\/refresh'\)/, 'boot = load then /refresh');
 });
 
-test('renderLoading : spinner + libellé + sentinelle data-loading', () => {
+test('renderLoading: spinner + label + data-loading sentinel', () => {
   const out = renderLoading();
   assert.match(out, /class="spinner"/);
-  assert.match(out, /Chargement/);
+  assert.match(out, /Loading/);
   assert.match(out, /data-loading/);
 });
 
-test('renderShell : lien 🐛 vers /debug dans l’en-tête', () => {
+test('renderShell: 🐛 link to /debug in the header', () => {
   const out = renderShell({ intervalMs: 10000 });
   assert.match(out, /href="\/debug"/);
 });
 
-test('renderShell : checkbox notifs desktop cochée quand activées', () => {
+test('renderShell: desktop notifs checkbox checked when enabled', () => {
   const out = renderShell({ intervalMs: 10000, notifyEnabled: true });
   assert.match(out, /id="notify"/);
-  assert.match(out, /id="notify"[^>]*\schecked/);          // cochée
-  assert.match(out, /\/notify/);                           // poste vers la route /notify
+  assert.match(out, /id="notify"[^>]*\schecked/);          // checked
+  assert.match(out, /\/notify/);                           // posts to the /notify route
 });
 
-test('renderShell : checkbox notifs desktop décochée quand désactivées', () => {
+test('renderShell: desktop notifs checkbox unchecked when disabled', () => {
   const out = renderShell({ intervalMs: 10000, notifyEnabled: false });
   assert.match(out, /id="notify"/);
-  assert.ok(!/id="notify"[^>]*\schecked/.test(out), 'ne doit pas être cochée');
+  assert.ok(!/id="notify"[^>]*\schecked/.test(out), 'must not be checked');
 });
 
-test('renderShell : notifs activées par défaut (notifyEnabled absent)', () => {
+test('renderShell: notifs enabled by default (notifyEnabled absent)', () => {
   const out = renderShell({ intervalMs: 10000 });
   assert.match(out, /id="notify"[^>]*\schecked/);
 });
 
-test('renderShell : data-theme sur <html> selon la préférence', () => {
-  assert.match(renderShell({ theme: 'dark' }), /<html lang="fr" data-theme="dark"/);
-  assert.match(renderShell({ theme: 'light' }), /<html lang="fr" data-theme="light"/);
+test('renderShell: data-theme on <html> according to preference', () => {
+  assert.match(renderShell({ theme: 'dark' }), /<html lang="en" data-theme="dark"/);
+  assert.match(renderShell({ theme: 'light' }), /<html lang="en" data-theme="light"/);
 });
 
-test('renderShell : data-theme="auto" par défaut', () => {
-  assert.match(renderShell({}), /<html lang="fr" data-theme="auto"/);
+test('renderShell: data-theme="auto" by default', () => {
+  assert.match(renderShell({}), /<html lang="en" data-theme="auto"/);
 });
 
-test('renderShell : CSS gère auto (media) + override light/dark explicites', () => {
+test('renderShell: CSS handles auto (media) + explicit light/dark overrides', () => {
   const out = renderShell({ theme: 'auto' });
-  assert.match(out, /:root\[data-theme="auto"\]/);   // dark suit le système en auto
-  assert.match(out, /:root\[data-theme="light"\]/);  // force clair
-  assert.match(out, /:root\[data-theme="dark"\]/);   // force sombre
+  assert.match(out, /:root\[data-theme="auto"\]/);   // dark follows the system in auto
+  assert.match(out, /:root\[data-theme="light"\]/);  // force light
+  assert.match(out, /:root\[data-theme="dark"\]/);   // force dark
 });
 
-test('renderShell : switcher 3 boutons, l’actif surligné (.on) selon le thème', () => {
+test('renderShell: 3-button switcher, the active one highlighted (.on) per theme', () => {
   const out = renderShell({ theme: 'dark' });
   assert.match(out, /data-theme-val="auto"/);
   assert.match(out, /data-theme-val="light"/);
   assert.match(out, /data-theme-val="dark"/);
-  // le bouton du thème courant porte la classe on
+  // the current theme's button carries the on class
   assert.match(out, /data-theme-val="dark"[^>]*class="[^"]*\bon\b/);
-  assert.ok(!/data-theme-val="light"[^>]*\bon\b/.test(out), 'seul le thème courant est actif');
+  assert.ok(!/data-theme-val="light"[^>]*\bon\b/.test(out), 'only the current theme is active');
 });
 
-test('renderShell : le switcher poste vers /theme', () => {
+test('renderShell: the switcher posts to /theme', () => {
   assert.match(renderShell({ theme: 'auto' }), /\/theme/);
 });
 
-test('renderShell : favicon logo GitHub inline (data-URI SVG, theme-aware)', () => {
+test('renderShell: inline GitHub logo favicon (SVG data-URI, theme-aware)', () => {
   const out = renderShell({ intervalMs: 10000 });
   assert.match(out, /<link rel="icon" href="data:image\/svg\+xml,/);
-  assert.match(out, /prefers-color-scheme:dark/);          // adaptatif clair/sombre
-  assert.match(out, /%231f2328/);                          // `#` encodé (pas un fragment)
-  assert.ok(!/href="https?:[^"]*\.(svg|ico|png)/.test(out), 'favicon non externe');
+  assert.match(out, /prefers-color-scheme:dark/);          // light/dark adaptive
+  assert.match(out, /%231f2328/);                          // `#` encoded (not a fragment)
+  assert.ok(!/href="https?:[^"]*\.(svg|ico|png)/.test(out), 'favicon not external');
 });
 
-test('renderDebugShell : favicon logo GitHub inline (data-URI SVG)', () => {
+test('renderDebugShell: inline GitHub logo favicon (SVG data-URI)', () => {
   const out = renderDebugShell({ intervalMs: 9000 });
   assert.match(out, /<link rel="icon" href="data:image\/svg\+xml,/);
 });
 
 // ── renderDebug / renderDebugShell ─────────────────────────────────────────
-test('renderDebug : verdict gardé/droppé, PR liée, échappement', () => {
+test('renderDebug: kept/dropped verdict, linked PR, escaping', () => {
   const debug = [
-    { repo: 'o/r', number: 42, title: '[X] <script>alert(1)</script>', ghReason: 'review_requested', commentsCount: 3, verdict: { kept: true, category: 'review_request', reason: 'demande de review' } },
-    { repo: 'o/x', number: 7, title: 'Ma PR', ghReason: 'author', commentsCount: 0, verdict: { kept: false, category: null, reason: 'ta propre action' } },
+    { repo: 'o/r', number: 42, title: '[X] <script>alert(1)</script>', ghReason: 'review_requested', commentsCount: 3, verdict: { kept: true, category: 'review_request', reason: 'review request' } },
+    { repo: 'o/x', number: 7, title: 'My PR', ghReason: 'author', commentsCount: 0, verdict: { kept: false, category: null, reason: 'your own action' } },
   ];
   const out = renderDebug(debug, { now: NOW });
-  assert.match(out, /1\/2 threads gardés/);
+  assert.match(out, /1\/2 threads kept/);
   assert.match(out, /href="https:\/\/github.com\/o\/r\/pull\/42"/);
   assert.match(out, /✓ review_request/);
-  assert.match(out, /✗ droppé/);
-  assert.match(out, /ta propre action/);
-  assert.match(out, /&lt;script&gt;/);            // titre dangereux échappé
-  assert.ok(!out.includes('<script>alert(1)'), 'pas d’injection');
+  assert.match(out, /✗ dropped/);
+  assert.match(out, /your own action/);
+  assert.match(out, /&lt;script&gt;/);            // dangerous title escaped
+  assert.ok(!out.includes('<script>alert(1)'), 'no injection');
 });
 
-test('renderDebug : vide → message neutre', () => {
-  assert.match(renderDebug([], {}), /Aucun thread/);
+test('renderDebug: empty → neutral message', () => {
+  assert.match(renderDebug([], {}), /No notification thread/);
 });
 
-test('renderDebug : section « Checks par repo » — checks DISTINCTS par repo, ignorés cochés/barrés', () => {
+test('renderDebug: « Checks by repo » section — DISTINCT checks per repo, ignored checked/struck', () => {
   const rows = [
     { repo: 'mapado/ticketing', number: 60, ci: 'pass', checks: [
       { name: 'continuous-integration/jenkins/branch', state: 'pass' },
@@ -285,183 +285,183 @@ test('renderDebug : section « Checks par repo » — checks DISTINCTS par repo,
       { name: 'x<script>', state: 'pending' },
     ] },
     { repo: 'mapado/ticketing', number: 61, ci: 'fail', checks: [
-      { name: 'continuous-integration/jenkins/branch', state: 'fail' }, // même check, autre PR
+      { name: 'continuous-integration/jenkins/branch', state: 'fail' }, // same check, other PR
       { name: 'behat', state: 'fail' },
     ] },
   ];
   const out = renderDebug([], { rows, ignoredChecks: { 'mapado/ticketing': ['Check Pull Requests label for merge block'] } });
-  assert.match(out, /Checks par repo/);
+  assert.match(out, /Checks by repo/);
   assert.match(out, /mapado\/ticketing/);
-  // jenkins apparaît UNE seule fois malgré 2 PR (checks distincts par repo)
+  // jenkins appears ONLY once despite 2 PRs (distinct checks per repo)
   assert.equal((out.match(/data-name="continuous-integration\/jenkins\/branch"/g) || []).length, 1);
-  assert.match(out, /data-name="behat"/); // check d'une autre PR du même repo
-  // le job ignoré est coché + barré ; le job important non
+  assert.match(out, /data-name="behat"/); // check from another PR of the same repo
+  // the ignored job is checked + struck; the important job is not
   assert.match(out, /<del>Check Pull Requests label for merge block<\/del>/);
   assert.match(out, /data-repo="mapado\/ticketing"[^>]*data-name="Check Pull Requests label for merge block"[^>]*checked/);
-  assert.ok(!/data-name="continuous-integration\/jenkins\/branch"[^>]*checked/.test(out), 'jenkins non coché');
-  // nom de check dangereux échappé (anti-injection)
+  assert.ok(!/data-name="continuous-integration\/jenkins\/branch"[^>]*checked/.test(out), 'jenkins not checked');
+  // dangerous check name escaped (anti-injection)
   assert.match(out, /x&lt;script&gt;/);
-  assert.ok(!out.includes('x<script>'), 'pas d’injection');
+  assert.ok(!out.includes('x<script>'), 'no injection');
 });
 
-test('renderDebug : section checks reste vide (compat) quand aucune row n’est fournie', () => {
+test('renderDebug: checks section stays empty (compat) when no row is provided', () => {
   const out = renderDebug([{ repo: 'o/r', number: 1, title: 't', ghReason: 'author', commentsCount: 0, verdict: { kept: true, category: 'x', reason: 'r' } }], { now: NOW });
-  assert.ok(!out.includes('Checks par PR'), 'pas de section sans rows');
+  assert.ok(!out.includes('Checks by repo'), 'no section without rows');
 });
 
-test('renderDebugShell : page autonome qui poll /debug-fragment, lien retour, sans asset externe', () => {
+test('renderDebugShell: standalone page that polls /debug-fragment, back link, no external asset', () => {
   const out = renderDebugShell({ intervalMs: 9000 });
   assert.ok(out.startsWith('<!doctype html'));
   assert.match(out, /\/debug-fragment/);
   assert.match(out, /9000/);
-  assert.match(out, /href="\/"/);                 // retour aux tableaux
-  assert.ok(!/src="https?:/.test(out), 'pas de script externe');
-  // interactif : les cases à cocher postent vers /ignore-check et re-render
+  assert.match(out, /href="\/"/);                 // back to tables
+  assert.ok(!/src="https?:/.test(out), 'no external script');
+  // interactive: the checkboxes post to /ignore-check and re-render
   assert.match(out, /\/ignore-check/);
   assert.match(out, /addEventListener\('change'/);
   assert.match(out, /encodeURIComponent/);
 });
 
-// ── Barre de favoris (web) ───────────────────────────────────────────────
+// ── Favorites bar (web) ───────────────────────────────────────────────────
 
-test('renderFavorites : chip active marquée .on, « ⭐ tous » actif si aucun favori', () => {
+test('renderFavorites: active chip marked .on, « ⭐ all » active if no favorite', () => {
   const list = ['mapado', 'zenstruck'];
-  const actif = renderFavorites(list, 'mapado');
-  assert.match(actif, /<button data-fav="mapado" class="on">mapado\/\*<\/button>/);
-  assert.doesNotMatch(actif, /<button data-fav="" class="on"/); // « tous » pas actif
-  const tous = renderFavorites(list, null);
-  assert.match(tous, /<button data-fav="" class="on"/);
-  assert.doesNotMatch(tous, /data-fav="mapado" class="on"/);
+  const active = renderFavorites(list, 'mapado');
+  assert.match(active, /<button data-fav="mapado" class="on">mapado\/\*<\/button>/);
+  assert.doesNotMatch(active, /<button data-fav="" class="on"/); // « all » not active
+  const all = renderFavorites(list, null);
+  assert.match(all, /<button data-fav="" class="on"/);
+  assert.doesNotMatch(all, /data-fav="mapado" class="on"/);
 });
 
-test('renderFavorites : une org s’affiche « org/* », un dépôt tel quel — data-fav reste brut', () => {
+test('renderFavorites: an org shows as « org/* », a repo as-is — data-fav stays raw', () => {
   const html = renderFavorites(['mapado', 'noctud/collection'], null);
-  assert.match(html, /data-fav="mapado"[^>]*>mapado\/\*</);            // libellé décoré…
-  assert.match(html, /data-fav-rm="mapado"/);                          // …valeur brute pour l'API
-  assert.match(html, /data-fav="noctud\/collection"[^>]*>noctud\/collection</); // repo inchangé
+  assert.match(html, /data-fav="mapado"[^>]*>mapado\/\*</);            // decorated label…
+  assert.match(html, /data-fav-rm="mapado"/);                          // …raw value for the API
+  assert.match(html, /data-fav="noctud\/collection"[^>]*>noctud\/collection</); // repo unchanged
 });
 
-test('renderFavorites : compteurs (activité des autres) par chip et sur « tous »', () => {
+test('renderFavorites: counters (others’ activity) per chip and on « all »', () => {
   const counts = { total: 8, byFav: { mapado: 5, zenstruck: 3 } };
   const html = renderFavorites(['mapado', 'zenstruck'], null, { counts });
-  assert.match(html, /⭐ tous <span class="fav-n">\(8\)<\/span>/);
+  assert.match(html, /⭐ all <span class="fav-n">\(8\)<\/span>/);
   assert.match(html, /mapado\/\* <span class="fav-n">\(5\)<\/span>/);
   assert.match(html, /zenstruck\/\* <span class="fav-n">\(3\)<\/span>/);
 });
 
-test('renderFavorites : favori absent des compteurs → (0) ; sans counts → pas de badge', () => {
+test('renderFavorites: favorite absent from counters → (0); without counts → no badge', () => {
   const html = renderFavorites(['mapado'], null, { counts: { total: 0, byFav: {} } });
   assert.match(html, /mapado\/\* <span class="fav-n">\(0\)<\/span>/);
   assert.doesNotMatch(renderFavorites(['mapado'], null), /fav-n/);
 });
 
-test('renderFavorites : chaque chip a sa croix de retrait', () => {
+test('renderFavorites: each chip has its removal cross', () => {
   const html = renderFavorites(['mapado'], null);
   assert.match(html, /data-fav-rm="mapado"/);
 });
 
-test('renderFavorites : liste vide → chaîne vide (aucun changement visuel)', () => {
+test('renderFavorites: empty list → empty string (no visual change)', () => {
   assert.equal(renderFavorites([], null), '');
   assert.equal(renderFavorites(undefined, null), '');
 });
 
-test('renderFavorites : mode ad-hoc → barre grisée, aucune chip active', () => {
+test('renderFavorites: ad-hoc mode → greyed-out bar, no active chip', () => {
   const html = renderFavorites(['mapado'], 'mapado', { adhoc: true });
   assert.match(html, /class="favs adhoc"/);
   assert.doesNotMatch(html, /class="on"/);
 });
 
-test('renderFavorites échappe les valeurs (anti-injection : saisie utilisateur)', () => {
+test('renderFavorites escapes the values (anti-injection: user input)', () => {
   const html = renderFavorites(['<script>alert(1)</script>', 'a&b'], null);
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /&lt;script&gt;/);
   assert.match(html, /a&amp;b/);
 });
 
-test('renderShell : intègre la barre de favoris et le bouton ⭐ d’épinglage', () => {
+test('renderShell: integrates the favorites bar and the ⭐ pin button', () => {
   const html = renderShell({ favorites: ['mapado'], activeFav: 'mapado' });
   assert.match(html, /id="favs"/);
   assert.match(html, /data-fav="mapado" class="on"/);
   assert.match(html, /id="scope-fav"/);
 });
 
-test('renderShell sans favoris : la barre reste vide', () => {
+test('renderShell without favorites: the bar stays empty', () => {
   const html = renderShell({});
   assert.match(html, /<div id="favs"><\/div>/);
 });
 
-test('renderFragment : lien « fermées ↗ » dans le titre quand closedUrl est fourni', () => {
+test('renderFragment: « closed ↗ » link in the title when closedUrl is provided', () => {
   const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW, closedUrl: 'https://github.com/pulls?q=x%20%26%20y' });
-  assert.match(out, /Tes PR ouvertes \(1\)/);
-  assert.ok(out.includes('href="https://github.com/pulls?q=x%20%26%20y"'), 'href du lien fermées');
+  assert.match(out, /Your open PRs \(1\)/);
+  assert.ok(out.includes('href="https://github.com/pulls?q=x%20%26%20y"'), 'href of the closed link');
   assert.ok(out.includes('target="_blank"'));
-  assert.match(out, /fermées ↗/);
+  assert.match(out, /closed ↗/);
 });
 
-test('renderFragment : sans closedUrl → pas de lien (compat)', () => {
+test('renderFragment: without closedUrl → no link (compat)', () => {
   const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW });
-  assert.ok(!out.includes('fermées ↗'));
+  assert.ok(!out.includes('closed ↗'));
 });
 
-test('renderFragment : closedUrl dangereuse échappée', () => {
+test('renderFragment: dangerous closedUrl escaped', () => {
   const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW, closedUrl: 'https://x/?a="<b>&c' });
-  assert.ok(out.includes('href="https://x/?a=&quot;&lt;b&gt;&amp;c"'), 'URL échappée');
+  assert.ok(out.includes('href="https://x/?a=&quot;&lt;b&gt;&amp;c"'), 'URL escaped');
 });
 
-test('renderFragment : mine vide + closedUrl → section (0) avec lien, sans tableau', () => {
+test('renderFragment: mine empty + closedUrl → section (0) with link, without table', () => {
   const out = renderFragment({ mine: [], others: [] }, { now: NOW, closedUrl: 'https://github.com/pulls?q=z' });
-  assert.match(out, /Tes PR ouvertes \(0\)/);
+  assert.match(out, /Your open PRs \(0\)/);
   assert.ok(out.includes('href="https://github.com/pulls?q=z"'));
-  assert.ok(!out.includes('<table'), 'pas de tableau vide');
-  assert.ok(!out.includes('Rien à signaler'));
+  assert.ok(!out.includes('<table'), 'no empty table');
+  assert.ok(!out.includes('Nothing to report'));
 });
 
-test('renderFragment : mine vide sans closedUrl → comportement inchangé', () => {
+test('renderFragment: mine empty without closedUrl → unchanged behavior', () => {
   const out = renderFragment({ mine: [], others: [] }, { now: NOW });
-  assert.match(out, /Rien à signaler/);
+  assert.match(out, /Nothing to report/);
 });
 
-// ── En-têtes triables (colonne « autres ») ─────────────────────────────────
+// ── Sortable headers (« others » column) ───────────────────────────────────
 
-test('renderFragment avec opts.sort : th cliquables + indicateur sur la colonne active', () => {
+test('renderFragment with opts.sort: clickable th + indicator on the active column', () => {
   const data = { mine: [], others: [
     { repo: 'o/r', number: 1, url: 'u', title: 't', author: 'alice', createdAt: '2026-07-20T00:00:00Z', additions: 0, deletions: 0, triggers: ['review'], ci: 'pass', state: 'open', approvals: 0 },
   ] };
   const html = renderFragment(data, { now: Date.parse('2026-07-23T00:00:00Z'), sort: { key: 'date', dir: 'desc' } });
-  assert.match(html, /<th[^>]*data-sort-key="author"[^>]*>Auteur<\/th>/);
-  assert.match(html, /<th[^>]*data-sort-key="date"[^>]*>Ouverte ▾<\/th>/); // colonne active + sens
+  assert.match(html, /<th[^>]*data-sort-key="author"[^>]*>Author<\/th>/);
+  assert.match(html, /<th[^>]*data-sort-key="date"[^>]*>Opened ▾<\/th>/); // active column + direction
   assert.match(html, /<th[^>]*data-sort-key="approvals"/);
   // asc → ▴
   const asc = renderFragment(data, { now: Date.parse('2026-07-23T00:00:00Z'), sort: { key: 'author', dir: 'asc' } });
-  assert.match(asc, /<th[^>]*data-sort-key="author"[^>]*>Auteur ▴<\/th>/);
-  assert.match(asc, /<th[^>]*data-sort-key="date"[^>]*>Ouverte<\/th>/); // inactive : pas d'indicateur
+  assert.match(asc, /<th[^>]*data-sort-key="author"[^>]*>Author ▴<\/th>/);
+  assert.match(asc, /<th[^>]*data-sort-key="date"[^>]*>Opened<\/th>/); // inactive: no indicator
 });
 
-test('renderFragment sans opts.sort : sortie inchangée (aucun data-sort-key)', () => {
+test('renderFragment without opts.sort: unchanged output (no data-sort-key)', () => {
   const data = { mine: [], others: [
     { repo: 'o/r', number: 1, url: 'u', title: 't', author: 'alice', createdAt: null, additions: 0, deletions: 0, triggers: ['review'], ci: 'pass', state: 'open', approvals: 0 },
   ] };
   const html = renderFragment(data, { now: 0 });
-  assert.ok(!html.includes('data-sort-key'), 'compat : pas de th triable sans opts.sort');
+  assert.ok(!html.includes('data-sort-key'), 'compat: no sortable th without opts.sort');
 });
 
-test('le tableau « Tes PR » n’a jamais d’en-tête triable', () => {
+test('the « Your PRs » table never has a sortable header', () => {
   const data = { mine: [
     { repo: 'o/r', number: 1, url: 'u', title: 't', triggers: [], ci: 'pass', state: 'open', approvals: 0 },
   ], others: [] };
   const html = renderFragment(data, { now: 0, sort: { key: 'date', dir: 'desc' } });
-  assert.ok(!html.includes('data-sort-key'), 'mine : aucun tri');
+  assert.ok(!html.includes('data-sort-key'), 'mine: no sort');
 });
 
-test('renderShell : le JS gère le clic sur th[data-sort-key] → POST /sort', () => {
+test('renderShell: the JS handles the click on th[data-sort-key] → POST /sort', () => {
   const page = renderShell({});
   assert.match(page, /data-sort-key/);
   assert.match(page, /\/sort/);
 });
 
-// ── Surbrillance de la colonne triée (colgroup) ────────────────────────────
+// ── Sorted column highlight (colgroup) ─────────────────────────────────────
 
-// Position (1-based) du col.sorted dans le colgroup, ou -1.
+// Position (1-based) of the col.sorted in the colgroup, or -1.
 function sortedColIndex(html) {
   const m = html.match(/<colgroup>(.*?)<\/colgroup>/);
   if (!m) return -1;
@@ -469,41 +469,41 @@ function sortedColIndex(html) {
   return cols.findIndex((c) => c.includes('sorted')) + 1 || -1;
 }
 
-// Position (1-based) du th actif — celle du data-sort-key demandé.
-// ⚠️ `(?:\s…)?` et pas `[^>]*` : sinon <thead> compterait comme un th.
+// Position (1-based) of the active th — that of the requested data-sort-key.
+// ⚠️ `(?:\s…)?` and not `[^>]*`: otherwise <thead> would count as a th.
 function thIndex(html, key) {
   const ths = html.match(/<th(?:\s[^>]*)?>/g) || [];
   return ths.findIndex((t) => t.includes(`data-sort-key="${key}"`)) + 1 || -1;
 }
 
-test('tri actif : le colgroup marque la colonne du th actif (position dérivée, pas codée en dur)', () => {
+test('active sort: the colgroup marks the active th column (derived position, not hard-coded)', () => {
   const data = { mine: [], others: [
     { repo: 'o/r', number: 1, url: 'u', title: 't', author: 'alice', createdAt: '2026-07-20T00:00:00Z', additions: 0, deletions: 0, triggers: ['review'], ci: 'pass', state: 'open', approvals: 0 },
   ] };
   for (const key of ['author', 'date', 'approvals']) {
     const html = renderFragment(data, { now: Date.parse('2026-07-23T00:00:00Z'), sort: { key, dir: 'asc' } });
     const col = sortedColIndex(html);
-    assert.ok(col > 0, `colgroup présent et marqué pour ${key}`);
-    assert.equal(col, thIndex(html, key), `col.sorted aligné sur le th ${key}`);
-    // un seul col marqué
+    assert.ok(col > 0, `colgroup present and marked for ${key}`);
+    assert.equal(col, thIndex(html, key), `col.sorted aligned with th ${key}`);
+    // only one marked col
     assert.equal((html.match(/<col class="sorted">/g) || []).length, 1);
   }
 });
 
-test('sans opts.sort : aucun colgroup (sortie inchangée)', () => {
+test('without opts.sort: no colgroup (unchanged output)', () => {
   const data = { mine: [], others: [
     { repo: 'o/r', number: 1, url: 'u', title: 't', author: 'alice', createdAt: null, additions: 0, deletions: 0, triggers: ['review'], ci: 'pass', state: 'open', approvals: 0 },
   ] };
   assert.ok(!renderFragment(data, { now: 0 }).includes('<colgroup>'));
 });
 
-test('le tableau « Tes PR » n’a jamais de colgroup, même avec tri actif', () => {
+test('the « Your PRs » table never has a colgroup, even with active sort', () => {
   const data = { mine: [
     { repo: 'o/r', number: 1, url: 'u', title: 't', triggers: [], ci: 'pass', state: 'open', approvals: 0 },
   ], others: [] };
   assert.ok(!renderFragment(data, { now: 0, sort: { key: 'date', dir: 'desc' } }).includes('<colgroup>'));
 });
 
-test('renderShell : style col.sorted présent (voile discret sur la colonne triée)', () => {
+test('renderShell: col.sorted style present (discreet veil on the sorted column)', () => {
   assert.match(renderShell({}), /col\.sorted/);
 });

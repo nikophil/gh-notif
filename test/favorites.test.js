@@ -7,7 +7,7 @@ import {
 } from '../src/favorites.js';
 import { scopesQualifier } from '../src/collect.js';
 
-test('parseScope : vide → null, avec « / » → repo, sinon org', () => {
+test('parseScope: empty → null, with « / » → repo, otherwise org', () => {
   assert.equal(parseScope(''), null);
   assert.equal(parseScope('   '), null);
   assert.equal(parseScope(null), null);
@@ -15,67 +15,67 @@ test('parseScope : vide → null, avec « / » → repo, sinon org', () => {
   assert.deepEqual(parseScope(' noctud/collection '), { type: 'repo', value: 'noctud/collection' });
 });
 
-test('normalizeFavorites : dédup, trim, ignore les valeurs inexploitables', () => {
+test('normalizeFavorites: dedup, trim, ignore unusable values', () => {
   assert.deepEqual(normalizeFavorites(['mapado', ' mapado ', 'zenstruck']), ['mapado', 'zenstruck']);
   assert.deepEqual(normalizeFavorites(['', '   ', null, 42, {}, 'a']), ['a']);
   assert.deepEqual(normalizeFavorites(undefined), []);
-  assert.deepEqual(normalizeFavorites('mapado'), []); // fichier trafiqué : pas un tableau
+  assert.deepEqual(normalizeFavorites('mapado'), []); // tampered file: not an array
 });
 
-test('normalizeFavorites préserve l’ordre d’ajout', () => {
+test('normalizeFavorites preserves insertion order', () => {
   assert.deepEqual(normalizeFavorites(['z', 'a', 'm']), ['z', 'a', 'm']);
 });
 
-test('addFavorite : ajoute en fin, idempotent, refuse le vide', () => {
+test('addFavorite: appends at the end, idempotent, refuses empty', () => {
   assert.deepEqual(addFavorite([], 'mapado'), ['mapado']);
   assert.deepEqual(addFavorite(['mapado'], 'zenstruck'), ['mapado', 'zenstruck']);
-  assert.deepEqual(addFavorite(['mapado'], ' mapado '), ['mapado']); // déjà là → inchangé
-  assert.throws(() => addFavorite([], '  '), /requiert une valeur/);
+  assert.deepEqual(addFavorite(['mapado'], ' mapado '), ['mapado']); // already there → unchanged
+  assert.throws(() => addFavorite([], '  '), /requires a value/);
 });
 
-// Remplit jusqu'au refus et renvoie la dernière liste acceptée.
+// Fills up until refusal and returns the last accepted list.
 function fillUntilFull(name) {
   let list = [];
   for (let i = 0; i < 100; i++) {
     try { list = addFavorite(list, name(i)); } catch { return list; }
   }
-  assert.fail('addFavorite aurait dû finir par refuser');
+  assert.fail('addFavorite should have ended up refusing');
 }
 
-test('addFavorite : ce qui est accepté tient toujours dans une query GitHub', () => {
-  // L'invariant qui compte : quoi qu'on épingle, la recherche reste valide
-  // (< 256 caractères, préfixe `is:open is:pr review-requested:@me` inclus).
+test('addFavorite: whatever is accepted always fits in a GitHub query', () => {
+  // The invariant that matters: whatever we pin, the search stays valid
+  // (< 256 characters, prefix `is:open is:pr review-requested:@me` included).
   for (const name of [(i) => `org${i}`, (i) => `organisation-tres-longue-${i}/depot-interminable-${i}`]) {
     const list = fillUntilFull(name);
     const q = `is:open is:pr review-requested:@me${scopesQualifier(favoriteScopes(list))}`;
-    assert.ok(q.length < 256, `query de ${q.length} caractères`);
+    assert.ok(q.length < 256, `query of ${q.length} characters`);
   }
 });
 
-test('addFavorite : le plafond dépend de la longueur des noms, pas de leur nombre', () => {
-  const courts = fillUntilFull((i) => `org${i}`);
+test('addFavorite: the cap depends on the length of the names, not their count', () => {
+  const shorts = fillUntilFull((i) => `org${i}`);
   const longs = fillUntilFull((i) => `organisation-tres-longue-${i}/depot-interminable-${i}`);
-  assert.ok(courts.length > longs.length,
-    `noms courts (${courts.length}) doivent en accepter plus que noms longs (${longs.length})`);
+  assert.ok(shorts.length > longs.length,
+    `short names (${shorts.length}) should accept more than long names (${longs.length})`);
 });
 
-test('addFavorite : un doublon passe même une fois le plafond atteint', () => {
+test('addFavorite: a duplicate passes even once the cap is reached', () => {
   const list = fillUntilFull((i) => `org${i}`);
-  assert.deepEqual(addFavorite(list, list[0]), list); // idempotent, pas d'erreur
-  assert.throws(() => addFavorite(list, 'un-nouveau-favori-de-trop'), /dépasserait/);
+  assert.deepEqual(addFavorite(list, list[0]), list); // idempotent, no error
+  assert.throws(() => addFavorite(list, 'one-favorite-too-many'), /would exceed/);
 });
 
-test('MAX_QUALIFIER_LENGTH laisse de la marge sous la limite GitHub de 256', () => {
+test('MAX_QUALIFIER_LENGTH leaves margin below the GitHub limit of 256', () => {
   assert.ok(MAX_QUALIFIER_LENGTH < 256 - 34); // 34 = `is:open is:pr review-requested:@me`
 });
 
-test('removeFavorite : retire, no-op sur valeur absente', () => {
+test('removeFavorite: removes, no-op on absent value', () => {
   assert.deepEqual(removeFavorite(['a', 'b'], 'a'), ['b']);
   assert.deepEqual(removeFavorite(['a', 'b'], 'zzz'), ['a', 'b']);
   assert.deepEqual(removeFavorite([], 'a'), []);
 });
 
-test('favoriteScopes : liste → scopes, liste vide → null (= pas de filtre)', () => {
+test('favoriteScopes: list → scopes, empty list → null (= no filter)', () => {
   assert.deepEqual(favoriteScopes(['mapado', 'noctud/collection']), [
     { type: 'org', value: 'mapado' },
     { type: 'repo', value: 'noctud/collection' },
@@ -84,29 +84,29 @@ test('favoriteScopes : liste → scopes, liste vide → null (= pas de filtre)',
   assert.equal(favoriteScopes(undefined), null);
 });
 
-test('activeFavoriteOf : null si absent, inconnu, ou retiré de la liste', () => {
+test('activeFavoriteOf: null if absent, unknown, or removed from the list', () => {
   assert.equal(activeFavoriteOf({ activeFav: 'mapado' }, ['mapado', 'z']), 'mapado');
-  assert.equal(activeFavoriteOf({ activeFav: 'mapado' }, ['z']), null); // retiré depuis
+  assert.equal(activeFavoriteOf({ activeFav: 'mapado' }, ['z']), null); // removed since
   assert.equal(activeFavoriteOf({}, ['mapado']), null);
-  assert.equal(activeFavoriteOf({ activeFav: 42 }, ['mapado']), null); // fichier trafiqué
+  assert.equal(activeFavoriteOf({ activeFav: 42 }, ['mapado']), null); // tampered file
   assert.equal(activeFavoriteOf(null, ['mapado']), null);
 });
 
-test('cycleFavorite : tous → 1er → … → dernier → tous', () => {
+test('cycleFavorite: all → 1st → … → last → all', () => {
   const list = ['mapado', 'noctud/collection', 'zenstruck'];
   assert.equal(cycleFavorite(list, null), 'mapado');
   assert.equal(cycleFavorite(list, 'mapado'), 'noctud/collection');
   assert.equal(cycleFavorite(list, 'noctud/collection'), 'zenstruck');
-  assert.equal(cycleFavorite(list, 'zenstruck'), null); // boucle complète
+  assert.equal(cycleFavorite(list, 'zenstruck'), null); // full loop
 });
 
-test('cycleFavorite : liste vide reste sur null, actif inconnu repart du début', () => {
+test('cycleFavorite: empty list stays on null, unknown active restarts from the beginning', () => {
   assert.equal(cycleFavorite([], null), null);
   assert.equal(cycleFavorite([], 'mapado'), null);
-  assert.equal(cycleFavorite(['a', 'b'], 'disparu'), 'a');
+  assert.equal(cycleFavorite(['a', 'b'], 'vanished'), 'a');
 });
 
-// Données d'exemple : deux périmètres mêlés, comme après une collecte sur l'union.
+// Example data: two perimeters mixed, as after a collection on the union.
 const data = () => ({
   mine: [{ repo: 'mapado/api', number: 1 }, { repo: 'zenstruck/foundry', number: 2 }],
   others: [{ repo: 'mapado/front', number: 3 }, { repo: 'zenstruck/foundry', number: 4 }],
@@ -117,42 +117,42 @@ const data = () => ({
   approvalEvents: [{ repo: 'zenstruck/foundry' }],
 });
 
-test('filterDataByScope : filtre toutes les listes et recalcule hiddenCount', () => {
+test('filterDataByScope: filters all lists and recomputes hiddenCount', () => {
   const out = filterDataByScope(data(), { type: 'org', value: 'mapado' });
   assert.deepEqual(out.mine.map((r) => r.number), [1]);
   assert.deepEqual(out.others.map((r) => r.number), [3]);
   assert.deepEqual(out.hidden, []);
-  assert.equal(out.hiddenCount, 0); // recalculé, pas hérité du 1 d'origine
+  assert.equal(out.hiddenCount, 0); // recomputed, not inherited from the original 1
   assert.deepEqual(out.notifications.map((r) => r.number), [1]);
   assert.deepEqual(out.debug, [{ repo: 'mapado/api' }]);
 });
 
-test('filterDataByScope : scope repo précis', () => {
+test('filterDataByScope: precise repo scope', () => {
   const out = filterDataByScope(data(), { type: 'repo', value: 'zenstruck/foundry' });
   assert.deepEqual(out.mine.map((r) => r.number), [2]);
   assert.deepEqual(out.others.map((r) => r.number), [4]);
   assert.equal(out.hiddenCount, 1);
 });
 
-test('filterDataByScope : scope null → données inchangées (mêmes références)', () => {
+test('filterDataByScope: null scope → data unchanged (same references)', () => {
   const d = data();
   assert.equal(filterDataByScope(d, null), d);
 });
 
-test('filterDataByScope ne mute pas la donnée source (le brut sert aux notifs)', () => {
+test('filterDataByScope does not mutate the source data (the raw one serves the notifs)', () => {
   const d = data();
   filterDataByScope(d, { type: 'org', value: 'mapado' });
   assert.equal(d.mine.length, 2);
   assert.equal(d.hiddenCount, 1);
 });
 
-test('filterDataByScope : les clés non filtrées sont conservées telles quelles', () => {
-  // approvalEvents alimente les notifs desktop : il n'a pas à être filtré ici.
+test('filterDataByScope: the non-filtered keys are kept as-is', () => {
+  // approvalEvents feeds the desktop notifs: it must not be filtered here.
   const out = filterDataByScope(data(), { type: 'org', value: 'mapado' });
   assert.deepEqual(out.approvalEvents, [{ repo: 'zenstruck/foundry' }]);
 });
 
-test('favoriteLabel : org → « org/* », dépôt inchangé (affichage seulement)', () => {
+test('favoriteLabel: org → « org/* », repo unchanged (display only)', () => {
   assert.equal(favoriteLabel('mapado'), 'mapado/*');
   assert.equal(favoriteLabel('noctud/collection'), 'noctud/collection');
   assert.equal(favoriteLabel(' zenstruck '), 'zenstruck/*');
@@ -160,7 +160,7 @@ test('favoriteLabel : org → « org/* », dépôt inchangé (affichage seulemen
   assert.equal(favoriteLabel(null), '');
 });
 
-test('favoriteCounts : activité des autres par favori + total, sur l’union brute', () => {
+test('favoriteCounts: others’ activity per favorite + total, on the raw union', () => {
   const others = [
     { repo: 'mapado/api' }, { repo: 'mapado/front' },
     { repo: 'noctud/collection' }, { repo: 'zenstruck/foundry' },
@@ -170,25 +170,25 @@ test('favoriteCounts : activité des autres par favori + total, sur l’union br
   assert.deepEqual(byFav, { mapado: 2, 'noctud/collection': 1, zenstruck: 1 });
 });
 
-test('favoriteCounts : liste/données vides ou invalides → zéros, pas de crash', () => {
+test('favoriteCounts: empty/invalid list or data → zeros, no crash', () => {
   assert.deepEqual(favoriteCounts([], []), { total: 0, byFav: {} });
   assert.deepEqual(favoriteCounts(['mapado'], null), { total: 0, byFav: { mapado: 0 } });
   assert.deepEqual(favoriteCounts(null, [{ repo: 'a/b' }]), { total: 1, byFav: {} });
 });
 
-test('closedPRsUrl : sans scope → recherche GitHub author:@me is:closed', () => {
+test('closedPRsUrl: without scope → GitHub search author:@me is:closed', () => {
   assert.equal(
     closedPRsUrl(null),
     'https://github.com/pulls?q=is%3Apr%20author%3A%40me%20is%3Aclosed',
   );
 });
 
-test('closedPRsUrl : scope org / repo → qualifier ajouté (encodé)', () => {
+test('closedPRsUrl: org / repo scope → qualifier added (encoded)', () => {
   assert.ok(closedPRsUrl({ type: 'org', value: 'mapado' }).endsWith('%20org%3Amapado'));
   assert.ok(closedPRsUrl({ type: 'repo', value: 'noctud/collection' }).endsWith('%20repo%3Anoctud%2Fcollection'));
 });
 
-test('closedPRsUrl : union de scopes → tous les qualifiers (OR-isés par GitHub)', () => {
+test('closedPRsUrl: union of scopes → all qualifiers (OR-ed by GitHub)', () => {
   const url = closedPRsUrl([{ type: 'org', value: 'mapado' }, { type: 'repo', value: 'a/b' }]);
   assert.ok(url.includes('org%3Amapado'));
   assert.ok(url.includes('repo%3Aa%2Fb'));

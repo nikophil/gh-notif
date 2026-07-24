@@ -3,8 +3,8 @@ import { join, dirname } from 'node:path';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { TRIGGER_FOR } from './filter.js';
 
-// Persistance + logique pure du masquage des PR des autres. L'interaction clavier
-// (touche `h`, numéro + Entrée) vit dans l'entrypoint ; ici, tout est testable.
+// Persistence + pure logic for hiding others' PRs. The keyboard interaction
+// (`h` key, number + Enter) lives in the entrypoint; here, everything is testable.
 
 export function hiddenPath() {
   const base = process.env.XDG_STATE_HOME || join(homedir(), '.local', 'state');
@@ -24,9 +24,9 @@ export function keyOf(x) {
   return `${x.repo}#${x.number}`;
 }
 
-// URLs des items de notification qui portent un trigger (mention/reply/comment)
-// pour cette PR. review_request est exclu (absent de TRIGGER_FOR) : sa signature
-// est donc vide — une review demandée masquée reste cachée jusqu'à une vraie
+// URLs of the notification items that carry a trigger (mention/reply/comment)
+// for this PR. review_request is excluded (absent from TRIGGER_FOR): its signature
+// is therefore empty — a hidden requested review stays hidden until a real
 // interaction (cf. ARCHITECTURE §10).
 export function signatureOf(key, items) {
   const urls = [];
@@ -40,17 +40,17 @@ export function isHidden(map, key) {
   return Object.prototype.hasOwnProperty.call(map, key);
 }
 
-// Masque (instantané de la signature courante) ou restaure. Mute `map` ; renvoie
-// true si la PR est désormais masquée.
+// Hides (snapshot of the current signature) or restores. Mutates `map`; returns
+// true if the PR is now hidden.
 export function toggleHidden(map, key, items, nowIso = new Date().toISOString()) {
   if (isHidden(map, key)) { delete map[key]; return false; }
   map[key] = { at: nowIso, seen: signatureOf(key, items) };
   return true;
 }
 
-// Dé-masque une PR dès qu'un nouvel évènement (URL absente de l'instantané)
-// apparaît, et élague les clés absentes des entrées courantes. Mute `map` ;
-// renvoie true si elle a changé.
+// Un-hides a PR as soon as a new event (URL absent from the snapshot)
+// appears, and prunes keys absent from the current entries. Mutates `map`;
+// returns true if it changed.
 export function reconcile(map, entries, items) {
   const present = new Set((entries || []).map(keyOf));
   let changed = false;
@@ -63,9 +63,9 @@ export function reconcile(map, entries, items) {
   return changed;
 }
 
-// Label de sélection d'une ligne = le numéro de la PR (ex. '7004'), tel qu'affiché
-// dans la colonne « PR ». L'utilisateur tape ce numéro (buffer + Entrée) dans
-// l'entrypoint. En cas de doublon de numéro entre dépôts, la 1re ligne l'emporte.
+// Selection label of a row = the PR number (e.g. '7004'), as displayed
+// in the « PR » column. The user types this number (buffer + Enter) in
+// the entrypoint. In case of a duplicate number across repos, the 1st row wins.
 export function assignLabels(rows) {
   return rows.map((r) => String(r.number));
 }

@@ -4,8 +4,8 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 
 export function statePath() {
   const base = process.env.XDG_STATE_HOME || join(homedir(), '.local', 'state');
-  // v2 : dédup par URL d'évènement (et non plus par thread/updated_at). Nouveau
-  // nom de fichier pour qu'une ancienne base ne provoque pas un flot au passage v2.
+  // v2: dedup by event URL (no longer by thread/updated_at). New file name so
+  // that an old database does not cause a flood when upgrading to v2.
   return join(base, 'gh-notif', 'seen-v2.json');
 }
 
@@ -22,9 +22,9 @@ export function saveState(path, state) {
   writeFileSync(path, JSON.stringify(state, null, 2));
 }
 
-// Dédup par URL de l'évènement précis (URL du commentaire, ou URL de la PR pour
-// une demande de review). Insensible aux bumps d'`updated_at` du thread dus à
-// l'activité d'autrui → on ne re-notifie pas pour le même évènement.
+// Dedup by the precise event URL (comment URL, or PR URL for a review request).
+// Insensitive to `updated_at` bumps of the thread caused by others' activity
+// → we do not re-notify for the same event.
 export function isNew(state, item) {
   return !(item.url in state);
 }

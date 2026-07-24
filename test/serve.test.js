@@ -16,28 +16,28 @@ const okSnapshot = () => ({
   error: null,
 });
 
-test('GET / → page HTML complète', () => {
+test('GET / → full HTML page', () => {
   const res = handleRequest('/', okSnapshot(), OPTS);
   assert.equal(res.status, 200);
   assert.equal(res.type, 'text/html; charset=utf-8');
   assert.ok(res.body.startsWith('<!doctype html'));
 });
 
-test('GET /fragment (snapshot OK) → 200 + un titre de section', () => {
+test('GET /fragment (snapshot OK) → 200 + a section title', () => {
   const res = handleRequest('/fragment', okSnapshot(), OPTS);
   assert.equal(res.status, 200);
   assert.equal(res.type, 'text/html; charset=utf-8');
-  assert.match(res.body, /Tes PR ouvertes/);
+  assert.match(res.body, /Your open PRs/);
 });
 
-test('GET /fragment (snapshot en erreur) → 200, message échappé, pas de crash', () => {
+test('GET /fragment (snapshot in error) → 200, escaped message, no crash', () => {
   const res = handleRequest('/fragment', { data: null, updatedAt: null, error: 'boom <x> & co' }, OPTS);
   assert.equal(res.status, 200);
   assert.match(res.body, /boom &lt;x&gt; &amp; co/);
-  assert.ok(!res.body.includes('<x>'), 'message d’erreur échappé');
+  assert.ok(!res.body.includes('<x>'), 'error message escaped');
 });
 
-test('GET /fragment avant le premier poll (updatedAt null) → spinner de chargement', () => {
+test('GET /fragment before the first poll (updatedAt null) → loading spinner', () => {
   const res = handleRequest('/fragment', { data: null, updatedAt: null, error: null }, OPTS);
   assert.equal(res.status, 200);
   assert.match(res.body, /data-loading/);
@@ -53,13 +53,13 @@ test('GET /api/state → JSON round-trip', () => {
   assert.equal(parsed.data.mine[0].number, 1);
 });
 
-test('chemin inconnu → 404', () => {
-  const res = handleRequest('/inconnu', okSnapshot(), OPTS);
+test('unknown path → 404', () => {
+  const res = handleRequest('/unknown', okSnapshot(), OPTS);
   assert.equal(res.status, 404);
 });
 
 // ── debug (always-on) ──────────────────────────────────────────────────────
-test('GET /debug → page autonome qui poll /debug-fragment', () => {
+test('GET /debug → standalone page that polls /debug-fragment', () => {
   const res = handleRequest('/debug', okSnapshot(), OPTS);
   assert.equal(res.status, 200);
   assert.equal(res.type, 'text/html; charset=utf-8');
@@ -67,7 +67,7 @@ test('GET /debug → page autonome qui poll /debug-fragment', () => {
   assert.match(res.body, /\/debug-fragment/);
 });
 
-test('GET /debug-fragment → verdicts (et message échappé si erreur)', () => {
+test('GET /debug-fragment → verdicts (and escaped message if error)', () => {
   const snap = okSnapshot();
   snap.data.debug = [{ repo: 'o/r', number: 42, title: 't', ghReason: 'review_requested', commentsCount: 0, verdict: { kept: true, category: 'review_request', reason: 'r' } }];
   const res = handleRequest('/debug-fragment', snap, OPTS);
@@ -77,43 +77,43 @@ test('GET /debug-fragment → verdicts (et message échappé si erreur)', () => 
   assert.match(err.body, /boom &lt;x&gt;/);
 });
 
-test('GET /api/debug → JSON du tableau debug', () => {
+test('GET /api/debug → JSON of the debug table', () => {
   const snap = okSnapshot();
-  snap.data.debug = [{ repo: 'o/r', number: 42, verdict: { kept: false, category: null, reason: 'bruit' } }];
+  snap.data.debug = [{ repo: 'o/r', number: 42, verdict: { kept: false, category: null, reason: 'noise' } }];
   const res = handleRequest('/api/debug', snap, OPTS);
   assert.equal(res.status, 200);
   assert.equal(res.type, 'application/json; charset=utf-8');
   assert.equal(JSON.parse(res.body)[0].number, 42);
 });
 
-test('GET / préremplit le champ de scope avec le scope courant', () => {
+test('GET / pre-fills the scope field with the current scope', () => {
   const res = handleRequest('/', okSnapshot(), { ...OPTS, scope: { type: 'org', value: 'mapado' } });
   assert.match(res.body, /id="scope"[^>]*value="mapado"/);
 });
 
-test('GET / : checkbox notifs cochée par défaut, décochée si notifyEnabled=false', () => {
+test('GET / : notifs checkbox checked by default, unchecked if notifyEnabled=false', () => {
   const checked = handleRequest('/', okSnapshot(), { ...OPTS, notifyEnabled: true });
   assert.match(checked.body, /id="notify"[^>]*\schecked/);
   const off = handleRequest('/', okSnapshot(), { ...OPTS, notifyEnabled: false });
-  assert.ok(!/id="notify"[^>]*\schecked/.test(off.body), 'décochée quand notifyEnabled=false');
+  assert.ok(!/id="notify"[^>]*\schecked/.test(off.body), 'unchecked when notifyEnabled=false');
 });
 
-test('GET / : data-theme reflète le thème passé à handleRequest', () => {
+test('GET / : data-theme reflects the theme passed to handleRequest', () => {
   const res = handleRequest('/', okSnapshot(), { ...OPTS, theme: 'dark' });
-  assert.match(res.body, /<html lang="fr" data-theme="dark"/);
+  assert.match(res.body, /<html lang="en" data-theme="dark"/);
   assert.match(res.body, /data-theme-val="dark"[^>]*class="[^"]*\bon\b/);
 });
 
-test('GET /fragment?hidden (showHidden) rend les lignes masquées', () => {
+test('GET /fragment?hidden (showHidden) renders the hidden rows', () => {
   const snap = okSnapshot();
-  snap.data.hidden = [{ repo: 'o/x', number: 9, url: 'u', title: 'cachée', triggers: ['review'], ci: 'none', author: 'bob', createdAt: NOW, additions: 0, deletions: 0, state: 'open', approvals: 0 }];
+  snap.data.hidden = [{ repo: 'o/x', number: 9, url: 'u', title: 'hidden', triggers: ['review'], ci: 'none', author: 'bob', createdAt: NOW, additions: 0, deletions: 0, state: 'open', approvals: 0 }];
   snap.data.hiddenCount = 1;
   const res = handleRequest('/fragment', snap, { ...OPTS, showHidden: true });
   assert.match(res.body, /data-key="o\/x#9"[^>]*data-act="show"/);
 });
 
 // ── parseScope / scopeLabel ────────────────────────────────────────────────
-test('parseScope : vide → null, org, owner/repo', () => {
+test('parseScope : empty → null, org, owner/repo', () => {
   assert.equal(parseScope(''), null);
   assert.equal(parseScope('   '), null);
   assert.equal(parseScope(null), null);
@@ -122,16 +122,16 @@ test('parseScope : vide → null, org, owner/repo', () => {
   assert.deepEqual(parseScope('  mapado/web  '), { type: 'repo', value: 'mapado/web' });
 });
 
-test('scopeLabel : null → "", sinon la valeur', () => {
+test('scopeLabel : null → "", otherwise the value', () => {
   assert.equal(scopeLabel(null), '');
   assert.equal(scopeLabel({ type: 'org', value: 'mapado' }), 'mapado');
 });
 
-// ── intégration : POST /hide masque la PR (stub gh, vrai serveur) ───────────
-test('POST /hide masque une PR des autres puis la restaure', async () => {
-  // gh stub : une review demandée → une PR « des autres » (auteur ≠ moi).
+// ── integration: POST /hide hides the PR (stub gh, real server) ─────────────
+test('POST /hide hides one of the others\' PRs then restores it', async () => {
+  // gh stub: a requested review → an « others » PR (author ≠ me).
   const gh = {
-    getCurrentUser: async () => 'moi',
+    getCurrentUser: async () => 'me',
     listNotifications: async () => [],
     searchReviewRequested: async () => [
       { repository_url: 'https://api.github.com/repos/mapado/web', number: 42, title: 't', html_url: 'u', updated_at: '2026-06-24T00:00:00Z' },
@@ -144,34 +144,34 @@ test('POST /hide masque une PR des autres puis la restaure', async () => {
     getComment: async () => null,
     getReviewComments: async () => [],
   };
-  // Évite d'écrire dans l'état réel de l'utilisateur pendant le test.
+  // Avoids writing into the user's real state during the test.
   const tmp = `/tmp/gh-notif-test-${process.pid}`;
   process.env.XDG_STATE_HOME = tmp;
 
   const PORT = 7791;
-  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600, open: false });
+  const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false });
   try {
-    await new Promise((r) => setTimeout(r, 250)); // 1er poll
+    await new Promise((r) => setTimeout(r, 250)); // 1st poll
     const frag1 = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
-    assert.match(frag1, /mapado\/web#42/, 'la PR est visible au départ');
+    assert.match(frag1, /mapado\/web#42/, 'the PR is visible at first');
 
-    // masque la PR
+    // hides the PR
     await fetch(`http://localhost:${PORT}/hide?key=${encodeURIComponent('mapado/web#42')}`, { method: 'POST' });
     const frag2 = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
-    assert.ok(!frag2.includes('mapado/web#42'), 'la PR est masquée (absente)');
+    assert.ok(!frag2.includes('mapado/web#42'), 'the PR is hidden (absent)');
 
-    // visible de nouveau en mode showHidden
+    // visible again in showHidden mode
     const frag3 = await (await fetch(`http://localhost:${PORT}/fragment?hidden=1`)).text();
-    assert.match(frag3, /mapado\/web#42/, 'réapparait en mode « voir masquées »');
+    assert.match(frag3, /mapado\/web#42/, 'reappears in « show hidden » mode');
   } finally {
     server.close();
   }
 });
 
-// ── intégration : POST /notify (dés)active les notifs + persiste la préférence ─
-test('POST /notify persiste la préférence et se reflète dans la page', async () => {
+// ── integration: POST /notify (de)activates the notifs + persists the preference ─
+test('POST /notify persists the preference and is reflected in the page', async () => {
   const gh = {
-    getCurrentUser: async () => 'moi',
+    getCurrentUser: async () => 'me',
     listNotifications: async () => [],
     searchReviewRequested: async () => [],
     searchAuthored: async () => [],
@@ -180,27 +180,27 @@ test('POST /notify persiste la préférence et se reflète dans la page', async 
     getReviewComments: async () => [],
   };
   const tmp = `/tmp/gh-notif-test-notify-${process.pid}`;
-  rmSync(tmp, { recursive: true, force: true }); // départ propre : pas de prefs
+  rmSync(tmp, { recursive: true, force: true }); // clean start: no prefs
   process.env.XDG_STATE_HOME = tmp;
 
   const PORT = 7792;
-  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600, open: false });
+  const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false });
   try {
     await new Promise((r) => setTimeout(r, 150));
-    // Défaut : cochée.
+    // Default: checked.
     const page1 = await (await fetch(`http://localhost:${PORT}/`)).text();
-    assert.match(page1, /id="notify"[^>]*\schecked/, 'cochée par défaut');
+    assert.match(page1, /id="notify"[^>]*\schecked/, 'checked by default');
 
-    // Désactive.
+    // Deactivates.
     const res = await fetch(`http://localhost:${PORT}/notify?enabled=0`, { method: 'POST' });
     assert.equal(res.status, 204);
     const page2 = await (await fetch(`http://localhost:${PORT}/`)).text();
-    assert.ok(!/id="notify"[^>]*\schecked/.test(page2), 'décochée après désactivation');
+    assert.ok(!/id="notify"[^>]*\schecked/.test(page2), 'unchecked after deactivation');
 
-    // Persisté sur disque.
+    // Persisted on disk.
     assert.equal(loadPrefs(prefsPath()).notify, false);
 
-    // Réactive.
+    // Reactivates.
     await fetch(`http://localhost:${PORT}/notify?enabled=1`, { method: 'POST' });
     assert.equal(loadPrefs(prefsPath()).notify, true);
   } finally {
@@ -209,10 +209,10 @@ test('POST /notify persiste la préférence et se reflète dans la page', async 
   }
 });
 
-// ── intégration : POST /theme persiste le thème sans écraser notify ─────────
-test('POST /theme persiste le thème, se reflète dans la page, ne perd pas notify', async () => {
+// ── integration: POST /theme persists the theme without overwriting notify ──
+test('POST /theme persists the theme, is reflected in the page, does not lose notify', async () => {
   const gh = {
-    getCurrentUser: async () => 'moi',
+    getCurrentUser: async () => 'me',
     listNotifications: async () => [],
     searchReviewRequested: async () => [],
     searchAuthored: async () => [],
@@ -225,28 +225,28 @@ test('POST /theme persiste le thème, se reflète dans la page, ne perd pas noti
   process.env.XDG_STATE_HOME = tmp;
 
   const PORT = 7793;
-  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600, open: false });
+  const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false });
   try {
     await new Promise((r) => setTimeout(r, 150));
-    // Défaut auto.
+    // Default auto.
     const page1 = await (await fetch(`http://localhost:${PORT}/`)).text();
-    assert.match(page1, /<html lang="fr" data-theme="auto"/);
+    assert.match(page1, /<html lang="en" data-theme="auto"/);
 
-    // Coupe d'abord les notifs pour vérifier que /theme ne l'écrase pas.
+    // First turn off the notifs to check that /theme does not overwrite it.
     await fetch(`http://localhost:${PORT}/notify?enabled=0`, { method: 'POST' });
 
-    // Passe en sombre.
+    // Switch to dark.
     const res = await fetch(`http://localhost:${PORT}/theme?value=dark`, { method: 'POST' });
     assert.equal(res.status, 204);
     const page2 = await (await fetch(`http://localhost:${PORT}/`)).text();
-    assert.match(page2, /<html lang="fr" data-theme="dark"/);
+    assert.match(page2, /<html lang="en" data-theme="dark"/);
 
-    // Persisté ET notify préservé (pas de clé perdue).
+    // Persisted AND notify preserved (no lost key).
     const prefs = loadPrefs(prefsPath());
     assert.equal(prefs.theme, 'dark');
     assert.equal(prefs.notify, false);
 
-    // Valeur invalide → ignorée/normalisée en auto (robustesse).
+    // Invalid value → ignored/normalized to auto (robustness).
     await fetch(`http://localhost:${PORT}/theme?value=fuchsia`, { method: 'POST' });
     assert.equal(loadPrefs(prefsPath()).theme, 'auto');
   } finally {
@@ -255,13 +255,12 @@ test('POST /theme persiste le thème, se reflète dans la page, ne perd pas noti
   }
 });
 
-// ── Favoris : collecte sur l'union, filtre à l'affichage ─────────────────
-
+// ── Favorites: collection over the union, filter at display ──────────────
 const mixedSnapshot = () => ({
   data: {
     mine: [
-      { repo: 'mapado/web', number: 1, url: 'u', title: 'chez mapado', triggers: [], ci: 'pass', state: 'open', approvals: 0 },
-      { repo: 'zenstruck/foundry', number: 2, url: 'u', title: 'chez zenstruck', triggers: [], ci: 'pass', state: 'open', approvals: 0 },
+      { repo: 'mapado/web', number: 1, url: 'u', title: 'at mapado', triggers: [], ci: 'pass', state: 'open', approvals: 0 },
+      { repo: 'zenstruck/foundry', number: 2, url: 'u', title: 'at zenstruck', triggers: [], ci: 'pass', state: 'open', approvals: 0 },
     ],
     others: [],
     debug: [{ repo: 'mapado/web', number: 1, verdict: { kept: true, reason: 'r' } },
@@ -271,35 +270,35 @@ const mixedSnapshot = () => ({
   error: null,
 });
 
-test('GET / : les chips de favoris sont dans la page, l’active marquée', () => {
+test('GET / : the favorite chips are in the page, the active one marked', () => {
   const res = handleRequest('/', okSnapshot(), { ...OPTS, favorites: ['mapado', 'zenstruck'], activeFav: 'mapado' });
   assert.match(res.body, /data-fav="mapado" class="on"/);
   assert.match(res.body, /data-fav="zenstruck"/);
 });
 
-test('GET /fragment : filtré sur le favori actif (le snapshot, lui, garde l’union)', () => {
+test('GET /fragment : filtered on the active favorite (the snapshot, itself, keeps the union)', () => {
   const snap = mixedSnapshot();
   const res = handleRequest('/fragment', snap, { ...OPTS, favorites: ['mapado', 'zenstruck'], activeFav: 'mapado' });
-  assert.match(res.body, /chez mapado/);
-  assert.doesNotMatch(res.body, /chez zenstruck/);
-  // ⚠️ le snapshot n'est PAS muté : c'est lui qui alimente les notifs desktop
+  assert.match(res.body, /at mapado/);
+  assert.doesNotMatch(res.body, /at zenstruck/);
+  // ⚠️ the snapshot is NOT mutated: it is what feeds the desktop notifs
   assert.equal(snap.data.mine.length, 2);
 });
 
-test('GET /fragment sans favori actif → toute l’union est affichée', () => {
+test('GET /fragment without active favorite → the whole union is displayed', () => {
   const res = handleRequest('/fragment', mixedSnapshot(), { ...OPTS, favorites: ['mapado', 'zenstruck'], activeFav: null });
-  assert.match(res.body, /chez mapado/);
-  assert.match(res.body, /chez zenstruck/);
+  assert.match(res.body, /at mapado/);
+  assert.match(res.body, /at zenstruck/);
 });
 
-test('mode ad-hoc : un scope saisi prime, le favori actif ne re-filtre pas', () => {
+test('ad-hoc mode: an entered scope takes precedence, the active favorite does not re-filter', () => {
   const res = handleRequest('/fragment', mixedSnapshot(), {
     ...OPTS, favorites: ['mapado'], activeFav: 'mapado', adhoc: true, scope: { type: 'org', value: 'zenstruck' },
   });
-  assert.match(res.body, /chez zenstruck/); // la collecte a déjà fait le filtrage
+  assert.match(res.body, /at zenstruck/); // the collection already did the filtering
 });
 
-test('GET / en mode ad-hoc : chips grisées et aucune active', () => {
+test('GET / in ad-hoc mode: greyed chips and none active', () => {
   const res = handleRequest('/', okSnapshot(), {
     ...OPTS, favorites: ['mapado'], activeFav: 'mapado', adhoc: true, scope: { type: 'org', value: 'zenstruck' },
   });
@@ -307,20 +306,20 @@ test('GET / en mode ad-hoc : chips grisées et aucune active', () => {
   assert.doesNotMatch(res.body, /data-fav="mapado" class="on"/);
 });
 
-test('GET /debug-fragment suit aussi le favori actif', () => {
+test('GET /debug-fragment also follows the active favorite', () => {
   const res = handleRequest('/debug-fragment', mixedSnapshot(), { ...OPTS, favorites: ['mapado'], activeFav: 'mapado' });
   assert.match(res.body, /mapado\/web/);
   assert.doesNotMatch(res.body, /zenstruck/);
 });
 
-test('scopeLabel : en mode favoris (scope = tableau) le champ reste vide', () => {
+test('scopeLabel : in favorites mode (scope = array) the field stays empty', () => {
   assert.equal(scopeLabel([{ type: 'org', value: 'mapado' }, { type: 'org', value: 'zenstruck' }]), '');
   assert.equal(scopeLabel({ type: 'org', value: 'mapado' }), 'mapado');
 });
 
-// ── intégration : routes /fav* (ajout, sélection, retrait, persistance) ─────
-test('POST /fav* : épingle, filtre, retire — et ne perd ni notify ni theme', async () => {
-  // Deux PR dans deux orgs : la collecte porte sur l'union, l'affichage filtre.
+// ── integration: /fav* routes (add, select, remove, persistence) ────────────
+test('POST /fav* : pins, filters, removes — and loses neither notify nor theme', async () => {
+  // Two PRs in two orgs: the collection covers the union, the display filters.
   const pr = (repo, number, title) => ({
     repository_url: `https://api.github.com/repos/${repo}`, number, title,
     html_url: `https://github.com/${repo}/pull/${number}`, updated_at: '2026-06-24T10:00:00Z',
@@ -328,9 +327,9 @@ test('POST /fav* : épingle, filtre, retire — et ne perd ni notify ni theme', 
   const searches = [];
   const checked = [];
   const gh = {
-    getCurrentUser: async () => 'moi',
+    getCurrentUser: async () => 'me',
     listNotifications: async () => [],
-    searchReviewRequested: async (q) => { searches.push(q); return [pr('mapado/web', 1, 'chez mapado'), pr('zenstruck/foundry', 2, 'chez zenstruck')]; },
+    searchReviewRequested: async (q) => { searches.push(q); return [pr('mapado/web', 1, 'at mapado'), pr('zenstruck/foundry', 2, 'at zenstruck')]; },
     searchAuthored: async () => [],
     getPullDetailsBatch: async (prs) => prs.map(() => ({ author: { login: 'alice' }, state: 'OPEN', additions: 1, deletions: 0, reviews: [] })),
     getComment: async () => null,
@@ -342,62 +341,62 @@ test('POST /fav* : épingle, filtre, retire — et ne perd ni notify ni theme', 
   process.env.XDG_STATE_HOME = tmp;
 
   const PORT = 7794;
-  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600, open: false });
+  const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false });
   const post = (p) => fetch(`http://localhost:${PORT}${p}`, { method: 'POST' });
   try {
     await new Promise((r) => setTimeout(r, 150));
-    // Réglages préexistants : ils ne doivent pas bouger.
+    // Pre-existing settings: they must not change.
     await post('/notify?enabled=0');
     await post('/theme?value=dark');
 
-    // Épingle deux favoris. La réponse part AVANT le re-poll (puce instantanée) :
-    // la chip est déjà dans la réponse, l'existence a été vérifiée.
+    // Pins two favorites. The response leaves BEFORE the re-poll (instant chip):
+    // the chip is already in the response, the existence was verified.
     await post('/fav/add?value=mapado');
     const added = await (await post('/fav/add?value=zenstruck')).json();
     assert.match(added.chips, /data-fav="mapado"/);
     assert.match(added.chips, /data-fav="zenstruck"/);
     assert.deepEqual(checked, [{ type: 'org', value: 'mapado' }, { type: 'org', value: 'zenstruck' }]);
-    assert.match(added.fragment, /chez mapado/);
-    assert.match(added.fragment, /chez zenstruck/); // aucun favori actif → union
+    assert.match(added.fragment, /at mapado/);
+    assert.match(added.fragment, /at zenstruck/); // no active favorite → union
 
-    // Le refresh d'arrière-plan aboutit : la collecte porte bien sur l'union
-    // (une seule recherche OR-isée). On laisse le poll asynchrone se poser.
+    // The background refresh completes: the collection indeed covers the union
+    // (a single OR-ed search). We let the async poll settle.
     await new Promise((r) => setTimeout(r, 200));
     assert.equal(searches.at(-1), ' org:mapado org:zenstruck');
 
-    // /view (poll du client) : chips avec compteurs (activité des autres) + updatedAt.
+    // /view (client poll): chips with counters (others' activity) + updatedAt.
     const view = await (await fetch(`http://localhost:${PORT}/view`)).json();
-    assert.match(view.chips, /⭐ tous <span class="fav-n">\(2\)<\/span>/);
+    assert.match(view.chips, /⭐ all <span class="fav-n">\(2\)<\/span>/);
     assert.match(view.chips, /mapado\/\* <span class="fav-n">\(1\)<\/span>/);
     assert.match(view.chips, /zenstruck\/\* <span class="fav-n">\(1\)<\/span>/);
-    assert.ok(view.updatedAt > 0, 'updatedAt exposé pour la sonde du client');
+    assert.ok(view.updatedAt > 0, 'updatedAt exposed for the client probe');
 
-    // Sélectionne un favori : filtre d'affichage, SANS nouvelle recherche.
+    // Selects a favorite: display filter, WITHOUT a new search.
     const before = searches.length;
     const selected = await (await post('/fav?value=mapado')).json();
-    assert.equal(searches.length, before, 'changer de favori ne doit coûter aucune requête');
-    assert.match(selected.fragment, /chez mapado/);
-    assert.doesNotMatch(selected.fragment, /chez zenstruck/);
+    assert.equal(searches.length, before, 'switching favorite must cost no request');
+    assert.match(selected.fragment, /at mapado/);
+    assert.doesNotMatch(selected.fragment, /at zenstruck/);
     assert.match(selected.chips, /data-fav="mapado" class="on"/);
-    // Le compteur de l'autre favori reste visible même quand on ne le regarde pas.
+    // The counter of the other favorite stays visible even when we are not looking at it.
     assert.match(selected.chips, /zenstruck\/\* <span class="fav-n">\(1\)<\/span>/);
 
-    // Persisté, sans écraser notify/theme (piège de la clé perdue).
+    // Persisted, without overwriting notify/theme (lost-key trap).
     let prefs = loadPrefs(prefsPath());
     assert.deepEqual(prefs.favorites, ['mapado', 'zenstruck']);
     assert.equal(prefs.activeFav, 'mapado');
     assert.equal(prefs.notify, false);
     assert.equal(prefs.theme, 'dark');
 
-    // Retirer le favori actif rebascule sur « tous ».
+    // Removing the active favorite falls back to « all ».
     const removed = await (await post('/fav/rm?value=mapado')).json();
     assert.doesNotMatch(removed.chips, /data-fav="mapado"/);
     prefs = loadPrefs(prefsPath());
     assert.deepEqual(prefs.favorites, ['zenstruck']);
     assert.equal(prefs.activeFav, null);
 
-    // Valeur inconnue → « tous », pas d'erreur.
-    await post('/fav?value=nimportequoi');
+    // Unknown value → « all », no error.
+    await post('/fav?value=whatever');
     assert.equal(loadPrefs(prefsPath()).activeFav, null);
   } finally {
     server.close();
@@ -405,66 +404,66 @@ test('POST /fav* : épingle, filtre, retire — et ne perd ni notify ni theme', 
   }
 });
 
-// ── intégration : refus d'un favori qui n'existe pas sur GitHub ─────────────
-test('POST /fav/add : scope introuvable → 400, rien n’est persisté', async () => {
+// ── integration: refusal of a favorite that does not exist on GitHub ────────
+test('POST /fav/add : scope not found → 400, nothing is persisted', async () => {
   const gh = {
-    getCurrentUser: async () => 'moi',
+    getCurrentUser: async () => 'me',
     listNotifications: async () => [],
     searchReviewRequested: async () => [],
     searchAuthored: async () => [],
     getPullDetailsBatch: async () => [],
     getComment: async () => null,
     getReviewComments: async () => [],
-    // 404 GitHub → false ; indéterminé (réseau) → null (fail-open).
-    scopeExists: async (s) => (s.value.includes('reseau-hs') ? null : false),
+    // GitHub 404 → false; indeterminate (network) → null (fail-open).
+    scopeExists: async (s) => (s.value.includes('network-down') ? null : false),
   };
   const tmp = `/tmp/gh-notif-test-fav404-${process.pid}`;
   rmSync(tmp, { recursive: true, force: true });
   process.env.XDG_STATE_HOME = tmp;
 
   const PORT = 7795;
-  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600, open: false });
+  const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false });
   try {
     await new Promise((r) => setTimeout(r, 150));
 
-    // Org inexistante → 400 avec message clair, favoris intacts.
-    const org = await fetch(`http://localhost:${PORT}/fav/add?value=nexiste-pas`, { method: 'POST' });
+    // Nonexistent org → 400 with a clear message, favorites intact.
+    const org = await fetch(`http://localhost:${PORT}/fav/add?value=does-not-exist`, { method: 'POST' });
     assert.equal(org.status, 400);
-    assert.match(await org.text(), /org\/utilisateur nexiste-pas introuvable/);
+    assert.match(await org.text(), /org\/user does-not-exist not found/);
     assert.deepEqual(loadPrefs(prefsPath()).favorites, []);
 
-    // Dépôt inexistant → même refus, message adapté.
-    const repo = await fetch(`http://localhost:${PORT}/fav/add?value=${encodeURIComponent('o/nexiste-pas')}`, { method: 'POST' });
+    // Nonexistent repository → same refusal, adapted message.
+    const repo = await fetch(`http://localhost:${PORT}/fav/add?value=${encodeURIComponent('o/does-not-exist')}`, { method: 'POST' });
     assert.equal(repo.status, 400);
-    assert.match(await repo.text(), /dépôt o\/nexiste-pas introuvable/);
+    assert.match(await repo.text(), /repository o\/does-not-exist not found/);
 
-    // Vérification indéterminée (réseau) → fail-open : l'ajout passe quand même.
-    const ok = await fetch(`http://localhost:${PORT}/fav/add?value=reseau-hs`, { method: 'POST' });
+    // Indeterminate check (network) → fail-open: the add goes through anyway.
+    const ok = await fetch(`http://localhost:${PORT}/fav/add?value=network-down`, { method: 'POST' });
     assert.equal(ok.status, 200);
-    assert.deepEqual(loadPrefs(prefsPath()).favorites, ['reseau-hs']);
+    assert.deepEqual(loadPrefs(prefsPath()).favorites, ['network-down']);
   } finally {
     server.close();
     rmSync(tmp, { recursive: true, force: true });
   }
 });
 
-// ── shouldRefresh (débounce du POST /refresh, pur) ──────────────────────────
-test('shouldRefresh : jamais pollé ou snapshot vieux → true, frais → false', () => {
-  // Jamais pollé (updatedAt null) : il faut poller.
+// ── shouldRefresh (debounce of POST /refresh, pure) ─────────────────────────
+test('shouldRefresh : never polled or old snapshot → true, fresh → false', () => {
+  // Never polled (updatedAt null): must poll.
   assert.equal(shouldRefresh(null, NOW), true);
-  // Snapshot frais (< 10 s) : un reload de page ne re-poll pas GitHub.
+  // Fresh snapshot (< 10 s): a page reload does not re-poll GitHub.
   assert.equal(shouldRefresh(NOW - 3000, NOW), false);
-  // Snapshot vieux : on re-poll.
+  // Old snapshot: we re-poll.
   assert.equal(shouldRefresh(NOW - 15000, NOW), true);
-  // Seuil surchargeable.
+  // Overridable threshold.
   assert.equal(shouldRefresh(NOW - 3000, NOW, 2000), true);
 });
 
-// ── intégration : POST /refresh débouncé quand le snapshot est frais ────────
-test('POST /refresh juste après un poll → pas de nouvelle collecte GitHub', async () => {
+// ── integration: POST /refresh debounced when the snapshot is fresh ─────────
+test('POST /refresh right after a poll → no new GitHub collection', async () => {
   let polls = 0;
   const gh = {
-    getCurrentUser: async () => 'moi',
+    getCurrentUser: async () => 'me',
     listNotifications: async () => { polls += 1; return []; },
     searchReviewRequested: async () => [],
     searchAuthored: async () => [],
@@ -477,80 +476,80 @@ test('POST /refresh juste après un poll → pas de nouvelle collecte GitHub', a
   process.env.XDG_STATE_HOME = tmp;
 
   const PORT = 7796;
-  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600, open: false });
+  const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false });
   try {
-    await new Promise((r) => setTimeout(r, 150)); // 1er poll
-    assert.equal(polls, 1, 'un seul poll au démarrage');
+    await new Promise((r) => setTimeout(r, 150)); // 1st poll
+    assert.equal(polls, 1, 'a single poll at startup');
 
-    // Reload de page (ctrl+R) → le client force /refresh ; snapshot frais → 0 collecte.
+    // Page reload (ctrl+R) → the client forces /refresh; fresh snapshot → 0 collection.
     const res = await fetch(`http://localhost:${PORT}/refresh`, { method: 'POST' });
     assert.equal(res.status, 200);
     const d = await res.json();
-    assert.ok(d.updatedAt, 'répond quand même la vue courante (JSON complet)');
-    assert.equal(polls, 1, 'snapshot frais → pas de re-poll GitHub');
+    assert.ok(d.updatedAt, 'responds with the current view anyway (full JSON)');
+    assert.equal(polls, 1, 'fresh snapshot → no re-poll of GitHub');
   } finally {
     server.close();
     rmSync(tmp, { recursive: true, force: true });
   }
 });
 
-// ── /view (handleRequest, pur) ──────────────────────────────────────────────
-test('GET /view : JSON {chips, fragment, updatedAt}, compteurs depuis le snapshot', () => {
+// ── /view (handleRequest, pure) ─────────────────────────────────────────────
+test('GET /view : JSON {chips, fragment, updatedAt}, counters from the snapshot', () => {
   const snap = mixedSnapshot();
   snap.data.others = [
-    { repo: 'mapado/front', number: 7, url: 'u', title: 'aussi', triggers: ['review'], ci: 'pass', author: 'bob', createdAt: '2026-06-21T12:00:00Z', additions: 1, deletions: 0, state: 'open', approvals: 0 },
+    { repo: 'mapado/front', number: 7, url: 'u', title: 'also', triggers: ['review'], ci: 'pass', author: 'bob', createdAt: '2026-06-21T12:00:00Z', additions: 1, deletions: 0, state: 'open', approvals: 0 },
   ];
   const res = handleRequest('/view', snap, { ...OPTS, favorites: ['mapado', 'zenstruck'], activeFav: 'zenstruck' });
   assert.equal(res.type, 'application/json; charset=utf-8');
   const d = JSON.parse(res.body);
   assert.equal(d.updatedAt, NOW);
-  // Compteurs = activité des autres, calculés sur l'UNION (mapado compte même
-  // si le favori actif est zenstruck).
+  // Counters = others' activity, computed on the UNION (mapado counts even
+  // if the active favorite is zenstruck).
   assert.match(d.chips, /mapado\/\* <span class="fav-n">\(1\)<\/span>/);
   assert.match(d.chips, /zenstruck\/\* <span class="fav-n">\(0\)<\/span>/);
   assert.match(d.chips, /data-fav="zenstruck" class="on"/);
-  // Le fragment, lui, est filtré sur le favori actif.
-  assert.match(d.fragment, /chez zenstruck/);
-  assert.doesNotMatch(d.fragment, /chez mapado/);
+  // The fragment, itself, is filtered on the active favorite.
+  assert.match(d.fragment, /at zenstruck/);
+  assert.doesNotMatch(d.fragment, /at mapado/);
 });
 
-test('GET /fragment : lien « fermées » contextualisé (ad-hoc > favori actif > union des favoris)', () => {
-  // Aucun scope ni favori → lien sans qualifier.
+test('GET /fragment : « closed » link contextualized (ad-hoc > active favorite > union of favorites)', () => {
+  // No scope nor favorite → link without qualifier.
   let res = handleRequest('/fragment', okSnapshot(), OPTS);
   assert.ok(res.body.includes('href="https://github.com/pulls?q=is%3Apr%20author%3A%40me%20is%3Aclosed"'));
-  // Favori actif → son qualifier seul.
+  // Active favorite → its qualifier alone.
   res = handleRequest('/fragment', okSnapshot(), { ...OPTS, favorites: ['mapado', 'a/b'], activeFav: 'mapado' });
   assert.ok(res.body.includes('is%3Aclosed%20org%3Amapado"'));
-  // « Tous » avec favoris → union.
+  // « All » with favorites → union.
   res = handleRequest('/fragment', okSnapshot(), { ...OPTS, favorites: ['mapado', 'a/b'], activeFav: null });
   assert.ok(res.body.includes('org%3Amapado%20repo%3Aa%2Fb"'));
-  // Mode ad-hoc → le scope saisi prime sur les favoris.
+  // Ad-hoc mode → the entered scope takes precedence over the favorites.
   res = handleRequest('/fragment', okSnapshot(), { ...OPTS, favorites: ['mapado'], activeFav: 'mapado', scope: { type: 'repo', value: 'x/y' }, adhoc: true });
   assert.ok(res.body.includes('is%3Aclosed%20repo%3Ax%2Fy"'));
 });
 
-// ── tri du tableau « autres » ──────────────────────────────────────────────
+// ── sort of the « others » table ────────────────────────────────────────────
 const sortedSnapshot = () => ({
   data: {
     mine: [],
     others: [
-      { repo: 'o/old', number: 1, url: 'u', title: 'vieille', author: 'zoe', createdAt: '2026-06-01T00:00:00Z', additions: 0, deletions: 0, triggers: ['review'], ci: 'pass', state: 'open', approvals: 2 },
-      { repo: 'o/new', number: 2, url: 'u', title: 'récente', author: 'alice', createdAt: '2026-06-20T00:00:00Z', additions: 0, deletions: 0, triggers: ['review'], ci: 'pass', state: 'open', approvals: 0 },
+      { repo: 'o/old', number: 1, url: 'u', title: 'old', author: 'zoe', createdAt: '2026-06-01T00:00:00Z', additions: 0, deletions: 0, triggers: ['review'], ci: 'pass', state: 'open', approvals: 2 },
+      { repo: 'o/new', number: 2, url: 'u', title: 'recent', author: 'alice', createdAt: '2026-06-20T00:00:00Z', additions: 0, deletions: 0, triggers: ['review'], ci: 'pass', state: 'open', approvals: 0 },
     ],
   },
   updatedAt: NOW,
   error: null,
 });
 
-test('GET /fragment : opts.sort trie les autres et marque la colonne active', () => {
+test('GET /fragment : opts.sort sorts the others and marks the active column', () => {
   const desc = handleRequest('/fragment', sortedSnapshot(), { ...OPTS, sort: { key: 'date', dir: 'desc' } });
-  assert.ok(desc.body.indexOf('o/new#2') < desc.body.indexOf('o/old#1'), 'date desc : récente d’abord');
-  assert.match(desc.body, /data-sort-key="date"[^>]*>Ouverte ▾/);
+  assert.ok(desc.body.indexOf('o/new#2') < desc.body.indexOf('o/old#1'), 'date desc: recent first');
+  assert.match(desc.body, /data-sort-key="date"[^>]*>Opened ▾/);
   const byAuthor = handleRequest('/fragment', sortedSnapshot(), { ...OPTS, sort: { key: 'author', dir: 'asc' } });
-  assert.ok(byAuthor.body.indexOf('o/new#2') < byAuthor.body.indexOf('o/old#1'), 'alice avant zoe');
+  assert.ok(byAuthor.body.indexOf('o/new#2') < byAuthor.body.indexOf('o/old#1'), 'alice before zoe');
 });
 
-test('GET /fragment?hidden : les lignes masquées suivent le même tri', () => {
+test('GET /fragment?hidden : the hidden rows follow the same sort', () => {
   const snap = sortedSnapshot();
   snap.data.hidden = [
     { repo: 'o/hb', number: 8, url: 'u', title: 'b', author: 'bob', createdAt: '2026-06-05T00:00:00Z', additions: 0, deletions: 0, triggers: ['review'], ci: 'none', state: 'open', approvals: 0 },
@@ -558,21 +557,21 @@ test('GET /fragment?hidden : les lignes masquées suivent le même tri', () => {
   ];
   snap.data.hiddenCount = 2;
   const res = handleRequest('/fragment', snap, { ...OPTS, showHidden: true, sort: { key: 'date', dir: 'desc' } });
-  assert.ok(res.body.indexOf('o/ha#9') < res.body.indexOf('o/hb#8'), 'masquées triées aussi (date desc)');
+  assert.ok(res.body.indexOf('o/ha#9') < res.body.indexOf('o/hb#8'), 'hidden ones sorted too (date desc)');
 });
 
-test('POST /sort : trie, inverse au re-clic, persiste, 400 sur clé inconnue', async () => {
+test('POST /sort : sorts, reverses on re-click, persists, 400 on unknown key', async () => {
   let polls = 0;
   const gh = {
-    getCurrentUser: async () => 'moi',
+    getCurrentUser: async () => 'me',
     listNotifications: async () => { polls += 1; return []; },
     searchReviewRequested: async () => [
-      { repository_url: 'https://api.github.com/repos/o/old', number: 1, title: 'vieille', html_url: 'u', updated_at: '2026-06-24T00:00:00Z' },
-      { repository_url: 'https://api.github.com/repos/o/new', number: 2, title: 'récente', html_url: 'u', updated_at: '2026-06-24T00:00:00Z' },
+      { repository_url: 'https://api.github.com/repos/o/old', number: 1, title: 'old', html_url: 'u', updated_at: '2026-06-24T00:00:00Z' },
+      { repository_url: 'https://api.github.com/repos/o/new', number: 2, title: 'recent', html_url: 'u', updated_at: '2026-06-24T00:00:00Z' },
     ],
     searchAuthored: async () => [],
     getPullDetailsBatch: async (prs) => prs.map((p) => ({
-      number: p.number, title: p.number === 1 ? 'vieille' : 'récente',
+      number: p.number, title: p.number === 1 ? 'old' : 'recent',
       author: { login: p.number === 1 ? 'zoe' : 'alice' },
       createdAt: p.number === 1 ? '2026-06-01T00:00:00Z' : '2026-06-20T00:00:00Z',
       additions: 0, deletions: 0, isDraft: false, state: 'OPEN', reviews: [], statusCheckRollupState: 'SUCCESS',
@@ -585,32 +584,32 @@ test('POST /sort : trie, inverse au re-clic, persiste, 400 sur clé inconnue', a
   process.env.XDG_STATE_HOME = tmp;
 
   const PORT = 7797;
-  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600, open: false });
+  const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false });
   try {
-    await new Promise((r) => setTimeout(r, 250)); // 1er poll
-    // Défaut date desc : la récente (#2) d'abord.
+    await new Promise((r) => setTimeout(r, 250)); // 1st poll
+    // Default date desc: the recent one (#2) first.
     const frag1 = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
-    assert.ok(frag1.indexOf('o/new#2') < frag1.indexOf('o/old#1'), 'défaut : date desc');
+    assert.ok(frag1.indexOf('o/new#2') < frag1.indexOf('o/old#1'), 'default: date desc');
 
-    // Clic « Auteur » → alice avant zoe, et l'état est persisté sur disque.
+    // Click « Author » → alice before zoe, and the state is persisted on disk.
     const r1 = await fetch(`http://localhost:${PORT}/sort?key=author`, { method: 'POST' });
     assert.equal(r1.status, 200);
     const d1 = await r1.json();
-    assert.ok(d1.fragment.indexOf('o/new#2') < d1.fragment.indexOf('o/old#1'), 'author asc : alice d’abord');
+    assert.ok(d1.fragment.indexOf('o/new#2') < d1.fragment.indexOf('o/old#1'), 'author asc: alice first');
     assert.deepEqual(loadPrefs(prefsPath()).sort, { key: 'author', dir: 'asc' });
 
-    // Re-clic « Auteur » → sens inversé.
+    // Re-click « Author » → reversed direction.
     const d2 = await (await fetch(`http://localhost:${PORT}/sort?key=author`, { method: 'POST' })).json();
-    assert.ok(d2.fragment.indexOf('o/old#1') < d2.fragment.indexOf('o/new#2'), 'author desc : zoe d’abord');
+    assert.ok(d2.fragment.indexOf('o/old#1') < d2.fragment.indexOf('o/new#2'), 'author desc: zoe first');
     assert.deepEqual(loadPrefs(prefsPath()).sort, { key: 'author', dir: 'desc' });
 
-    // Clé inconnue → 400, préférence intacte.
+    // Unknown key → 400, preference intact.
     const bad = await fetch(`http://localhost:${PORT}/sort?key=nope`, { method: 'POST' });
     assert.equal(bad.status, 400);
     assert.deepEqual(loadPrefs(prefsPath()).sort, { key: 'author', dir: 'desc' });
 
-    // POST /sort ne déclenche aucun poll GitHub (recompute local seulement).
-    assert.equal(polls, 1, 'POST /sort ne déclenche aucun poll GitHub');
+    // POST /sort triggers no GitHub poll (local recompute only).
+    assert.equal(polls, 1, 'POST /sort triggers no GitHub poll');
   } finally {
     server.close();
     rmSync(tmp, { recursive: true, force: true });

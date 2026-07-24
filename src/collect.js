@@ -2,14 +2,14 @@ import { classify, classifyVerdict, CATEGORY, TRIGGER_FOR } from './filter.js';
 import { reconcile, isHidden, keyOf } from './hidden.js';
 import { approvalsOf } from './approvals.js';
 
-// Concurrence max des appels `gh` (évite de spawner des dizaines de process
-// d'un coup / de heurter le rate-limit secondaire de GitHub). Abaissée pour
-// lisser le pic à froid et ménager le secondary rate limit.
+// Max concurrency of `gh` calls (avoids spawning dozens of processes at once /
+// hitting GitHub's secondary rate-limit). Lowered to smooth out the cold-start
+// spike and spare the secondary rate limit.
 const CONCURRENCY = 6;
 
-// Fusionne deux listes de review-comments par `id` (la version `fresh` gagne),
-// triées par `created_at`. Sert à la récupération incrémentale (`since`) : on
-// ne re-pagine pas tout un fil, on fusionne le delta avec le cache.
+// Merges two lists of review-comments by `id` (the `fresh` version wins),
+// sorted by `created_at`. Used for incremental fetching (`since`): we don't
+// re-paginate a whole thread, we merge the delta with the cache.
 export function mergeReviewComments(prev, fresh) {
   const byId = new Map();
   for (const c of prev || []) byId.set(c.id, c);
@@ -21,8 +21,8 @@ export function mergeReviewComments(prev, fresh) {
   });
 }
 
-// Borne haute des `updated_at` (fallback `created_at`) d'une liste de
-// commentaires — prochain `since` pour la récupération incrémentale. null si vide.
+// Upper bound of the `updated_at` (fallback `created_at`) of a list of
+// comments — the next `since` for incremental fetching. null if empty.
 export function watermarkOf(comments) {
   let max = null;
   for (const c of comments || []) {
@@ -32,44 +32,44 @@ export function watermarkOf(comments) {
   return max;
 }
 
-// scope : null (tout) | { type:'org', value } | { type:'repo', value:'owner/name' }
-// Les entrées publiques (collectPRs & co) acceptent aussi un TABLEAU de scopes
-// (union des favoris) — cf. toScopeList / matchesAnyScope plus bas.
+// scope : null (everything) | { type:'org', value } | { type:'repo', value:'owner/name' }
+// The public entry points (collectPRs & co) also accept an ARRAY of scopes
+// (union of favorites) — cf. toScopeList / matchesAnyScope below.
 export function scopeMatches(scope, fullName) {
   if (!scope) return true;
   if (scope.type === 'org') return (fullName || '').startsWith(`${scope.value}/`);
   return fullName === scope.value;
 }
 
-// Qualifier de recherche GitHub correspondant au scope (chaîne préfixée d'un espace).
+// GitHub search qualifier matching the scope (string prefixed with a space).
 export function scopeQualifier(scope) {
   if (!scope) return '';
   return scope.type === 'org' ? ` org:${scope.value}` : ` repo:${scope.value}`;
 }
 
-// ── Scopes multiples (favoris) ───────────────────────────────────────────
-// Depuis les favoris, `scope` peut être une LISTE de scopes dont on veut
-// l'union. Les trois helpers ci-dessous généralisent les deux précédents sans
-// les modifier (un scope unique reste un cas particulier).
+// ── Multiple scopes (favorites) ──────────────────────────────────────────
+// From favorites, `scope` can be a LIST of scopes whose union we want. The
+// three helpers below generalize the previous two without modifying them (a
+// single scope stays a special case).
 
-// Normalise un paramètre `scope` : null | objet unique | tableau → null | tableau
-// non vide. Un tableau vide vaut « pas de filtre ».
+// Normalizes a `scope` parameter: null | single object | array → null | non-empty
+// array. An empty array means « no filter ».
 export function toScopeList(scope) {
   if (!scope) return null;
   const list = (Array.isArray(scope) ? scope : [scope]).filter(Boolean);
   return list.length > 0 ? list : null;
 }
 
-// Le dépôt appartient-il à AU MOINS UN des scopes ? (null → tout passe)
+// Does the repo belong to AT LEAST ONE of the scopes? (null → everything passes)
 export function matchesAnyScope(scopes, fullName) {
   const list = toScopeList(scopes);
   if (!list) return true;
   return list.some((s) => scopeMatches(s, fullName));
 }
 
-// Qualifier de recherche pour l'union des scopes. GitHub OR-ise les qualifiers
-// de scope répétés (mesuré : `repo:a` 6 + `repo:b` 9 → les deux 15), y compris
-// en mêlant `org:` et `repo:` → l'union coûte UNE recherche, pas N.
+// Search qualifier for the union of scopes. GitHub OR-s repeated scope
+// qualifiers (measured: `repo:a` 6 + `repo:b` 9 → both 15), including when
+// mixing `org:` and `repo:` → the union costs ONE search, not N.
 export function scopesQualifier(scopes) {
   const list = toScopeList(scopes);
   if (!list) return '';
@@ -77,17 +77,17 @@ export function scopesQualifier(scopes) {
 }
 
 export async function inspectThread(gh, thread, me, cacheEntry = null) {
-  // Cache hit : le thread n'a pas bougé depuis le dernier poll (même
-  // `updated_at`) → on réutilise l'inspection précédente, **0 requête**.
+  // Cache hit: the thread hasn't moved since the last poll (same
+  // `updated_at`) → we reuse the previous inspection, **0 requests**.
   if (cacheEntry && cacheEntry.threadUpdatedAt === thread.updated_at) {
     return cacheEntry.inspection;
   }
-  // On récupère le dernier commentaire (acteur des mention/author) ET les
-  // review-comments (détection de réponse à mon fil), car la `reason` est
-  // « collante » : une réponse réelle peut arriver sous une reason=mention OU
-  // review_requested (d'où la récupération même pour les demandes de review).
-  // Récupération incrémentale : seulement les commentaires postérieurs au
-  // dernier vu (`since`), fusionnés avec ceux du cache.
+  // We fetch the latest comment (actor of the mention/author) AND the
+  // review-comments (detection of a reply to my thread), because the `reason`
+  // is « sticky »: a real reply can arrive under a reason=mention OR
+  // review_requested (hence fetching even for review requests).
+  // Incremental fetching: only the comments after the last seen one
+  // (`since`), merged with those from the cache.
   const number = Number(thread.subject.url.split('/').pop());
   const url = thread.subject?.latest_comment_url;
   const since = cacheEntry?.since ?? null;
@@ -103,14 +103,14 @@ export async function inspectThread(gh, thread, me, cacheEntry = null) {
 
 export async function collectNotifications(gh, me, { all = false, scope = null, cache = null, debug = null } = {}) {
   const threads = await gh.listNotifications({ all });
-  // Ne garde que les PR du scope avant toute requête (filtre = gratuit).
+  // Keep only the PRs in scope before any request (filtering = free).
   const prThreads = threads.filter(
     (t) => t.subject?.type === 'PullRequest' && matchesAnyScope(scope, t.repository?.full_name),
   );
-  // Inspection en parallèle (au lieu d'un await séquentiel par thread) : c'est le
-  // gros gain de temps. `mapLimit` préserve l'ordre ; un thread en échec → null.
-  // Avec `cache` (boucle longue) : un thread inchangé coûte 0 requête, sinon on
-  // récupère seulement le delta de commentaires et on met à jour l'entrée.
+  // Inspection in parallel (instead of a sequential await per thread): that's the
+  // big time gain. `mapLimit` preserves order; a failed thread → null.
+  // With `cache` (long loop): an unchanged thread costs 0 requests, otherwise we
+  // fetch only the delta of comments and update the entry.
   const inspections = await mapLimit(prThreads, CONCURRENCY, (t) => {
     const prev = cache?.get(t.id) ?? null;
     return inspectThread(gh, t, me, prev)
@@ -124,7 +124,7 @@ export async function collectNotifications(gh, me, { all = false, scope = null, 
       })
       .catch(() => null);
   });
-  // Élague le cache des threads qui ne sont plus dans la liste de notifications.
+  // Prune the cache of threads that are no longer in the notification list.
   if (cache) {
     const present = new Set(prThreads.map((t) => t.id));
     for (const id of cache.keys()) if (!present.has(id)) cache.delete(id);
@@ -134,8 +134,8 @@ export async function collectNotifications(gh, me, { all = false, scope = null, 
     const inspection = inspections[i];
     const { item, reason } = classifyVerdict(thread, me, inspection);
     if (item) items.push(item);
-    // Sink debug (optionnel) : verdict compact par thread, sans corps de
-    // commentaire (coût + vie privée). Produit gratuitement (donnée déjà fetchée).
+    // Debug sink (optional): compact verdict per thread, without the comment
+    // body (cost + privacy). Produced for free (data already fetched).
     if (debug) {
       debug.push({
         repo: thread.repository?.full_name ?? null,
@@ -174,8 +174,8 @@ export async function collectAuthored(gh, scope = null) {
   }));
 }
 
-// Exécute fn sur chaque item avec au plus `limit` exécutions concurrentes
-// (évite de lancer des dizaines de `gh pr view` d'un coup).
+// Runs fn on each item with at most `limit` concurrent executions
+// (avoids launching dozens of `gh pr view` at once).
 async function mapLimit(items, limit, fn) {
   const results = new Array(items.length);
   let i = 0;
@@ -189,22 +189,22 @@ async function mapLimit(items, limit, fn) {
   return results;
 }
 
-// Traduit l'état du statusCheckRollup GraphQL (un seul état agrégé par GitHub)
-// en : 'fail' | 'pending' | 'pass' | 'none'.
+// Translates the state of the GraphQL statusCheckRollup (a single aggregated
+// state from GitHub) into: 'fail' | 'pending' | 'pass' | 'none'.
 export function ciFromState(state) {
   const s = (state || '').toUpperCase();
   if (s === 'SUCCESS') return 'pass';
   if (s === 'FAILURE' || s === 'ERROR') return 'fail';
   if (s === 'PENDING' || s === 'EXPECTED') return 'pending';
-  return 'none'; // pas de checks (rollup null)
+  return 'none'; // no checks (rollup null)
 }
 
-// Recalcule le verdict CI ('fail'|'pending'|'pass'|'none') à partir des checks
-// individuels, en retirant d'abord les jobs listés dans `ignored` (blocklist par
-// repo). Match exact sur le nom, trimmé sur la config (le nom du check vient de
-// GitHub, on ne le touche pas ; casse sensible). Un `fail` domine, sinon un
-// `pending`, sinon (au moins un check restant) `pass`, sinon `none`. Utilisé à la
-// place de `ciFromState` uniquement pour un repo qui a une blocklist (cf. §compat).
+// Recomputes the CI verdict ('fail'|'pending'|'pass'|'none') from the
+// individual checks, first removing the jobs listed in `ignored` (per-repo
+// blocklist). Exact match on the name, trimmed on the config side (the check name
+// comes from GitHub, we don't touch it; case-sensitive). A `fail` dominates,
+// otherwise a `pending`, otherwise (at least one remaining check) `pass`, otherwise
+// `none`. Used instead of `ciFromState` only for a repo that has a blocklist (cf. §compat).
 export function ciFromChecks(checks, ignored = []) {
   const blocked = new Set((ignored || []).map((n) => String(n).trim()));
   const kept = (checks || []).filter((c) => !blocked.has(c.name));
@@ -213,20 +213,20 @@ export function ciFromChecks(checks, ignored = []) {
   return kept.length ? 'pass' : 'none';
 }
 
-// Verdict CI d'une PR à partir de ses détails (`{ checks, statusCheckRollupState }`)
-// et de la blocklist du repo. ⚠️ SOURCE UNIQUE partagée par la collecte (collectPRs)
-// et le recompute local après un toggle web (recomputeCi/serve /ignore-check) : SI le
-// repo a des jobs ignorés, on recalcule via `ciFromChecks` ; sinon on garde le rollup
-// GitHub tel quel (`ciFromState`) → compat byte-identique pour qui n'a rien configuré.
+// CI verdict of a PR from its details (`{ checks, statusCheckRollupState }`)
+// and the repo's blocklist. ⚠️ SINGLE SOURCE shared by collection (collectPRs)
+// and the local recompute after a web toggle (recomputeCi/serve /ignore-check): IF the
+// repo has ignored jobs, we recompute via `ciFromChecks`; otherwise we keep the GitHub
+// rollup as-is (`ciFromState`) → byte-identical compat for anyone who configured nothing.
 export function ciOf(detail, ignoredList = []) {
   return (ignoredList && ignoredList.length)
     ? ciFromChecks(detail?.checks, ignoredList)
     : ciFromState(detail?.statusCheckRollupState);
 }
 
-// Recalcule EN PLACE le `ci` de chaque row (mine/others/hidden) depuis `row.checks`
-// (déjà en mémoire) et la blocklist courante — AUCUN appel GitHub. Sert au toggle web
-// (POST /ignore-check) : bascule un job → les icônes CI se mettent à jour sans refetch.
+// Recomputes IN PLACE the `ci` of each row (mine/others/hidden) from `row.checks`
+// (already in memory) and the current blocklist — NO GitHub call. Used by the web toggle
+// (POST /ignore-check): toggling a job → the CI icons update without a refetch.
 export function recomputeCi(data, ignoredChecks = {}) {
   const forRepo = (repo) => (Array.isArray(ignoredChecks[repo]) ? ignoredChecks[repo] : []);
   for (const key of ['mine', 'others', 'hidden']) {
@@ -235,13 +235,13 @@ export function recomputeCi(data, ignoredChecks = {}) {
   return data;
 }
 
-// Nombre d'approbations : utilisateurs distincts dont la review LA PLUS RÉCENTE
-// est APPROVED (cf. approvalsOf). Conservé pour la colonne ✅ des tableaux.
+// Number of approvals: distinct users whose MOST RECENT review is APPROVED
+// (cf. approvalsOf). Kept for the ✅ column of the tables.
 export function countApprovals(reviews) {
   return approvalsOf(reviews).length;
 }
 
-// État affiché d'une PR à partir de `gh pr view` : 'draft' | 'open' | 'merged' | 'closed'.
+// Displayed state of a PR from `gh pr view`: 'draft' | 'open' | 'merged' | 'closed'.
 export function prState(d) {
   if (d?.isDraft) return 'draft';
   const s = (d?.state || '').toUpperCase();
@@ -250,11 +250,11 @@ export function prState(d) {
   return 'open';
 }
 
-// Regroupe notifications + reviews en attente par PR, agrège les triggers,
-// récupère les détails de chaque PR (auteur / date / diff / CI) en parallèle,
-// puis sépare selon que la PR est de moi ou d'un autre.
+// Groups notifications + pending reviews by PR, aggregates the triggers,
+// fetches the details of each PR (author / date / diff / CI) in parallel,
+// then splits according to whether the PR is mine or someone else's.
 export async function collectPRs(gh, me, { all = false, scope = null, hidden = {}, cache = null, ignoredChecks = {} } = {}) {
-  const debug = []; // verdict compact par thread (toujours produit : coût nul)
+  const debug = []; // compact verdict per thread (always produced: zero cost)
   const [items, pending, authored] = await Promise.all([
     collectNotifications(gh, me, { all, scope, cache, debug }),
     collectPending(gh, scope),
@@ -271,28 +271,28 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
   };
   for (const it of items) {
     const trig = TRIGGER_FOR[it.category];
-    if (!trig) continue; // review_request : ignoré ici (cf. TRIGGER_FOR / collectPending)
+    if (!trig) continue; // review_request: ignored here (cf. TRIGGER_FOR / collectPending)
     const row = ensure(it.repo, it.number, it.title);
     row.triggers.add(trig);
-    // mention / reply / commentaire : `it.url` pointe sur le commentaire précis →
-    // le lien de la ligne y mène directement (et non sur la PR seule).
+    // mention / reply / comment: `it.url` points at the precise comment →
+    // the row's link leads there directly (and not to the PR alone).
     row.url = it.url;
   }
   for (const p of pending) ensure(p.repo, p.number, p.title).triggers.add('review');
-  for (const a of authored) ensure(a.repo, a.number, a.title); // dashboard : pas de trigger
+  for (const a of authored) ensure(a.repo, a.number, a.title); // dashboard: no trigger
 
   const entries = [...byKey.values()];
   const details = await gh.getPullDetailsBatch(entries.map((e) => ({ repo: e.repo, number: e.number })));
 
   const mine = [];
-  const othersAll = []; // PR des autres (hors draft), avant filtrage du masquage
-  const approvalEvents = []; // une entrée par approbation sur MES PR ouvertes
+  const othersAll = []; // others' PRs (excluding drafts), before hide filtering
+  const approvalEvents = []; // one entry per approval on MY open PRs
   entries.forEach((e, i) => {
     const d = details[i];
     const approvers = approvalsOf(d?.reviews);
-    // Blocklist par repo : SI le repo a des jobs ignorés, on recalcule le verdict
-    // à partir des checks individuels ; sinon on garde le rollup GitHub tel quel
-    // (compat byte-identique pour qui n'a rien configuré — cf. §compat de la spec).
+    // Per-repo blocklist: IF the repo has ignored jobs, we recompute the verdict
+    // from the individual checks; otherwise we keep the GitHub rollup as-is
+    // (byte-identical compat for anyone who configured nothing — cf. the spec's §compat).
     const ignoredForRepo = Array.isArray(ignoredChecks[e.repo]) ? ignoredChecks[e.repo] : [];
     const row = {
       repo: e.repo,
@@ -304,16 +304,16 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
       createdAt: d?.createdAt ?? null,
       additions: d?.additions ?? 0,
       deletions: d?.deletions ?? 0,
-      ci: ciOf(d, ignoredForRepo), // recalcul si blocklist du repo, sinon rollup GitHub
-      checks: d?.checks ?? [], // liste brute (vue debug + recompute local ; coût nul)
-      statusCheckRollupState: d?.statusCheckRollupState ?? null, // base du ciFromState pour recomputeCi
+      ci: ciOf(d, ignoredForRepo), // recompute if the repo has a blocklist, otherwise GitHub rollup
+      checks: d?.checks ?? [], // raw list (debug view + local recompute; zero cost)
+      statusCheckRollupState: d?.statusCheckRollupState ?? null, // basis of ciFromState for recomputeCi
       state: prState(d),
       approvals: approvers.length,
     };
     if (d && d.author?.login === me) {
-      mine.push(row); // mes PR : jamais masquées, on garde mes drafts
-      // Évènements d'approbation : seulement sur mes PR OUVERTES (pas draft/mergée/
-      // fermée). « prête à merger » n'a pas de sens autrement (et évite le bruit).
+      mine.push(row); // my PRs: never hidden, we keep my drafts
+      // Approval events: only on my OPEN PRs (not draft/merged/
+      // closed). « ready to merge » makes no sense otherwise (and avoids noise).
       if (row.state === 'open') {
         for (const ap of approvers) {
           approvalEvents.push({
@@ -324,18 +324,18 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
         }
       }
     } else if (row.state !== 'draft') {
-      othersAll.push(row); // PR des autres : on masque les drafts
+      othersAll.push(row); // others' PRs: we hide the drafts
     }
   });
 
-  // Dé-masque sur nouveau trigger + élague les clés obsolètes (mute `hidden`),
-  // puis sépare les PR des autres en visibles / masquées.
+  // Un-hide on a new trigger + prune stale keys (mutates `hidden`),
+  // then split others' PRs into visible / hidden.
   const hiddenChanged = reconcile(hidden, othersAll, items);
   const others = othersAll.filter((r) => !isHidden(hidden, keyOf(r)));
   const hiddenRows = othersAll.filter((r) => isHidden(hidden, keyOf(r)));
 
-  // `notifications` = items de notification déjà classifiés (avec url d'évènement),
-  // exposés pour que `--watch` détecte les nouveautés sans refaire le travail.
-  // `debug` = verdict du pipeline par thread (mode debug).
+  // `notifications` = already-classified notification items (with event url),
+  // exposed so that `--watch` detects new things without redoing the work.
+  // `debug` = pipeline verdict per thread (debug mode).
   return { mine, others, hidden: hiddenRows, hiddenCount: hiddenRows.length, hiddenChanged, notifications: items, approvalEvents, debug };
 }

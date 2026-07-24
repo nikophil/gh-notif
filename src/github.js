@@ -14,7 +14,7 @@ function parseJson(stdout) {
   return JSON.parse(s);
 }
 
-// Champs PR récupérés en une fois via GraphQL (cf. getPullDetailsBatch).
+// PR fields fetched all at once via GraphQL (cf. getPullDetailsBatch).
 const PR_FRAGMENT = `fragment pr on PullRequest {
   number title author { login } createdAt additions deletions isDraft state
   latestOpinionatedReviews(first: 100) { nodes { author { login } state submittedAt } }
@@ -28,10 +28,10 @@ const PR_FRAGMENT = `fragment pr on PullRequest {
   } } } }
 }`;
 
-// Normalise un contexte de rollup (CheckRun d'Actions OU StatusContext de commit)
-// vers { name, state } avec state ∈ 'pass'|'fail'|'pending'. Renvoie null si le
-// nœud n'a pas de nom exploitable. SKIPPED/NEUTRAL comptent non-bloquants (comme
-// le rollup GitHub) ; une conclusion nulle = check en cours → pending.
+// Normalizes a rollup context (Actions CheckRun OR commit StatusContext)
+// to { name, state } with state ∈ 'pass'|'fail'|'pending'. Returns null if the
+// node has no usable name. SKIPPED/NEUTRAL count as non-blocking (like
+// the GitHub rollup); a null conclusion = check running → pending.
 const CHECKRUN_FAIL = new Set(['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE']);
 function normalizeContext(node) {
   if (!node) return null;
@@ -41,14 +41,14 @@ function normalizeContext(node) {
     const state = s === 'SUCCESS' ? 'pass' : (s === 'FAILURE' || s === 'ERROR') ? 'fail' : 'pending';
     return { name: node.context, state };
   }
-  // CheckRun (défaut) : conclusion prime, sinon (nulle) le check tourne encore.
+  // CheckRun (default): conclusion takes precedence, otherwise (null) the check is still running.
   if (!node.name) return null;
   const c = (node.conclusion || '').toUpperCase();
   const state = !c ? 'pending' : CHECKRUN_FAIL.has(c) ? 'fail' : 'pass';
   return { name: node.name, state };
 }
 
-// Normalise un nœud PullRequest GraphQL vers la forme consommée par collect.js.
+// Normalizes a GraphQL PullRequest node to the shape consumed by collect.js.
 function normalizePull(pr) {
   if (!pr) return null;
   return {
@@ -60,15 +60,15 @@ function normalizePull(pr) {
     deletions: pr.deletions,
     isDraft: pr.isDraft,
     state: pr.state,
-    // latestOpinionatedReviews = dernière review APPROVED/CHANGES_REQUESTED par
-    // auteur (ignore les COMMENTED) : un commentaire n'annule pas une approbation.
+    // latestOpinionatedReviews = latest APPROVED/CHANGES_REQUESTED review per
+    // author (ignores COMMENTED): a comment does not cancel an approval.
     reviews: (pr.latestOpinionatedReviews?.nodes ?? []).map((r) => ({
       author: r.author ? { login: r.author.login } : null,
       state: r.state,
       submittedAt: r.submittedAt,
     })),
     statusCheckRollupState: pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state ?? null,
-    // checks individuels normalisés (pour le recalcul CI via blocklist + la vue debug).
+    // individual normalized checks (for CI recomputation via blocklist + the debug view).
     checks: (pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? [])
       .map(normalizeContext)
       .filter(Boolean),
@@ -76,8 +76,8 @@ function normalizePull(pr) {
 }
 
 export function makeGh(runner = defaultRunner) {
-  // Une requête GraphQL par lot de PR (alias p0,p1,… → un repository/pullRequest
-  // chacun). Renvoie un tableau aligné sur `chunk` (null si PR introuvable).
+  // One GraphQL request per PR batch (aliases p0,p1,… → one repository/pullRequest
+  // each). Returns an array aligned with `chunk` (null if PR not found).
   async function graphqlPullChunk(chunk) {
     const aliases = chunk.map(({ repo, number }, i) => {
       const [owner, name] = repo.split('/');
@@ -102,9 +102,9 @@ export function makeGh(runner = defaultRunner) {
       const path = apiUrl.replace('https://api.github.com', '');
       return parseJson(await runner(['api', path]));
     },
-    // `since` (ISO) → ne récupère que les commentaires créés/édités après ce
-    // point (sort=updated&direction=asc), pour la récupération incrémentale du
-    // cache d'inspection. Sans `since` : page complète (per_page=100).
+    // `since` (ISO) → only fetches comments created/edited after this
+    // point (sort=updated&direction=asc), for the incremental fetching of the
+    // inspection cache. Without `since`: full page (per_page=100).
     async getReviewComments(repoFullName, number, { since = null } = {}) {
       const params = new URLSearchParams({ per_page: '100' });
       if (since) {
@@ -114,9 +114,9 @@ export function makeGh(runner = defaultRunner) {
       }
       return parseJson(await runner(['api', '--paginate', `repos/${repoFullName}/pulls/${number}/comments?${params}`])) ?? [];
     },
-    // Détails de N PR en un minimum de requêtes (GraphQL batch, chunks de 30 en
-    // parallèle). Renvoie un tableau aligné sur `prs` ([{repo, number}]) ; null
-    // pour une PR introuvable, et null pour tout un chunk en échec (dégradation).
+    // Details of N PRs in a minimum of requests (GraphQL batch, chunks of 30 in
+    // parallel). Returns an array aligned with `prs` ([{repo, number}]); null
+    // for a PR not found, and null for an entire failed chunk (degradation).
     async getPullDetailsBatch(prs) {
       if (!prs || prs.length === 0) return [];
       const CHUNK = 30;
@@ -142,11 +142,11 @@ export function makeGh(runner = defaultRunner) {
         return null;
       }
     },
-    // Un scope de favori existe-t-il sur GitHub ? repo → GET /repos/owner/name ;
-    // org/user → GET /users/{value} (200 pour une org **comme** pour un utilisateur).
-    // Tri-état : true (existe), false (404 → introuvable), null (indéterminé :
-    // réseau, rate-limit, auth…). Le null laisse l'appelant décider (fail-open) au
-    // lieu de refuser à tort sur un incident transitoire.
+    // Does a favorite scope exist on GitHub? repo → GET /repos/owner/name ;
+    // org/user → GET /users/{value} (200 for an org **as well as** for a user).
+    // Tri-state: true (exists), false (404 → not found), null (undetermined:
+    // network, rate-limit, auth…). The null lets the caller decide (fail-open)
+    // instead of wrongly refusing on a transient incident.
     async scopeExists(scope) {
       if (!scope || !scope.value) return null;
       const path = scope.type === 'repo' ? `repos/${scope.value}` : `users/${scope.value}`;

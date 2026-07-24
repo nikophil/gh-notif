@@ -1,17 +1,17 @@
-// Détection des approbations sur mes PR (logique pure, sans I/O). Les `reviews`
-// sont déjà récupérées par GraphQL (cf. github.js) → coût nul en requêtes.
+// Detection of approvals on my PRs (pure logic, no I/O). The `reviews` are
+// already fetched by GraphQL (cf. github.js) → zero cost in requests.
 
-// Seuil à partir duquel une PR est « prête à merger » (badge 🎉 + suffixe notif).
+// Threshold from which a PR is « ready to merge » (🎉 badge + notif suffix).
 export const READY_THRESHOLD = 2;
 
 export function isReady(count) {
   return (count || 0) >= READY_THRESHOLD;
 }
 
-// Reviewers dont la DERNIÈRE review est APPROVED (comme l'UI GitHub) : on garde
-// `{login, submittedAt}` de cette dernière review. Une approbation annulée par une
-// review ultérieure (CHANGES_REQUESTED…) du même user ne compte plus. Mirroir de
-// countApprovals (collect.js), qui devient approvalsOf(reviews).length.
+// Reviewers whose LATEST review is APPROVED (like the GitHub UI): we keep
+// `{login, submittedAt}` of that latest review. An approval cancelled by a later
+// review (CHANGES_REQUESTED…) from the same user no longer counts. Mirror of
+// countApprovals (collect.js), which becomes approvalsOf(reviews).length.
 export function approvalsOf(reviews) {
   if (!Array.isArray(reviews)) return [];
   const latestByUser = new Map();
@@ -28,21 +28,21 @@ export function approvalsOf(reviews) {
   return out;
 }
 
-// Clé de dédup d'une approbation (pas d'id de review en GraphQL → login+date).
+// Dedup key of an approval (no review id in GraphQL → login+date).
 export function approvalKey(repo, number, login, submittedAt) {
   return `${repo}#${number}:${login}:${submittedAt}`;
 }
 
-// Évènements d'approbation absents de `seen` (Set de clés). Ne mute PAS `seen` :
-// le caller décide d'amorcer silencieusement (1er poll) ou de notifier + marquer.
+// Approval events absent from `seen` (Set of keys). Does NOT mutate `seen`:
+// the caller decides whether to prime silently (1st poll) or to notify + mark.
 export function newApprovals(events, seen) {
   return events.filter((e) => !seen.has(approvalKey(e.repo, e.number, e.actor, e.submittedAt)));
 }
 
-// Traite les approbations d'un poll. Au 1er poll (`primed` faux) : amorçage
-// SILENCIEUX — on mémorise tout dans `seen`, rien n'est renvoyé (pas de rafale de
-// notifs au démarrage, cf. approche A / spec). Aux polls suivants : renvoie les
-// évènements nouveaux (à notifier) et les mémorise. Mute `seen`.
+// Processes the approvals of a poll. On the 1st poll (`primed` false): SILENT
+// priming — we memorize everything in `seen`, nothing is returned (no burst of
+// notifs at startup, cf. approach A / spec). On subsequent polls: returns the
+// new events (to notify) and memorizes them. Mutates `seen`.
 export function diffApprovals({ events = [], seen, primed }) {
   const fresh = primed ? newApprovals(events, seen) : [];
   for (const e of events) seen.add(approvalKey(e.repo, e.number, e.actor, e.submittedAt));

@@ -1,5 +1,5 @@
-// Couleur & liens (désactivés hors TTY ou si NO_COLOR), construction de tableaux
-// encadrés alignés, et helpers d'affichage (triggers, CI, date relative, diff).
+// Color & links (disabled outside TTY or if NO_COLOR), building aligned framed
+// tables, and display helpers (triggers, CI, relative date, diff).
 import { isReady } from './approvals.js';
 import { favoriteLabel } from './favorites.js';
 
@@ -32,15 +32,15 @@ export function hyperlink(url, text, opts) {
   return `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\`;
 }
 
-// ── Largeur d'affichage ──────────────────────────────────────────────────
-// Compte 2 colonnes pour les emojis larges, 0 pour les sélecteurs de variante
-// (U+FE0F). Une base immédiatement suivie de U+FE0F (présentation emoji, ex.
-// ↩️) compte donc 2. Le box-drawing et le signe « − » restent à 1.
+// ── Display width ────────────────────────────────────────────────────────
+// Counts 2 columns for wide emojis, 0 for variation selectors (U+FE0F). A base
+// immediately followed by U+FE0F (emoji presentation, e.g. ↩️) therefore counts
+// 2. Box-drawing and the « − » sign stay at 1.
 function isWide(cp) {
   return (
     (cp >= 0x1100 && cp <= 0x115f) ||  // Hangul Jamo
-    (cp >= 0x2600 && cp <= 0x27bf) ||  // symboles divers + dingbats (✅ ❌ …)
-    (cp >= 0x1f000 && cp <= 0x1faff)   // plans emoji (🔍 💬 🟩 🟥 🟡 …)
+    (cp >= 0x2600 && cp <= 0x27bf) ||  // miscellaneous symbols + dingbats (✅ ❌ …)
+    (cp >= 0x1f000 && cp <= 0x1faff)   // emoji planes (🔍 💬 🟩 🟥 🟡 …)
   );
 }
 
@@ -49,9 +49,9 @@ export function displayWidth(text) {
   let w = 0;
   for (let i = 0; i < chars.length; i++) {
     const cp = chars[i].codePointAt(0);
-    if (cp >= 0xfe00 && cp <= 0xfe0f) continue;                 // sélecteur de variante : 0
+    if (cp >= 0xfe00 && cp <= 0xfe0f) continue;                 // variation selector: 0
     const next = chars[i + 1] ? chars[i + 1].codePointAt(0) : 0;
-    if (next === 0xfe0f) { w += 2; continue; }                 // base + VS16 → emoji large
+    if (next === 0xfe0f) { w += 2; continue; }                 // base + VS16 → wide emoji
     w += isWide(cp) ? 2 : 1;
   }
   return w;
@@ -70,17 +70,17 @@ export function truncate(text, max) {
   return out + '…';
 }
 
-// ── Helpers de présentation ──────────────────────────────────────────────
+// ── Presentation helpers ─────────────────────────────────────────────────
 const TRIGGER_ORDER = ['review', 'mention', 'reply', 'comment'];
 const TRIGGER_ICON = {
   review: '🔍',
   mention: '💬',
   reply: '↩️',
-  comment: '🗨️', // U+1F5E8 + U+FE0F : sans le sélecteur, présentation texte (largeur 1) → décalage
+  comment: '🗨️', // U+1F5E8 + U+FE0F: without the selector, text presentation (width 1) → misalignment
 };
 
-// Emojis seuls (espace pour gagner de la place). Légende : 🔍 review · 💬 mention
-// · ↩️ réponse · 🗨 commentaire (cf. README).
+// Emojis only (space to save room). Legend: 🔍 review · 💬 mention · ↩️ reply
+// · 🗨 comment (cf. README).
 export function triggersLabel(keys) {
   return TRIGGER_ORDER.filter((k) => keys.includes(k)).map((k) => TRIGGER_ICON[k]).join(' ');
 }
@@ -90,7 +90,7 @@ export function ciIcon(state) {
   return CI_ICON[state] || '·';
 }
 
-// État de la PR : 📝 draft · 🟢 ouverte · 🟣 mergée · 🔴 fermée.
+// PR status: 📝 draft · 🟢 open · 🟣 merged · 🔴 closed.
 const STATE_ICON = { draft: '📝', open: '🟢', merged: '🟣', closed: '🔴' };
 export function stateIcon(state) {
   return STATE_ICON[state] || '·';
@@ -102,14 +102,14 @@ export function relativeDate(iso, nowMs) {
   const min = Math.floor(ms / 60000);
   const h = Math.floor(min / 60);
   const d = Math.floor(h / 24);
-  if (d > 0) return `il y a ${d}j`;
-  if (h > 0) return `il y a ${h}h`;
-  if (min > 0) return `il y a ${min}min`;
-  return "à l'instant";
+  if (d > 0) return `${d}d ago`;
+  if (h > 0) return `${h}h ago`;
+  if (min > 0) return `${min}min ago`;
+  return 'just now';
 }
 
-// Renvoie { text, render(opts) } : `text` (brut) sert au calcul de largeur ;
-// `render` colore +ajouts en vert / −retraits en rouge (même largeur visible).
+// Returns { text, render(opts) }: `text` (raw) is used for width computation;
+// `render` colors +additions green / −deletions red (same visible width).
 export function diffStat(additions, deletions) {
   const a = additions || 0;
   const d = deletions || 0;
@@ -118,12 +118,12 @@ export function diffStat(additions, deletions) {
   return { text, render };
 }
 
-// ── Construction d'un tableau encadré ────────────────────────────────────
+// ── Building a framed table ───────────────────────────────────────────────
 // columns: [{ header, max? }]
-// rows: [[cell, ...]] où cell = { text, url?, color?, render?(opts) }
-//   - `text` est toujours le texte brut servant à la largeur/troncature
-//   - `render` (optionnel, colonnes non plafonnées) fournit un rendu décoré de
-//     même largeur visible que `text`
+// rows: [[cell, ...]] where cell = { text, url?, color?, render?(opts) }
+//   - `text` is always the raw text used for width/truncation
+//   - `render` (optional, non-capped columns) provides a decorated rendering with
+//     the same visible width as `text`
 function buildTable(columns, rows, opts) {
   const widths = columns.map((col, i) => {
     const natural = Math.max(displayWidth(col.header), ...rows.map((r) => displayWidth(r[i].text)), 0);
@@ -159,10 +159,10 @@ function buildTable(columns, rows, opts) {
 
 function mineTable(rows, opts) {
   const columns = [
-    { header: 'Dépôt', max: REPO_MAX },
+    { header: 'Repository', max: REPO_MAX },
     { header: 'PR' },
-    { header: 'Titre', max: TITLE_MAX },
-    { header: 'État' },
+    { header: 'Title', max: TITLE_MAX },
+    { header: 'Status' },
     { header: '✅' },
     { header: 'Triggers' },
     { header: 'CI' },
@@ -179,8 +179,8 @@ function mineTable(rows, opts) {
   return buildTable(columns, cells, opts);
 }
 
-// Cellule « approbations » de mes PR : compteur, suffixé de 🎉 quand la PR est
-// OUVERTE et atteint le seuil (« prête à merger »). `·` si aucune approbation.
+// « approvals » cell of my PRs: counter, suffixed with 🎉 when the PR is OPEN
+// and reaches the threshold (« ready to merge »). `·` if no approval.
 function approvalsText(r) {
   if (!r.approvals) return '·';
   const ready = r.state === 'open' && isReady(r.approvals);
@@ -188,18 +188,18 @@ function approvalsText(r) {
 }
 
 function othersTable(rows, opts) {
-  // Colonne de marqueur 🙈 en tête, uniquement s'il y a au moins une PR masquée
-  // à afficher (sinon, pas de colonne vide). La sélection se fait au numéro de PR.
+  // 🙈 marker column at the head, only if there is at least one hidden PR to
+  // show (otherwise, no empty column). Selection is done by PR number.
   const withMarker = opts.hiddenFlags.some(Boolean);
   const columns = [
     ...(withMarker ? [{ header: '' }] : []),
-    { header: 'Dépôt', max: REPO_MAX },
+    { header: 'Repository', max: REPO_MAX },
     { header: 'PR' },
-    { header: 'Titre', max: TITLE_MAX },
-    { header: 'Auteur' },
-    { header: 'Ouverte' },
+    { header: 'Title', max: TITLE_MAX },
+    { header: 'Author' },
+    { header: 'Opened' },
     { header: 'Diff' },
-    { header: 'État' },
+    { header: 'Status' },
     { header: '✅' },
     { header: 'Triggers' },
     { header: 'CI' },
@@ -208,7 +208,7 @@ function othersTable(rows, opts) {
     const diff = diffStat(r.additions, r.deletions);
     const isHid = !!opts.hiddenFlags[i];
     const marker = isHid ? '🙈' : '';
-    const col = (color) => (isHid ? C.dim : color); // lignes masquées : grisées
+    const col = (color) => (isHid ? C.dim : color); // hidden rows: greyed out
     const row = [
       { text: r.repo, color: col(C.cyan), url: r.url },
       { text: `#${r.number}`, color: col(C.yellow), url: r.url },
@@ -230,7 +230,7 @@ export function renderList(data, opts) {
   const o = resolveOpts(opts);
   const blocks = [];
   if (data.mine && data.mine.length > 0) {
-    const heading = `📥 ${paint('Tes PR ouvertes', C.bold, o)} ${paint(`(${data.mine.length})`, C.dim, o)}`;
+    const heading = `📥 ${paint('Your open PRs', C.bold, o)} ${paint(`(${data.mine.length})`, C.dim, o)}`;
     blocks.push(`${heading}\n${mineTable(data.mine, o)}`);
   }
   if (data.others && data.others.length > 0) {
@@ -238,50 +238,50 @@ export function renderList(data, opts) {
     const visible = data.others.length - hiddenInView;
     const hiddenCount = data.hiddenCount ?? hiddenInView;
     const count = hiddenCount > 0
-      ? `(${visible}, ${hiddenCount} masquée${hiddenCount > 1 ? 's' : ''})`
+      ? `(${visible}, ${hiddenCount} hidden)`
       : `(${data.others.length})`;
-    const heading = `👥 ${paint('Activité sur les PR des autres', C.bold, o)} ${paint(count, C.dim, o)}`;
+    const heading = `👥 ${paint("Activity on others' PRs", C.bold, o)} ${paint(count, C.dim, o)}`;
     blocks.push(`${heading}\n${othersTable(data.others, o)}`);
   }
-  if (blocks.length === 0) return 'Rien à signaler ✨\n';
+  if (blocks.length === 0) return 'Nothing to report ✨\n';
   return blocks.join('\n\n') + '\n';
 }
 
-// Barre de favoris du mode terminal : « ⭐ tous · [mapado] · zenstruck », l'actif
-// entre crochets et en gras. Liste vide → chaîne vide (rien ne s'affiche pour qui
-// n'utilise pas les favoris). Rendue HORS des tableaux encadrés : aucune
-// contrainte d'alignement, donc pas d'impact sur displayWidth (cf. §5).
+// Favorites bar of terminal mode: « ⭐ all · [mapado] · zenstruck », the active
+// one in brackets and bold. Empty list → empty string (nothing shown for those who
+// don't use favorites). Rendered OUTSIDE the framed tables: no alignment
+// constraint, hence no impact on displayWidth (cf. §5).
 export function favoritesBar(favorites, active, opts) {
   const o = resolveOpts(opts);
   if (!favorites || favorites.length === 0) return '';
   const cell = (label, on) => (on ? paint(`[${label}]`, C.bold, o) : paint(label, C.dim, o));
-  const parts = [cell('⭐ tous', !active), ...favorites.map((f) => cell(favoriteLabel(f), f === active))];
+  const parts = [cell('⭐ all', !active), ...favorites.map((f) => cell(favoriteLabel(f), f === active))];
   return parts.join(paint(' · ', C.dim, o));
 }
 
-// Dump terminal du verdict de classification par thread (mode --debug). Une ligne
-// par thread : marque (gardé → catégorie / droppé → ✗), repo#number, raison, et
-// méta (reason GitHub brute + nb de commentaires). Liste libre (pas de tableau).
+// Terminal dump of the per-thread classification verdict (--debug mode). One line
+// per thread: mark (kept → category / dropped → ✗), repo#number, reason, and
+// meta (raw GitHub reason + number of comments). Free list (no table).
 export function renderDebugText(debug, opts) {
   const o = resolveOpts(opts);
   if (!debug || debug.length === 0) {
-    return `🐛 ${paint('Debug — aucun thread de notification', C.dim, o)}\n${checksSectionText(opts)}`;
+    return `🐛 ${paint('Debug — no notification thread', C.dim, o)}\n${checksSectionText(opts)}`;
   }
   const lines = debug.map((d) => {
     const v = d.verdict;
-    const mark = v.kept ? paint(`✓ ${v.category}`, C.green, o) : paint('✗ droppé', C.dim, o);
+    const mark = v.kept ? paint(`✓ ${v.category}`, C.green, o) : paint('✗ dropped', C.dim, o);
     const meta = paint(`(GH:${d.ghReason}, ${d.commentsCount} comm.)`, C.dim, o);
     return `  ${mark}  ${d.repo}#${d.number}  ${paint('·', C.dim, o)} ${v.reason}  ${meta}`;
   });
   const kept = debug.filter((d) => d.verdict.kept).length;
-  const title = `🐛 ${paint('Debug — verdict du pipeline', C.bold, o)} ${paint(`(${kept}/${debug.length} gardés)`, C.dim, o)}`;
+  const title = `🐛 ${paint('Debug — pipeline verdict', C.bold, o)} ${paint(`(${kept}/${debug.length} kept)`, C.dim, o)}`;
   return `${title}\n${lines.join('\n')}\n${checksSectionText(opts)}`;
 }
 
-// Regroupe des rows par repo → checks DISTINCTS (union, ordre de 1re apparition).
-// La blocklist étant par repo, la config des checks ignorés se raisonne par repo,
-// pas par PR (un même job apparaît sur plusieurs PR). Un repo sans check est absent.
-// Partagé par les deux vues debug (terminal `checksSectionText` + web `renderChecksSection`).
+// Groups rows by repo → DISTINCT checks (union, order of first appearance).
+// Since the blocklist is per repo, ignored-checks config is reasoned per repo,
+// not per PR (a same job appears on several PRs). A repo without checks is absent.
+// Shared by both debug views (terminal `checksSectionText` + web `renderChecksSection`).
 export function checksByRepo(rows) {
   const byRepo = new Map();
   for (const r of rows ?? []) {
@@ -293,11 +293,11 @@ export function checksByRepo(rows) {
   return [...byRepo.entries()].map(([repo, names]) => ({ repo, names: [...names] }));
 }
 
-// Section « Checks par repo » du dump terminal (mode --debug) : par repo, l'ensemble
-// DISTINCT de ses jobs (union sur ses PR), les ignorés (blocklist du repo) suffixés
-// « (ignoré) » et grisés. Aide à copier le nom exact d'un job à mettre en blocklist.
-// '' si aucune row (compat). Le state d'un job étant par PR, il n'est pas affiché ici
-// (config = par repo) — le verdict par PR reste dans les tableaux principaux.
+// « Checks by repo » section of the terminal dump (--debug mode): per repo, the
+// DISTINCT set of its jobs (union over its PRs), the ignored ones (repo blocklist)
+// suffixed « (ignored) » and greyed out. Helps copy the exact name of a job to put
+// in the blocklist. '' if no row (compat). Since a job's state is per PR, it is not
+// shown here (config = per repo) — the per-PR verdict stays in the main tables.
 function checksSectionText(opts) {
   const o = resolveOpts(opts);
   const groups = checksByRepo(opts?.rows);
@@ -307,11 +307,11 @@ function checksSectionText(opts) {
     const blocked = new Set((ignoredChecks[repo] ?? []).map((n) => String(n).trim()));
     const items = names.map((name) => {
       const ign = blocked.has(name);
-      const line = `    ${name}${ign ? ' (ignoré)' : ''}`;
+      const line = `    ${name}${ign ? ' (ignored)' : ''}`;
       return ign ? paint(line, C.dim, o) : line;
     });
     return [`  ${paint(repo, C.bold, o)}`, ...items].join('\n');
   });
-  const title = `🔎 ${paint('Checks par repo', C.bold, o)}`;
+  const title = `🔎 ${paint('Checks by repo', C.bold, o)}`;
   return `${title}\n${blocks.join('\n')}\n`;
 }
