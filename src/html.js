@@ -507,8 +507,13 @@ ${FAVICON}
     toggleBtn.classList.toggle('on', showHidden);
     load();
   });
-  document.getElementById('scope-apply').addEventListener('click', function () {
+  function applyScope() {
     act('/scope', 'value=' + encodeURIComponent(scopeInput.value.trim()));
+  }
+  document.getElementById('scope-apply').addEventListener('click', applyScope);
+  // Enter while focused in the scope field filters, like the Filter button.
+  scopeInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); applyScope(); }
   });
   document.getElementById('scope-all').addEventListener('click', function () {
     scopeInput.value = '';
@@ -528,7 +533,8 @@ ${FAVICON}
     var rm = e.target.closest('[data-fav-rm]');
     if (rm) { act('/fav/rm', 'value=' + encodeURIComponent(rm.getAttribute('data-fav-rm'))).then(function (d) { if (d) chaseFresh(d.updatedAt, 8); }); return; }
     var sel = e.target.closest('[data-fav]');
-    if (sel) act('/fav', 'value=' + encodeURIComponent(sel.getAttribute('data-fav')));
+    // Selecting a favorite leaves ad-hoc mode: clear the manual scope field too.
+    if (sel) { scopeInput.value = ''; act('/fav', 'value=' + encodeURIComponent(sel.getAttribute('data-fav'))); }
   });
   content.addEventListener('click', function (e) {
     // Sort: click on a sortable header of the « others » table.

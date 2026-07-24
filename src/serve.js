@@ -334,7 +334,10 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         } catch (err) {
           return send(400, 'text/plain; charset=utf-8', err.message);
         }
-        activeFav = activeFavoriteOf({ activeFav }, favorites); // removed favorite → « all »
+        // add → select the just-pinned favorite; rm → fall back to « all » if the active one was removed
+        activeFav = pathname === '/fav/add'
+          ? activeFavoriteOf({ activeFav: value }, favorites)
+          : activeFavoriteOf({ activeFav }, favorites);
         prefs.favorites = favorites;
         prefs.activeFav = activeFav;
         savePrefs(prefsFile, prefs);

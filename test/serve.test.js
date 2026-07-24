@@ -356,8 +356,10 @@ test('POST /fav* : pins, filters, removes — and loses neither notify nor theme
     assert.match(added.chips, /data-fav="symfony"/);
     assert.match(added.chips, /data-fav="zenstruck"/);
     assert.deepEqual(checked, [{ type: 'org', value: 'symfony' }, { type: 'org', value: 'zenstruck' }]);
-    assert.match(added.fragment, /at symfony/);
-    assert.match(added.fragment, /at zenstruck/); // no active favorite → union
+    // Adding a favorite SELECTS it: the view filters on the just-pinned scope.
+    assert.match(added.chips, /data-fav="zenstruck" class="on"/);
+    assert.match(added.fragment, /at zenstruck/);
+    assert.doesNotMatch(added.fragment, /at symfony/);
 
     // The background refresh completes: the collection indeed covers the union
     // (a single OR-ed search). We let the async poll settle.
