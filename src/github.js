@@ -18,8 +18,35 @@ function parseJson(stdout) {
 const PR_FRAGMENT = `fragment pr on PullRequest {
   number title author { login } createdAt additions deletions isDraft state
   latestOpinionatedReviews(first: 100) { nodes { author { login } state submittedAt } }
-  commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+  commits(last: 1) { nodes { commit { statusCheckRollup {
+    state
+    contexts(first: 100) { nodes {
+      __typename
+      ... on CheckRun { name conclusion status }
+      ... on StatusContext { context state }
+    } }
+  } } } }
 }`;
+
+// Normalise un contexte de rollup (CheckRun d'Actions OU StatusContext de commit)
+// vers { name, state } avec state ∈ 'pass'|'fail'|'pending'. Renvoie null si le
+// nœud n'a pas de nom exploitable. SKIPPED/NEUTRAL comptent non-bloquants (comme
+// le rollup GitHub) ; une conclusion nulle = check en cours → pending.
+const CHECKRUN_FAIL = new Set(['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE']);
+function normalizeContext(node) {
+  if (!node) return null;
+  if (node.__typename === 'StatusContext') {
+    if (!node.context) return null;
+    const s = (node.state || '').toUpperCase();
+    const state = s === 'SUCCESS' ? 'pass' : (s === 'FAILURE' || s === 'ERROR') ? 'fail' : 'pending';
+    return { name: node.context, state };
+  }
+  // CheckRun (défaut) : conclusion prime, sinon (nulle) le check tourne encore.
+  if (!node.name) return null;
+  const c = (node.conclusion || '').toUpperCase();
+  const state = !c ? 'pending' : CHECKRUN_FAIL.has(c) ? 'fail' : 'pass';
+  return { name: node.name, state };
+}
 
 // Normalise un nœud PullRequest GraphQL vers la forme consommée par collect.js.
 function normalizePull(pr) {
@@ -41,6 +68,10 @@ function normalizePull(pr) {
       submittedAt: r.submittedAt,
     })),
     statusCheckRollupState: pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state ?? null,
+    // checks individuels normalisés (pour le recalcul CI via blocklist + la vue debug).
+    checks: (pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? [])
+      .map(normalizeContext)
+      .filter(Boolean),
   };
 }
 

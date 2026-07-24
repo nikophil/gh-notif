@@ -199,6 +199,42 @@ export function ciFromState(state) {
   return 'none'; // pas de checks (rollup null)
 }
 
+// Recalcule le verdict CI ('fail'|'pending'|'pass'|'none') à partir des checks
+// individuels, en retirant d'abord les jobs listés dans `ignored` (blocklist par
+// repo). Match exact sur le nom, trimmé sur la config (le nom du check vient de
+// GitHub, on ne le touche pas ; casse sensible). Un `fail` domine, sinon un
+// `pending`, sinon (au moins un check restant) `pass`, sinon `none`. Utilisé à la
+// place de `ciFromState` uniquement pour un repo qui a une blocklist (cf. §compat).
+export function ciFromChecks(checks, ignored = []) {
+  const blocked = new Set((ignored || []).map((n) => String(n).trim()));
+  const kept = (checks || []).filter((c) => !blocked.has(c.name));
+  if (kept.some((c) => c.state === 'fail')) return 'fail';
+  if (kept.some((c) => c.state === 'pending')) return 'pending';
+  return kept.length ? 'pass' : 'none';
+}
+
+// Verdict CI d'une PR à partir de ses détails (`{ checks, statusCheckRollupState }`)
+// et de la blocklist du repo. ⚠️ SOURCE UNIQUE partagée par la collecte (collectPRs)
+// et le recompute local après un toggle web (recomputeCi/serve /ignore-check) : SI le
+// repo a des jobs ignorés, on recalcule via `ciFromChecks` ; sinon on garde le rollup
+// GitHub tel quel (`ciFromState`) → compat byte-identique pour qui n'a rien configuré.
+export function ciOf(detail, ignoredList = []) {
+  return (ignoredList && ignoredList.length)
+    ? ciFromChecks(detail?.checks, ignoredList)
+    : ciFromState(detail?.statusCheckRollupState);
+}
+
+// Recalcule EN PLACE le `ci` de chaque row (mine/others/hidden) depuis `row.checks`
+// (déjà en mémoire) et la blocklist courante — AUCUN appel GitHub. Sert au toggle web
+// (POST /ignore-check) : bascule un job → les icônes CI se mettent à jour sans refetch.
+export function recomputeCi(data, ignoredChecks = {}) {
+  const forRepo = (repo) => (Array.isArray(ignoredChecks[repo]) ? ignoredChecks[repo] : []);
+  for (const key of ['mine', 'others', 'hidden']) {
+    for (const row of data?.[key] ?? []) row.ci = ciOf(row, forRepo(row.repo));
+  }
+  return data;
+}
+
 // Nombre d'approbations : utilisateurs distincts dont la review LA PLUS RÉCENTE
 // est APPROVED (cf. approvalsOf). Conservé pour la colonne ✅ des tableaux.
 export function countApprovals(reviews) {
@@ -217,7 +253,7 @@ export function prState(d) {
 // Regroupe notifications + reviews en attente par PR, agrège les triggers,
 // récupère les détails de chaque PR (auteur / date / diff / CI) en parallèle,
 // puis sépare selon que la PR est de moi ou d'un autre.
-export async function collectPRs(gh, me, { all = false, scope = null, hidden = {}, cache = null } = {}) {
+export async function collectPRs(gh, me, { all = false, scope = null, hidden = {}, cache = null, ignoredChecks = {} } = {}) {
   const debug = []; // verdict compact par thread (toujours produit : coût nul)
   const [items, pending, authored] = await Promise.all([
     collectNotifications(gh, me, { all, scope, cache, debug }),
@@ -254,6 +290,10 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
   entries.forEach((e, i) => {
     const d = details[i];
     const approvers = approvalsOf(d?.reviews);
+    // Blocklist par repo : SI le repo a des jobs ignorés, on recalcule le verdict
+    // à partir des checks individuels ; sinon on garde le rollup GitHub tel quel
+    // (compat byte-identique pour qui n'a rien configuré — cf. §compat de la spec).
+    const ignoredForRepo = Array.isArray(ignoredChecks[e.repo]) ? ignoredChecks[e.repo] : [];
     const row = {
       repo: e.repo,
       number: e.number,
@@ -264,7 +304,9 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
       createdAt: d?.createdAt ?? null,
       additions: d?.additions ?? 0,
       deletions: d?.deletions ?? 0,
-      ci: ciFromState(d?.statusCheckRollupState),
+      ci: ciOf(d, ignoredForRepo), // recalcul si blocklist du repo, sinon rollup GitHub
+      checks: d?.checks ?? [], // liste brute (vue debug + recompute local ; coût nul)
+      statusCheckRollupState: d?.statusCheckRollupState ?? null, // base du ciFromState pour recomputeCi
       state: prState(d),
       approvals: approvers.length,
     };

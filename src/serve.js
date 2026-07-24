@@ -7,11 +7,11 @@
 import http from 'node:http';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
-import { collectPRs } from './collect.js';
+import { collectPRs, recomputeCi } from './collect.js';
 import { CATEGORY } from './filter.js';
 import { hiddenPath, loadHidden, saveHidden, toggleHidden, isHidden, keyOf } from './hidden.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './state.js';
-import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf } from './prefs.js';
+import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, toggleIgnoredCheck } from './prefs.js';
 import {
   parseScope, normalizeFavorites, addFavorite, removeFavorite,
   favoriteScopes, activeFavoriteOf, filterDataByScope, favoriteCounts, closedPRsUrl,
@@ -78,18 +78,20 @@ function linkScopes({ scope = null, activeFav = null, favorites = [] } = {}) {
 }
 
 // Corps du fragment de debug (verdict du pipeline) — même gestion erreur/chargement.
-function debugBody(snapshot, { now, viewScope = null } = {}) {
+function debugBody(snapshot, { now, viewScope = null, ignoredChecks = {} } = {}) {
   if (snapshot.error) return `<p class="empty offline">⚠️ Erreur : ${escapeHtml(snapshot.error)}</p>`;
   if (!snapshot.updatedAt) return renderLoading();
   const data = filterDataByScope(snapshot.data ?? {}, viewScope);
-  return renderDebug(data?.debug ?? [], { now });
+  // rows = mine + others + masquées → section « Checks par PR » (noms de jobs pour la blocklist).
+  const rows = [...(data.mine ?? []), ...(data.others ?? []), ...(data.hidden ?? [])];
+  return renderDebug(data?.debug ?? [], { now, rows, ignoredChecks });
 }
 
 // Routing des lectures (GET) — pur, aucune I/O. Testable sans socket.
 export function handleRequest(pathname, snapshot, opts = {}) {
   const {
     now, intervalMs, showHidden, scope, notifyEnabled = true, theme = 'auto',
-    favorites = [], activeFav = null, adhoc = false, sort = null,
+    favorites = [], activeFav = null, adhoc = false, sort = null, ignoredChecks = {},
   } = opts;
   // Filtre d'affichage : le favori actif, sauf en mode ad-hoc (le scope saisi
   // pilote déjà la collecte, re-filtrer serait redondant).
@@ -121,7 +123,7 @@ export function handleRequest(pathname, snapshot, opts = {}) {
     return { status: 200, type: 'text/html; charset=utf-8', body: renderDebugShell({ intervalMs }) };
   }
   if (pathname === '/debug-fragment') {
-    return { status: 200, type: 'text/html; charset=utf-8', body: debugBody(snapshot, { now, viewScope }) };
+    return { status: 200, type: 'text/html; charset=utf-8', body: debugBody(snapshot, { now, viewScope, ignoredChecks }) };
   }
   if (pathname === '/api/debug') {
     return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify(snapshot.data?.debug ?? []) };
@@ -181,6 +183,11 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   let favorites = normalizeFavorites(prefs.favorites);
   let activeFav = activeFavoriteOf(prefs, favorites);
   const collectScope = () => (scope ? scope : favoriteScopes(favorites));
+  // Blocklist CI par repo (édition manuelle du fichier prefs) : chargée une fois au
+  // démarrage. Recalcule le verdict CI sans les jobs ignorés. ⚠️ Éditer le fichier
+  // pendant qu'un --serve tourne serait écrasé au prochain POST (objet prefs réécrit
+  // en entier) → éditer serveur arrêté, puis relancer.
+  let ignoredChecks = ignoredChecksOf(prefs); // mutable : POST /ignore-check le rebascule
 
   // Approbations sur mes PR : état en mémoire (par process), indépendant de l'état
   // disque des notifs. 1er poll = amorçage silencieux (pas de rafale au démarrage).
@@ -223,7 +230,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       // Collecte sur l'UNION des favoris (ou le scope ad-hoc). notifyNew reçoit
       // ces données brutes : c'est ce qui fait arriver les notifs desktop des
       // favoris qu'on ne regarde pas. Le filtrage se fait au rendu (fragmentBody).
-      const data = await collectPRs(gh, me, { all, scope: collectScope(), hidden, cache: inspectCache });
+      const data = await collectPRs(gh, me, { all, scope: collectScope(), hidden, cache: inspectCache, ignoredChecks });
       if (data.hiddenChanged) saveHidden(hiddenFile, hidden);
       notifyNew(data);
       snapshot.data = data;
@@ -347,6 +354,22 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         savePrefs(prefsFile, prefs);
         return send(200, json, currentView(showHidden));
       }
+      if (pathname === '/ignore-check') {
+        // Case à cocher de la vue debug : bascule un job dans la blocklist du repo,
+        // persiste, puis RECOMPUTE LOCAL le ci de toutes les lignes (0 appel GitHub :
+        // row.checks est déjà en mémoire). Répond le fragment debug ré-rendu (cases +
+        // verdicts à jour) ; le dashboard reprend les icônes CI à son prochain /view.
+        const repo = url.searchParams.get('repo');
+        const name = url.searchParams.get('name');
+        if (repo && name) {
+          toggleIgnoredCheck(prefs, repo, name); // ⚠️ mute prefs.ignoredChecks (réécrit EN ENTIER)
+          savePrefs(prefsFile, prefs);
+          ignoredChecks = ignoredChecksOf(prefs);
+          if (snapshot.data) recomputeCi(snapshot.data, ignoredChecks);
+        }
+        const viewScope = scope ? null : parseScope(activeFav);
+        return send(200, 'text/html; charset=utf-8', debugBody(snapshot, { now: Date.now(), viewScope, ignoredChecks }));
+      }
       if (pathname === '/notify') {
         notifyEnabled = url.searchParams.get('enabled') !== '0';
         prefs.notify = notifyEnabled;
@@ -379,6 +402,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       activeFav,
       adhoc: !!scope,
       sort,
+      ignoredChecks,
     });
     send(status, type, body);
   });

@@ -6,7 +6,7 @@ import { collectPRs } from './src/collect.js';
 import { CATEGORY } from './src/filter.js';
 import { diffApprovals } from './src/approvals.js';
 import { renderList, renderDebugText, favoritesBar } from './src/render.js';
-import { prefsPath, loadPrefs, savePrefs } from './src/prefs.js';
+import { prefsPath, loadPrefs, savePrefs, ignoredChecksOf } from './src/prefs.js';
 import {
   parseScope, normalizeFavorites, addFavorite, removeFavorite,
   favoriteScopes, activeFavoriteOf, cycleFavorite, filterDataByScope,
@@ -123,6 +123,7 @@ const RECENT_MAX = 8; // évènements de session affichés sous les tableaux
 
 async function runWatch(gh, { scope, verbose, showHidden, debug, intervalSeconds = POLL_SECONDS, favorites = [], activeFav = null, prefs = null, prefsFile = null }) {
   const me = await gh.getCurrentUser();
+  const ignoredChecks = ignoredChecksOf(prefs); // blocklist CI par repo (recalcul du verdict)
   const path = statePath();
   const hiddenFile = hiddenPath();
   const hidden = loadHidden(hiddenFile);
@@ -156,7 +157,7 @@ async function runWatch(gh, { scope, verbose, showHidden, debug, intervalSeconds
       process.stdout.write(`\n\x1b[1m🔔 Évènements détectés (session)\x1b[0m\n`);
       for (const line of recent) process.stdout.write(`${line}\n`);
     }
-    if (debug) process.stdout.write(`\n${renderDebugText(shown.debug)}`);
+    if (debug) process.stdout.write(`\n${renderDebugText(shown.debug, { rows: debugRows(shown), ignoredChecks })}`);
   };
 
   if (interactive()) {
@@ -212,7 +213,7 @@ async function runWatch(gh, { scope, verbose, showHidden, debug, intervalSeconds
       try {
         const stop = startSpinner('Mise à jour…');
         try {
-          data = await collectPRs(gh, me, { all: false, scope, hidden, cache: inspectCache });
+          data = await collectPRs(gh, me, { all: false, scope, hidden, cache: inspectCache, ignoredChecks });
         } finally {
           stop();
         }
@@ -303,6 +304,14 @@ priment sur les favoris (alors ignorés).
 Touches (terminal interactif) : f = favori suivant · h = masquer/restaurer une PR
 des autres · (en mode masquage) n° de PR + Entrée = valider · Esc = annuler ·
 q = quitter.
+
+Jobs de CI ignorés : pour qu'un job peu important (ex. un rappel de label) ne fasse
+plus passer une PR en ❌, ajoute-le à la blocklist du repo dans prefs-v1.json :
+  "ignoredChecks": { "owner/repo": ["nom exact du check"] }
+Le verdict CI est alors recalculé sans ce job. Le nom EXACT du check se copie
+depuis la section « Checks par repo » du mode --debug (ou de la page /debug en --serve).
+En --serve, cette section est interactive : coche/décoche un job pour l'ignorer sans
+éditer le fichier (le verdict se met à jour sans appel GitHub).
 `;
 
 // Parse les arguments. repo: undefined=absent, null=donné sans valeur (dépôt
@@ -436,14 +445,21 @@ async function runFav(args) {
   process.stdout.write(`${favoritesBar(favorites, active)}\n`);
 }
 
+// Rows d'une vue (mine + others + masquées) pour la section « Checks par repo » du
+// mode --debug : liste les jobs de CI et leur état, marque les ignorés.
+function debugRows(shown) {
+  return [...(shown.mine ?? []), ...(shown.others ?? []), ...(shown.hidden ?? [])];
+}
+
 async function runList(gh, { all, scope, showHidden, debug, favorites = [], activeFav = null, prefs = null, prefsFile = null }) {
   const hiddenFile = hiddenPath();
   const hidden = loadHidden(hiddenFile);
+  const ignoredChecks = ignoredChecksOf(prefs); // blocklist CI par repo (recalcul du verdict)
   const stop = startSpinner('Récupération des PRs et notifications…');
   let data;
   try {
     const me = await gh.getCurrentUser();
-    data = await collectPRs(gh, me, { all, scope, hidden });
+    data = await collectPRs(gh, me, { all, scope, hidden, ignoredChecks });
   } finally {
     stop();
   }
@@ -460,7 +476,7 @@ async function runList(gh, { all, scope, showHidden, debug, favorites = [], acti
     const vm = viewModel(shown, { showHidden });
     process.stdout.write(renderList({ mine: shown.mine, others: vm.rows, hiddenCount: shown.hiddenCount },
       { showHidden, hiddenFlags: vm.hiddenFlags }));
-    if (debug) process.stdout.write(`\n${renderDebugText(shown.debug)}`);
+    if (debug) process.stdout.write(`\n${renderDebugText(shown.debug, { rows: debugRows(shown), ignoredChecks })}`);
     return;
   }
 
@@ -473,7 +489,7 @@ async function runList(gh, { all, scope, showHidden, debug, favorites = [], acti
       process.stdout.write(renderList({ mine: shown.mine, others: vm.rows, hiddenCount: shown.hiddenCount },
         { showHidden, hiddenFlags: vm.hiddenFlags }));
       process.stdout.write(helpBanner(hideMode, buffer, ' · q pour quitter', favoritesBar(favorites, current)));
-      if (debug) process.stdout.write(`\n${renderDebugText(shown.debug)}`);
+      if (debug) process.stdout.write(`\n${renderDebugText(shown.debug, { rows: debugRows(shown), ignoredChecks })}`);
     },
     rowsFor: () => viewModel(view(), { showHidden }).rows,
     onToggle: (row) => { toggleHidden(hidden, keyOf(row), data.notifications); saveHidden(hiddenFile, hidden); data = recompute(data, hidden); },

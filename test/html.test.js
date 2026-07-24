@@ -277,6 +277,38 @@ test('renderDebug : vide → message neutre', () => {
   assert.match(renderDebug([], {}), /Aucun thread/);
 });
 
+test('renderDebug : section « Checks par repo » — checks DISTINCTS par repo, ignorés cochés/barrés', () => {
+  const rows = [
+    { repo: 'mapado/ticketing', number: 60, ci: 'pass', checks: [
+      { name: 'continuous-integration/jenkins/branch', state: 'pass' },
+      { name: 'Check Pull Requests label for merge block', state: 'fail' },
+      { name: 'x<script>', state: 'pending' },
+    ] },
+    { repo: 'mapado/ticketing', number: 61, ci: 'fail', checks: [
+      { name: 'continuous-integration/jenkins/branch', state: 'fail' }, // même check, autre PR
+      { name: 'behat', state: 'fail' },
+    ] },
+  ];
+  const out = renderDebug([], { rows, ignoredChecks: { 'mapado/ticketing': ['Check Pull Requests label for merge block'] } });
+  assert.match(out, /Checks par repo/);
+  assert.match(out, /mapado\/ticketing/);
+  // jenkins apparaît UNE seule fois malgré 2 PR (checks distincts par repo)
+  assert.equal((out.match(/data-name="continuous-integration\/jenkins\/branch"/g) || []).length, 1);
+  assert.match(out, /data-name="behat"/); // check d'une autre PR du même repo
+  // le job ignoré est coché + barré ; le job important non
+  assert.match(out, /<del>Check Pull Requests label for merge block<\/del>/);
+  assert.match(out, /data-repo="mapado\/ticketing"[^>]*data-name="Check Pull Requests label for merge block"[^>]*checked/);
+  assert.ok(!/data-name="continuous-integration\/jenkins\/branch"[^>]*checked/.test(out), 'jenkins non coché');
+  // nom de check dangereux échappé (anti-injection)
+  assert.match(out, /x&lt;script&gt;/);
+  assert.ok(!out.includes('x<script>'), 'pas d’injection');
+});
+
+test('renderDebug : section checks reste vide (compat) quand aucune row n’est fournie', () => {
+  const out = renderDebug([{ repo: 'o/r', number: 1, title: 't', ghReason: 'author', commentsCount: 0, verdict: { kept: true, category: 'x', reason: 'r' } }], { now: NOW });
+  assert.ok(!out.includes('Checks par PR'), 'pas de section sans rows');
+});
+
 test('renderDebugShell : page autonome qui poll /debug-fragment, lien retour, sans asset externe', () => {
   const out = renderDebugShell({ intervalMs: 9000 });
   assert.ok(out.startsWith('<!doctype html'));
@@ -284,6 +316,10 @@ test('renderDebugShell : page autonome qui poll /debug-fragment, lien retour, sa
   assert.match(out, /9000/);
   assert.match(out, /href="\/"/);                 // retour aux tableaux
   assert.ok(!/src="https?:/.test(out), 'pas de script externe');
+  // interactif : les cases à cocher postent vers /ignore-check et re-render
+  assert.match(out, /\/ignore-check/);
+  assert.match(out, /addEventListener\('change'/);
+  assert.match(out, /encodeURIComponent/);
 });
 
 // ── Barre de favoris (web) ───────────────────────────────────────────────

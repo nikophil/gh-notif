@@ -2,8 +2,22 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   renderList, renderDebugText, hyperlink, truncate, displayWidth,
-  triggersLabel, ciIcon, stateIcon, relativeDate, diffStat, favoritesBar,
+  triggersLabel, ciIcon, stateIcon, relativeDate, diffStat, favoritesBar, checksByRepo,
 } from '../src/render.js';
+
+test('checksByRepo : regroupe par repo, checks distincts (union, ordre de 1re apparition)', () => {
+  const rows = [
+    { repo: 'o/a', checks: [{ name: 'ci', state: 'pass' }, { name: 'lint', state: 'fail' }] },
+    { repo: 'o/a', checks: [{ name: 'ci', state: 'fail' }, { name: 'test', state: 'pass' }] }, // ci en doublon
+    { repo: 'o/b', checks: [{ name: 'build', state: 'pass' }] },
+    { repo: 'o/c', checks: [] }, // sans check → absent
+  ];
+  assert.deepEqual(checksByRepo(rows), [
+    { repo: 'o/a', names: ['ci', 'lint', 'test'] },
+    { repo: 'o/b', names: ['build'] },
+  ]);
+  assert.deepEqual(checksByRepo(undefined), []);
+});
 
 // Mise en page déterministe : couleur et liens désactivés, `now` fixe.
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
@@ -208,6 +222,30 @@ test('renderDebugText : une ligne par thread, gardé/droppé + raison', () => {
 
 test('renderDebugText : vide → message neutre', () => {
   assert.match(renderDebugText([], { color: false }), /aucun thread/);
+});
+
+test('renderDebugText : section « Checks par repo » — jobs distincts par repo, ignorés marqués', () => {
+  const rows = [
+    { repo: 'mapado/ticketing', number: 60, ci: 'pass', checks: [
+      { name: 'continuous-integration/jenkins/branch', state: 'pass' },
+      { name: 'behat', state: 'fail' },
+    ] },
+    { repo: 'mapado/ticketing', number: 61, ci: 'fail', checks: [
+      { name: 'behat', state: 'fail' }, // doublon → distinct
+    ] },
+  ];
+  const out = renderDebugText([], { color: false, rows, ignoredChecks: { 'mapado/ticketing': ['behat'] } });
+  assert.match(out, /Checks par repo/);
+  assert.match(out, /mapado\/ticketing/);
+  assert.match(out, /continuous-integration\/jenkins\/branch/);
+  // behat apparaît UNE seule fois malgré 2 PR, et marqué ignoré
+  assert.equal((out.match(/behat/g) || []).length, 1);
+  assert.match(out, /behat.*ignoré/);
+});
+
+test('renderDebugText : pas de section checks sans rows (compat)', () => {
+  const out = renderDebugText([], { color: false });
+  assert.ok(!out.includes('Checks par repo'));
 });
 
 // ── Barre de favoris (terminal) ──────────────────────────────────────────

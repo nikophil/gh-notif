@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync, mkdtempSync } from 'node:fs';
-import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf } from '../src/prefs.js';
+import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, ignoredChecksFor, toggleIgnoredCheck } from '../src/prefs.js';
 
 test('prefsPath respecte XDG_STATE_HOME', () => {
   const prev = process.env.XDG_STATE_HOME;
@@ -13,7 +13,7 @@ test('prefsPath respecte XDG_STATE_HOME', () => {
 });
 
 test('loadPrefs : fichier absent → défauts (notify: true, theme: auto)', () => {
-  assert.deepEqual(loadPrefs('/nope/nope/prefs.json'), { notify: true, theme: 'auto', favorites: [], activeFav: null, sort: null });
+  assert.deepEqual(loadPrefs('/nope/nope/prefs.json'), { notify: true, theme: 'auto', favorites: [], activeFav: null, sort: null, ignoredChecks: {} });
 });
 
 test('loadPrefs : fichier corrompu → défauts', () => {
@@ -22,7 +22,7 @@ test('loadPrefs : fichier corrompu → défauts', () => {
   savePrefs(p, {}); // écrit un objet valide…
   rmSync(p, { force: true });
   // …puis on relit un chemin inexistant : défaut appliqué
-  assert.deepEqual(loadPrefs(p), { notify: true, theme: 'auto', favorites: [], activeFav: null, sort: null });
+  assert.deepEqual(loadPrefs(p), { notify: true, theme: 'auto', favorites: [], activeFav: null, sort: null, ignoredChecks: {} });
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -30,7 +30,7 @@ test('save puis load round-trip (notify: false persisté)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ghnotif-'));
   const p = join(dir, 'sub', 'prefs.json');
   savePrefs(p, { notify: false });
-  assert.deepEqual(loadPrefs(p), { notify: false, theme: 'auto', favorites: [], activeFav: null, sort: null });
+  assert.deepEqual(loadPrefs(p), { notify: false, theme: 'auto', favorites: [], activeFav: null, sort: null, ignoredChecks: {} });
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -78,7 +78,7 @@ test('écrire les favoris ne perd ni notify ni theme (piège de la clé écrasé
   prefs.favorites = ['mapado'];
   prefs.activeFav = 'mapado';
   savePrefs(p, prefs);
-  assert.deepEqual(loadPrefs(p), { notify: false, theme: 'dark', favorites: ['mapado'], activeFav: 'mapado', sort: null });
+  assert.deepEqual(loadPrefs(p), { notify: false, theme: 'dark', favorites: ['mapado'], activeFav: 'mapado', sort: null, ignoredChecks: {} });
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -92,7 +92,7 @@ test('loadPrefs : theme persisté conservé, notify complété par défaut', () 
   const dir = mkdtempSync(join(tmpdir(), 'ghnotif-'));
   const p = join(dir, 'prefs.json');
   savePrefs(p, { theme: 'dark' });
-  assert.deepEqual(loadPrefs(p), { notify: true, theme: 'dark', favorites: [], activeFav: null, sort: null });
+  assert.deepEqual(loadPrefs(p), { notify: true, theme: 'dark', favorites: [], activeFav: null, sort: null, ignoredChecks: {} });
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -108,7 +108,60 @@ test('loadPrefs : sort null par défaut, persisté tel quel sans perdre les autr
   savePrefs(p, prefs);
   assert.deepEqual(loadPrefs(p), {
     notify: false, theme: 'auto', favorites: [], activeFav: null,
-    sort: { key: 'author', dir: 'asc' },
+    sort: { key: 'author', dir: 'asc' }, ignoredChecks: {},
   });
   rmSync(dir, { recursive: true, force: true });
+});
+
+test('ignoredChecksOf : map par défaut vide, tolère absent/malformé', () => {
+  assert.deepEqual(ignoredChecksOf(undefined), {});
+  assert.deepEqual(ignoredChecksOf({}), {});
+  assert.deepEqual(ignoredChecksOf({ ignoredChecks: null }), {});
+  assert.deepEqual(ignoredChecksOf({ ignoredChecks: 'nope' }), {}); // type invalide → {}
+  const m = { 'mapado/ticketing': ['Check Pull Requests label for merge block'] };
+  assert.deepEqual(ignoredChecksOf({ ignoredChecks: m }), m);
+});
+
+test('ignoredChecksFor : liste des jobs ignorés d’un repo ([] si absent/invalide)', () => {
+  const prefs = { ignoredChecks: { 'mapado/ticketing': ['Check Pull Requests label for merge block'] } };
+  assert.deepEqual(ignoredChecksFor(prefs, 'mapado/ticketing'), ['Check Pull Requests label for merge block']);
+  assert.deepEqual(ignoredChecksFor(prefs, 'autre/repo'), []);
+  assert.deepEqual(ignoredChecksFor({}, 'mapado/ticketing'), []);
+  assert.deepEqual(ignoredChecksFor({ ignoredChecks: { 'o/r': 'oops' } }, 'o/r'), []); // valeur non-tableau → []
+});
+
+test('ignoredChecks : round-trip et instance fraîche (pas de référence partagée)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ghnotif-'));
+  const p = join(dir, 'prefs.json');
+  savePrefs(p, { ...loadPrefs(p), ignoredChecks: { 'o/r': ['flaky'] } });
+  assert.deepEqual(loadPrefs(p).ignoredChecks, { 'o/r': ['flaky'] });
+  // deux loadPrefs d’un fichier absent ne partagent pas la même map
+  const a = loadPrefs('/nope/x');
+  a.ignoredChecks['o/r'] = ['pollution'];
+  assert.deepEqual(loadPrefs('/nope/x').ignoredChecks, {});
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('toggleIgnoredCheck : ajoute, retire, crée le repo, supprime la clé si vide', () => {
+  const prefs = { ignoredChecks: {} };
+  // ajout (crée le repo)
+  toggleIgnoredCheck(prefs, 'mapado/ticketing', 'behat');
+  assert.deepEqual(prefs.ignoredChecks, { 'mapado/ticketing': ['behat'] });
+  // ajout d'un second
+  toggleIgnoredCheck(prefs, 'mapado/ticketing', 'phpstan');
+  assert.deepEqual(prefs.ignoredChecks['mapado/ticketing'], ['behat', 'phpstan']);
+  // retrait de behat
+  toggleIgnoredCheck(prefs, 'mapado/ticketing', 'behat');
+  assert.deepEqual(prefs.ignoredChecks['mapado/ticketing'], ['phpstan']);
+  // retrait du dernier → la clé repo disparaît (map propre)
+  toggleIgnoredCheck(prefs, 'mapado/ticketing', 'phpstan');
+  assert.deepEqual(prefs.ignoredChecks, {});
+});
+
+test('toggleIgnoredCheck : tolère ignoredChecks absent et trim le nom', () => {
+  const prefs = {};
+  toggleIgnoredCheck(prefs, 'o/r', '  behat  ');
+  assert.deepEqual(prefs.ignoredChecks, { 'o/r': ['behat'] }); // créé + trimmé
+  toggleIgnoredCheck(prefs, 'o/r', 'behat'); // retrait (match trimmé)
+  assert.deepEqual(prefs.ignoredChecks, {});
 });

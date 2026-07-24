@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { collectNotifications, collectPending, collectPRs, ciFromState, prState, countApprovals, scopeMatches, scopeQualifier, toScopeList, matchesAnyScope, scopesQualifier, mergeReviewComments, watermarkOf } from '../src/collect.js';
+import { collectNotifications, collectPending, collectPRs, ciFromState, ciFromChecks, ciOf, recomputeCi, prState, countApprovals, scopeMatches, scopeQualifier, toScopeList, matchesAnyScope, scopesQualifier, mergeReviewComments, watermarkOf } from '../src/collect.js';
 
 const ME = 'nikophil';
 
@@ -154,6 +154,59 @@ test('ciFromState: SUCCESS→pass, FAILURE/ERROR→fail, PENDING/EXPECTED→pend
   assert.equal(ciFromState('EXPECTED'), 'pending');
 });
 
+test('ciFromChecks: agrège les checks restants (un fail domine, sinon pending, sinon pass, sinon none)', () => {
+  // null/undefined/vide → none
+  assert.equal(ciFromChecks(null, []), 'none');
+  assert.equal(ciFromChecks(undefined, []), 'none');
+  assert.equal(ciFromChecks([], []), 'none');
+  // un fail domine
+  assert.equal(ciFromChecks([{ name: 'a', state: 'pass' }, { name: 'b', state: 'fail' }], []), 'fail');
+  // pas de fail, un pending → pending
+  assert.equal(ciFromChecks([{ name: 'a', state: 'pass' }, { name: 'b', state: 'pending' }], []), 'pending');
+  // que des pass → pass
+  assert.equal(ciFromChecks([{ name: 'a', state: 'pass' }], []), 'pass');
+});
+
+test('ciFromChecks: retire les jobs ignorés (match exact, trimmé) avant d’agréger', () => {
+  const checks = [
+    { name: 'continuous-integration/jenkins/branch', state: 'pass' },
+    { name: 'Check Pull Requests label for merge block', state: 'fail' },
+  ];
+  // sans ignorer : le job label rouge fait échouer
+  assert.equal(ciFromChecks(checks, []), 'fail');
+  // en ignorant le job label : jenkins vert → pass
+  assert.equal(ciFromChecks(checks, ['Check Pull Requests label for merge block']), 'pass');
+  // trim toléré sur la config
+  assert.equal(ciFromChecks(checks, ['  Check Pull Requests label for merge block  ']), 'pass');
+  // tout ignoré → none (plus aucun check pertinent)
+  assert.equal(ciFromChecks(checks, ['continuous-integration/jenkins/branch', 'Check Pull Requests label for merge block']), 'none');
+  // casse sensible : un nom mal capitalisé n’ignore rien
+  assert.equal(ciFromChecks(checks, ['check pull requests label for merge block']), 'fail');
+});
+
+test('ciOf : recalcule via ciFromChecks si blocklist, sinon retombe sur ciFromState (compat)', () => {
+  const detail = { checks: [{ name: 'behat', state: 'fail' }], statusCheckRollupState: 'FAILURE' };
+  // sans jobs ignorés → ciFromState (le rollup fait foi, compat byte-identique)
+  assert.equal(ciOf(detail, []), 'fail');
+  // en ignorant behat → recalcul sur les checks restants (aucun) → none
+  assert.equal(ciOf(detail, ['behat']), 'none');
+  // rollup SUCCESS sans blocklist → pass, même si checks vides
+  assert.equal(ciOf({ checks: [], statusCheckRollupState: 'SUCCESS' }, []), 'pass');
+});
+
+test('recomputeCi : recalcule le ci de mine/others/hidden depuis row.checks, 0 refetch', () => {
+  const mk = (repo, ci, checks) => ({ repo, number: 1, ci, checks, statusCheckRollupState: 'FAILURE' });
+  const data = {
+    mine: [mk('mapado/ticketing', 'fail', [{ name: 'jenkins', state: 'fail' }, { name: 'behat', state: 'pass' }])],
+    others: [mk('o/r', 'fail', [{ name: 'x', state: 'fail' }])],
+    hidden: [mk('mapado/ticketing', 'fail', [{ name: 'jenkins', state: 'fail' }])],
+  };
+  recomputeCi(data, { 'mapado/ticketing': ['jenkins'] });
+  assert.equal(data.mine[0].ci, 'pass');   // jenkins ignoré → reste behat (pass)
+  assert.equal(data.hidden[0].ci, 'none');  // jenkins ignoré → plus rien
+  assert.equal(data.others[0].ci, 'fail');  // repo sans blocklist → ciFromState(FAILURE)
+});
+
 test('countApprovals : users distincts dont la dernière review est APPROVED', () => {
   assert.equal(countApprovals(undefined), 0);
   assert.equal(countApprovals([]), 0);
@@ -248,6 +301,34 @@ test('collectPRs: le lien d’une réponse en thread pointe sur le commentaire',
   assert.equal(others.length, 1);
   assert.deepEqual(others[0].triggers, ['reply']);
   assert.equal(others[0].url, 'https://github.com/o/r/pull/50#discussion_r2');
+});
+
+test('collectPRs: la blocklist par repo recalcule le CI (job ignoré rouge → pass) et expose row.checks', async () => {
+  const checks = [
+    { name: 'continuous-integration/jenkins/branch', state: 'pass' },
+    { name: 'Check Pull Requests label for merge block', state: 'fail' },
+  ];
+  const gh = fakeGh({
+    search: [{ number: 60, title: 'À review', html_url: 'https://github.com/mapado/ticketing/pull/60', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/mapado/ticketing' }],
+    // rollup GitHub = FAILURE (le job label rouge), mais le vrai job est vert
+    details: () => ({ number: 60, title: 'À review', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, statusCheckRollupState: 'FAILURE', checks }),
+  });
+  const opts = { ignoredChecks: { 'mapado/ticketing': ['Check Pull Requests label for merge block'] } };
+  const { others } = await collectPRs(gh, ME, opts);
+  assert.equal(others[0].ci, 'pass');                 // recalculé sans le job ignoré
+  assert.deepEqual(others[0].checks, checks);         // liste brute exposée (vue debug)
+});
+
+test('collectPRs: sans blocklist pour le repo, le CI reste le rollup GitHub (compat byte-identique)', async () => {
+  const checks = [{ name: 'continuous-integration/jenkins/branch', state: 'pass' }];
+  const gh = fakeGh({
+    search: [{ number: 61, title: 'PR', html_url: 'https://github.com/o/r/pull/61', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
+    // rollup FAILURE alors que les checks connus sont verts : sans config on NE recalcule PAS
+    details: () => ({ number: 61, title: 'PR', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, statusCheckRollupState: 'FAILURE', checks }),
+  });
+  // blocklist présente mais pour un AUTRE repo → n’affecte pas o/r
+  const { others } = await collectPRs(gh, ME, { ignoredChecks: { 'autre/repo': ['x'] } });
+  assert.equal(others[0].ci, 'fail'); // ciFromState(FAILURE), pas le recalcul
 });
 
 test('collectPRs: une review en attente (sans commentaire) garde le lien vers la PR', async () => {

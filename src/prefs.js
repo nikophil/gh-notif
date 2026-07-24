@@ -14,7 +14,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 // (`prefs.favorites = …; savePrefs(path, prefs)`). Surtout pas
 // `savePrefs(path, { favorites })` : ça effacerait notify/theme.
 
-const DEFAULTS = { notify: true, theme: 'auto', favorites: [], activeFav: null, sort: null };
+const DEFAULTS = { notify: true, theme: 'auto', favorites: [], activeFav: null, sort: null, ignoredChecks: {} };
 const THEMES = ['light', 'dark', 'auto'];
 
 export function prefsPath() {
@@ -25,7 +25,7 @@ export function prefsPath() {
 // ⚠️ `favorites` est un tableau : un simple `{ ...DEFAULTS }` en partagerait la
 // référence entre tous les appels (une mutation polluerait DEFAULTS). On en
 // recopie donc toujours une instance fraîche.
-const defaults = () => ({ ...DEFAULTS, favorites: [...DEFAULTS.favorites] });
+const defaults = () => ({ ...DEFAULTS, favorites: [...DEFAULTS.favorites], ignoredChecks: {} });
 
 export function loadPrefs(path) {
   try {
@@ -51,4 +51,35 @@ export function isNotifyEnabled(prefs) {
 export function themeOf(prefs) {
   const t = prefs?.theme;
   return THEMES.includes(t) ? t : 'auto';
+}
+
+// Blocklist des jobs de CI, par repo : { "owner/name": ["nom de check", …] }.
+// Défaut {} (aucun repo configuré). Robuste face à un fichier trafiqué : toute
+// valeur non-objet retombe sur {}.
+export function ignoredChecksOf(prefs) {
+  const m = prefs?.ignoredChecks;
+  return m && typeof m === 'object' && !Array.isArray(m) ? m : {};
+}
+
+// Jobs ignorés pour un repo donné (tableau ; [] si absent ou valeur non-tableau).
+export function ignoredChecksFor(prefs, repo) {
+  const v = ignoredChecksOf(prefs)[repo];
+  return Array.isArray(v) ? v : [];
+}
+
+// Bascule un check dans la blocklist d'un repo (toggle, nom trimmé) : présent → on
+// le retire (et on **supprime la clé repo** si sa liste devient vide → map propre) ;
+// absent → on l'ajoute. Mute `prefs.ignoredChecks` EN PLACE (créé si absent) — cf.
+// piège §14 : l'appelant réécrit ensuite `prefs` EN ENTIER via savePrefs. Sert au
+// POST /ignore-check (case à cocher de la vue debug web).
+export function toggleIgnoredCheck(prefs, repo, name) {
+  const n = String(name).trim();
+  if (!prefs.ignoredChecks || typeof prefs.ignoredChecks !== 'object' || Array.isArray(prefs.ignoredChecks)) {
+    prefs.ignoredChecks = {};
+  }
+  const list = Array.isArray(prefs.ignoredChecks[repo]) ? prefs.ignoredChecks[repo] : [];
+  const next = list.includes(n) ? list.filter((x) => x !== n) : [...list, n];
+  if (next.length === 0) delete prefs.ignoredChecks[repo];
+  else prefs.ignoredChecks[repo] = next;
+  return prefs;
 }

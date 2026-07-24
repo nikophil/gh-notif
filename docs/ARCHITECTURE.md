@@ -19,7 +19,7 @@ qui réutilise l'auth de l'utilisateur. Tests avec le runner natif `node:test` (
 | `src/filter.js` | **Cœur** : `classify()` (règles de filtrage), `findReplyToMe()`, helpers. Fonctions pures. | oui |
 | `src/collect.js` | Orchestration : agrège notifications + recherches en PRs, récupère les détails, scope. | oui via gh stub |
 | `src/state.js` | Persistance + déduplication du `--watch`. | oui |
-| `src/prefs.js` | Préférences UI persistées (`notify`, `theme`, `favorites`, `activeFav`, avec défauts/validation `isNotifyEnabled`/`themeOf`). Purs + I/O JSON, calqués sur `state.js`. | oui |
+| `src/prefs.js` | Préférences UI persistées (`notify`, `theme`, `favorites`, `activeFav`, `sort`, `ignoredChecks`, avec défauts/validation `isNotifyEnabled`/`themeOf`/`ignoredChecksOf`/`ignoredChecksFor`). Purs + I/O JSON, calqués sur `state.js`. | oui |
 | `src/favorites.js` | Favoris de scope : normalisation/ajout/retrait, `parseScope`, cycle de la touche `f`, **`filterDataByScope`** (filtre d'affichage), `favoriteLabel` (`org/*`) et `favoriteCounts` (badges). Purs. | oui |
 | `src/approvals.js` | Approbations sur mes PR : `approvalsOf`, seuil « prête à merger » (`isReady`), diff/seed des évènements (`diffApprovals`). Purs. | oui |
 | `src/notify.js` | Notifs desktop multi-plateforme (`notifyCommand` : `notify-send` Linux / `osascript` macOS) + ligne d'évènement terminal. | oui via spawn stub |
@@ -211,7 +211,7 @@ sequenceDiagram
 
 - **Thread** (`/notifications`) : `{ id, reason, updated_at, subject:{title,url,latest_comment_url,type}, repository:{full_name} }`
 - **Item** (sortie de `classify`) : `{ category, actor, url, repo, number, title, threadId, updatedAt }`
-- **Row** (sortie de `collectPRs`) : `{ repo, number, url, title, triggers:[…], author, createdAt, additions, deletions, ci, state, approvals }` — `state` ∈ {draft,open,merged,closed} (via `prState`), `approvals` = nb d'**approbations** (via `countApprovals` : users distincts dont la dernière review est APPROVED — pas `reviews.length`).
+- **Row** (sortie de `collectPRs`) : `{ repo, number, url, title, triggers:[…], author, createdAt, additions, deletions, ci, checks:[{name,state}], statusCheckRollupState, state, approvals }` — `state` ∈ {draft,open,merged,closed} (via `prState`), `approvals` = nb d'**approbations** (via `countApprovals` : users distincts dont la dernière review est APPROVED — pas `reviews.length`). `checks` = jobs de CI individuels normalisés (`state` ∈ {pass,fail,pending}), consommé par la vue debug et le recalcul CI (cf. §16). `ci` = verdict agrégé (`ciOf` : `ciFromState` par défaut ; `ciFromChecks` si le repo a une blocklist). `statusCheckRollupState` = rollup brut, gardé pour le **recompute local** (`recomputeCi`) après un toggle web — permet de retomber sur `ciFromState` si la blocklist du repo redevient vide.
 - **scope** : `null` (tout) | `{ type:'org', value }` | `{ type:'repo', value:'owner/name' }` | **tableau** de ces objets (union des favoris, cf. §14)
 
 ## Décisions non-évidentes (⚠️ pièges)
@@ -305,7 +305,10 @@ sequenceDiagram
 
    Le CI vient du `statusCheckRollup.state` du dernier commit (un seul état agrégé côté GitHub →
    `ciFromState`), et les approbations de `latestReviews`/`latestOpinionatedReviews` (→
-   `countApprovals`), pas d'un tableau de checks REST.
+   `countApprovals`), pas d'un tableau de checks REST. On récupère AUSSI, **dans la même requête**
+   (aucun round-trip en plus), les `statusCheckRollup.contexts` (checks individuels, `CheckRun`
+   d'Actions + `StatusContext` de commit) → normalisés en `row.checks` pour le recalcul CI par
+   blocklist (§16) et la vue debug.
 
 9. **Apostrophes typographiques (`U+2019`).** Les libellés FR (`t'a répondu`, `t'a mentionné`)
    utilisent `'` (U+2019), pas l'ASCII `'`. Régression récurrente : vérifier les octets si tu touches
@@ -362,7 +365,20 @@ sequenceDiagram
     **always-on** en `--serve` via `/debug` (page), `/debug-fragment` (poll), `/api/debug` (JSON), avec
     un lien 🐛 dans l'en-tête. ⚠️ Contrainte produit : GitHub ne notifie **pas** tes propres actions →
     le debug montre le raisonnement, pas « tes messages ». ⚠️ `renderDebug` **échappe** toute donnée
-    GitHub (titre, repo, raison) via `escapeHtml`.
+    GitHub (titre, repo, raison) via `escapeHtml`. La vue debug porte AUSSI une section **« Checks par
+    repo »** (`renderChecksSection` / `checksSectionText`) : la blocklist étant **par repo**, on présente
+    **par repo l'ensemble DISTINCT de ses jobs** (`checksByRepo` : union sur ses PR, ordre de 1re
+    apparition) — **pas** une liste par PR (qui répéterait chaque job et donnerait l'impression d'un
+    réglage par PR). Les ignorés sont **barrés/grisés**. C'est la source pour copier le nom EXACT d'un
+    job à mettre en blocklist (§16). ⚠️ Le **state** d'un job étant par PR, il n'est **pas** affiché ici
+    (config = par repo) ; le verdict CI par PR reste dans les tableaux principaux. Alimentée par
+    `row.checks` (donnée déjà fetchée, coût nul) ; ⚠️ le early-return « aucun thread » ne doit PAS
+    court-circuiter cette section (des checks existent même sans thread de notification) — les deux
+    rendus l'ajoutent APRÈS le bloc threads. ⚠️ En **web**, la section est **interactive** : chaque check
+    est une **case à cocher** (cochée = ignoré sur tout le repo) qui `POST /ignore-check?repo=&name=`
+    (§16) — la page `/debug` (par ailleurs sans autre action POST) a un handler `change` **délégué** sur
+    `#content` (réinjecté à chaque poll). Le nom du check voyage en `data-repo`/`data-name` (échappés
+    HTML) puis `encodeURIComponent` à l'envoi.
 
 13. **Notifs desktop multi-plateforme (`notify.js`).** Le choix de la commande est **pur** :
     `notifyCommand(platform, {title, body}) → {cmd, args}`. Linux → `notify-send [title, body]` ;
@@ -463,6 +479,32 @@ sequenceDiagram
     `createdAt` nuls) en fin de liste quel que soit le sens ; égalité → ordre d'arrivée (sort
     stable). « Tes PR » n'est jamais triable. Spec :
     `docs/superpowers/specs/2026-07-23-sort-others-design.md`.
+
+16. **Jobs de CI ignorés (blocklist par repo).** Certains jobs sont volontairement peu importants
+    (ex. `mapado/ticketing` → *Prevent merging with blocking label*, un rappel pour lancer les
+    migrations à la main) ; le rollup GitHub passant `FAILURE` dès qu'**un** check échoue, ils
+    noyaient le signal du vrai job (`continuous-integration/jenkins/branch`). On déclare donc, **par
+    repo**, une blocklist dans `prefs-v1.json` (`ignoredChecks: { "owner/name": ["nom de check", …] }`,
+    défaut `{}`, accesseurs `ignoredChecksOf`/`ignoredChecksFor`). `collectPRs(…, { ignoredChecks })`
+    recalcule alors `row.ci` via **`ciOf`** → **`ciFromChecks(checks, ignored)`** (purs, `collect.js`) :
+    retire les checks au **nom exact trimmé** (casse sensible), puis agrège (`fail` domine → `pending` →
+    `pass` → `none`). ⚠️ **Compat forte** — SANS entrée pour le repo, `ciOf` garde exactement
+    `ciFromState` (verdict byte-identique pour qui n'a rien configuré ; même esprit que §14/§15). Le
+    recalcul ne s'active que par repo configuré. Le nom à mettre en blocklist est le nom du **check**
+    (≠ nom du workflow), à copier depuis la **section « Checks par repo » de la vue debug** (§12).
+
+    **Deux façons de configurer.** (a) **Web** : les cases à cocher de la vue debug (`POST /ignore-check`,
+    §12) → `toggleIgnoredCheck(prefs, repo, name)` (pur, `prefs.js` : ajoute/retire, **supprime la clé
+    repo si vide**) + `savePrefs` + **`recomputeCi(snapshot.data, ignoredChecks)`** (recompute local du
+    `ci`, **0 appel GitHub** — `row.checks` déjà en mémoire ; même philosophie que `/hide` §10, `/sort`
+    §15). La réponse est le **fragment debug ré-rendu** ; le dashboard reprend les icônes CI à son
+    prochain `/view` (même `snapshot.data`). ⚠️ `ignoredChecks` est **mutable** en mémoire (rebasculé
+    par le POST). (b) **Manuel** : éditer `prefs-v1.json`. ⚠️ Éditer à la main pendant qu'un
+    `--serve`/`--watch` tourne serait écrasé au prochain POST (objet `prefs` réécrit en entier, §14) →
+    éditer app arrêtée puis relancer. `runWatch`/`runList` (terminal) ne proposent **pas** de toggle
+    interactif : édition manuelle uniquement. Les checks individuels viennent des
+    `statusCheckRollup.contexts` (§8, même requête). Spec :
+    `docs/superpowers/specs/2026-07-24-ignored-ci-checks-design.md`.
 
 ## Conventions de test
 

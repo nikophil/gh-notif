@@ -100,6 +100,53 @@ test('getPullDetailsBatch : une requête GraphQL, alias par PR, forme normalisé
   assert.ok(q.includes('pullRequest(number: 99)'));
 });
 
+test('getPullDetailsBatch : normalise les checks (CheckRun + StatusContext) en {name,state}', async () => {
+  const gqlResponse = JSON.stringify({ data: {
+    p0: { pullRequest: {
+      number: 42, title: 'A', author: { login: 'alice' }, createdAt: 'd1', additions: 1, deletions: 0,
+      isDraft: false, state: 'OPEN',
+      latestOpinionatedReviews: { nodes: [] },
+      commits: { nodes: [{ commit: { statusCheckRollup: {
+        state: 'FAILURE',
+        contexts: { nodes: [
+          { __typename: 'CheckRun', name: 'Check Pull Requests label for merge block', conclusion: 'FAILURE', status: 'COMPLETED' },
+          { __typename: 'StatusContext', context: 'continuous-integration/jenkins/branch', state: 'SUCCESS' },
+          { __typename: 'CheckRun', name: 'build', conclusion: null, status: 'IN_PROGRESS' },
+          { __typename: 'CheckRun', name: 'lint', conclusion: 'SKIPPED', status: 'COMPLETED' },
+          { __typename: 'StatusContext', context: 'deploy', state: 'PENDING' },
+        ] },
+      } } }] },
+    } },
+  } });
+  const runner = fakeRunner([['api graphql', gqlResponse]]);
+  const gh = makeGh(runner);
+  const [pr] = await gh.getPullDetailsBatch([{ repo: 'o/r', number: 42 }]);
+
+  assert.deepEqual(pr.checks, [
+    { name: 'Check Pull Requests label for merge block', state: 'fail' },
+    { name: 'continuous-integration/jenkins/branch', state: 'pass' },
+    { name: 'build', state: 'pending' },   // conclusion null + en cours
+    { name: 'lint', state: 'pass' },        // SKIPPED = non-bloquant
+    { name: 'deploy', state: 'pending' },   // StatusContext PENDING
+  ]);
+  // la requête demande bien les contexts
+  const q = runner.calls[0].join(' ');
+  assert.ok(q.includes('contexts'));
+  assert.ok(q.includes('StatusContext'));
+});
+
+test('getPullDetailsBatch : rollup sans contexts → checks vide', async () => {
+  const gqlResponse = JSON.stringify({ data: { p0: { pullRequest: {
+    number: 1, title: 'A', author: { login: 'a' }, createdAt: 'd', additions: 0, deletions: 0,
+    isDraft: false, state: 'OPEN', latestOpinionatedReviews: { nodes: [] },
+    commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
+  } } } });
+  const gh = makeGh(fakeRunner([['api graphql', gqlResponse]]));
+  const [pr] = await gh.getPullDetailsBatch([{ repo: 'o/r', number: 1 }]);
+  assert.deepEqual(pr.checks, []);
+  assert.equal(pr.statusCheckRollupState, null);
+});
+
 test('getPullDetailsBatch : liste vide → aucune requête', async () => {
   const runner = fakeRunner([]);
   const gh = makeGh(runner);

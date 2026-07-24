@@ -2,7 +2,7 @@
 // helpers de présentation déjà exportés par render.js (triggersLabel, ciIcon,
 // stateIcon, relativeDate) : seule la mise en forme (terminal vs HTML) diffère,
 // la logique d'affichage reste mutualisée.
-import { ciIcon, stateIcon, relativeDate } from './render.js';
+import { ciIcon, stateIcon, relativeDate, checksByRepo } from './render.js';
 import { isReady } from './approvals.js';
 import { favoriteLabel } from './favorites.js';
 
@@ -548,29 +548,61 @@ ${FAVICON}
 // notification. Toute donnée GitHub (titre, repo, raison, reason brute) est
 // échappée (anti-injection). `now` accepté pour symétrie/déterminisme.
 export function renderDebug(debug, opts = {}) {
-  const rows = debug ?? [];
-  if (rows.length === 0) return '<p class="empty">Aucun thread de notification.</p>';
-  const kept = rows.filter((d) => d.verdict.kept).length;
-  const headers = ['Verdict', 'PR', 'Titre', 'Raison', 'reason GitHub', 'Comm.'];
-  const trs = rows.map((d) => {
-    const v = d.verdict;
-    const url = `https://github.com/${d.repo}/pull/${d.number}`;
-    const verdict = v.kept
-      ? `<span class="ok">✓ ${escapeHtml(v.category)}</span>`
-      : '<span class="ko">✗ droppé</span>';
-    return tableRow(
-      [
-        verdict,
-        link(url, `${d.repo}#${d.number}`),
-        escapeHtml(d.title ?? ''),
-        escapeHtml(v.reason),
-        `<code>${escapeHtml(d.ghReason)}</code>`,
-        String(d.commentsCount ?? 0),
-      ],
-      v.kept ? '' : 'hid',
-    );
+  const threads = debug ?? [];
+  let head;
+  if (threads.length === 0) {
+    head = '<p class="empty">Aucun thread de notification.</p>';
+  } else {
+    const kept = threads.filter((d) => d.verdict.kept).length;
+    const headers = ['Verdict', 'PR', 'Titre', 'Raison', 'reason GitHub', 'Comm.'];
+    const trs = threads.map((d) => {
+      const v = d.verdict;
+      const url = `https://github.com/${d.repo}/pull/${d.number}`;
+      const verdict = v.kept
+        ? `<span class="ok">✓ ${escapeHtml(v.category)}</span>`
+        : '<span class="ko">✗ droppé</span>';
+      return tableRow(
+        [
+          verdict,
+          link(url, `${d.repo}#${d.number}`),
+          escapeHtml(d.title ?? ''),
+          escapeHtml(v.reason),
+          `<code>${escapeHtml(d.ghReason)}</code>`,
+          String(d.commentsCount ?? 0),
+        ],
+        v.kept ? '' : 'hid',
+      );
+    });
+    head = `<p class="summary">${kept}/${threads.length} threads gardés</p>${table(headers, trs)}`;
+  }
+  return head + renderChecksSection(opts.rows, opts.ignoredChecks);
+}
+
+// Section « Checks par repo » de la vue debug (web) : la blocklist étant PAR REPO,
+// on présente, par repo, l'ensemble DISTINCT de ses jobs (union sur ses PR) — pas une
+// liste par PR (qui répéterait chaque job et donnerait l'impression d'un réglage par
+// PR). Chaque job = une case à cocher (cochée = ignoré sur tout le repo, nom barré).
+// Renvoie '' si aucune row (compat). Le state d'un job étant par PR, il n'est pas
+// affiché ici (config = par repo) ; le verdict par PR reste dans les tableaux. Tout
+// nom de check est échappé (anti-injection, cf. §12).
+export function renderChecksSection(rows, ignoredChecks = {}) {
+  const groups = checksByRepo(rows);
+  if (groups.length === 0) return '';
+  const blocks = groups.map(({ repo, names }) => {
+    const blocked = new Set((ignoredChecks?.[repo] ?? []).map((n) => String(n).trim()));
+    const items = names.map((name) => {
+      const ignored = blocked.has(name);
+      const label = ignored ? `<del>${escapeHtml(name)}</del>` : escapeHtml(name);
+      // Case à cocher = bascule la blocklist du repo (POST /ignore-check côté client).
+      // data-repo/data-name portent la valeur BRUTE (escapeHtml pour les attributs) ;
+      // le client encode en URL (encodeURIComponent) au moment du POST.
+      const cb = `<input type="checkbox" class="ig" data-repo="${escapeHtml(repo)}" data-name="${escapeHtml(name)}"${ignored ? ' checked' : ''}>`;
+      return `<li class="${ignored ? 'ignored' : ''}"><label>${cb} ${label}</label></li>`;
+    }).join('');
+    const heading = link(`https://github.com/${repo}`, repo);
+    return `<div class="pr-checks"><p>${heading}</p><ul>${items}</ul></div>`;
   });
-  return `<p class="summary">${kept}/${rows.length} threads gardés</p>${table(headers, trs)}`;
+  return `<h2 class="checks-title">Checks par repo</h2>${blocks.join('')}`;
 }
 
 // Page autonome `/debug` (CSS inline minimal, zéro asset externe) : poll de
@@ -603,6 +635,14 @@ ${FAVICON}
   code { background: #8882; padding: .05rem .35rem; border-radius: 4px; font-size: .85em; }
   .summary { opacity: .7; font-size: .85rem; margin: .25rem 0 1rem; }
   .empty { opacity: .6; padding: 2rem; text-align: center; }
+  .checks-title { font-size: .95rem; margin: 1.5rem 0 .5rem; }
+  .pr-checks { margin: 0 0 .75rem; }
+  .pr-checks p { margin: .25rem 0; }
+  .pr-checks ul { margin: .1rem 0 .1rem 1rem; padding-left: 1rem; list-style: none; }
+  .pr-checks li { white-space: nowrap; }
+  .pr-checks li.ignored { opacity: .5; }
+  .pr-checks label { cursor: pointer; }
+  .pr-checks input.ig { vertical-align: middle; margin-right: .1rem; }
 </style>
 </head>
 <body>
@@ -623,6 +663,18 @@ ${FAVICON}
       stamp.textContent = 'maj ' + new Date().toLocaleTimeString('fr-FR');
     }).catch(function () { stamp.textContent = 'hors ligne — nouvelle tentative…'; });
   }
+  // Case à cocher d'un check → bascule la blocklist du repo (POST /ignore-check),
+  // la réponse est le fragment debug ré-rendu qu'on réinjecte (cases + verdicts à jour).
+  // Handler DÉLÉGUÉ sur #content (persistant) car innerHTML est remplacé à chaque load.
+  content.addEventListener('change', function (e) {
+    var el = e.target;
+    if (!el || !el.classList || !el.classList.contains('ig')) return;
+    var qs = 'repo=' + encodeURIComponent(el.dataset.repo) + '&name=' + encodeURIComponent(el.dataset.name);
+    fetch('/ignore-check?' + qs, { method: 'POST' }).then(function (r) { return r.text(); }).then(function (html) {
+      content.innerHTML = html;
+      stamp.textContent = 'maj ' + new Date().toLocaleTimeString('fr-FR');
+    }).catch(function () { stamp.textContent = 'échec de la mise à jour'; });
+  });
   load();
   setInterval(load, INTERVAL);
 </script>

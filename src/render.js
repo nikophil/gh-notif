@@ -265,7 +265,7 @@ export function favoritesBar(favorites, active, opts) {
 export function renderDebugText(debug, opts) {
   const o = resolveOpts(opts);
   if (!debug || debug.length === 0) {
-    return `🐛 ${paint('Debug — aucun thread de notification', C.dim, o)}\n`;
+    return `🐛 ${paint('Debug — aucun thread de notification', C.dim, o)}\n${checksSectionText(opts)}`;
   }
   const lines = debug.map((d) => {
     const v = d.verdict;
@@ -275,5 +275,43 @@ export function renderDebugText(debug, opts) {
   });
   const kept = debug.filter((d) => d.verdict.kept).length;
   const title = `🐛 ${paint('Debug — verdict du pipeline', C.bold, o)} ${paint(`(${kept}/${debug.length} gardés)`, C.dim, o)}`;
-  return `${title}\n${lines.join('\n')}\n`;
+  return `${title}\n${lines.join('\n')}\n${checksSectionText(opts)}`;
+}
+
+// Regroupe des rows par repo → checks DISTINCTS (union, ordre de 1re apparition).
+// La blocklist étant par repo, la config des checks ignorés se raisonne par repo,
+// pas par PR (un même job apparaît sur plusieurs PR). Un repo sans check est absent.
+// Partagé par les deux vues debug (terminal `checksSectionText` + web `renderChecksSection`).
+export function checksByRepo(rows) {
+  const byRepo = new Map();
+  for (const r of rows ?? []) {
+    if (!(r.checks?.length)) continue;
+    if (!byRepo.has(r.repo)) byRepo.set(r.repo, new Set());
+    const set = byRepo.get(r.repo);
+    for (const c of r.checks) set.add(c.name);
+  }
+  return [...byRepo.entries()].map(([repo, names]) => ({ repo, names: [...names] }));
+}
+
+// Section « Checks par repo » du dump terminal (mode --debug) : par repo, l'ensemble
+// DISTINCT de ses jobs (union sur ses PR), les ignorés (blocklist du repo) suffixés
+// « (ignoré) » et grisés. Aide à copier le nom exact d'un job à mettre en blocklist.
+// '' si aucune row (compat). Le state d'un job étant par PR, il n'est pas affiché ici
+// (config = par repo) — le verdict par PR reste dans les tableaux principaux.
+function checksSectionText(opts) {
+  const o = resolveOpts(opts);
+  const groups = checksByRepo(opts?.rows);
+  if (groups.length === 0) return '';
+  const ignoredChecks = opts?.ignoredChecks ?? {};
+  const blocks = groups.map(({ repo, names }) => {
+    const blocked = new Set((ignoredChecks[repo] ?? []).map((n) => String(n).trim()));
+    const items = names.map((name) => {
+      const ign = blocked.has(name);
+      const line = `    ${name}${ign ? ' (ignoré)' : ''}`;
+      return ign ? paint(line, C.dim, o) : line;
+    });
+    return [`  ${paint(repo, C.bold, o)}`, ...items].join('\n');
+  });
+  const title = `🔎 ${paint('Checks par repo', C.bold, o)}`;
+  return `${title}\n${blocks.join('\n')}\n`;
 }
