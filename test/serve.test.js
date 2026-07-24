@@ -149,7 +149,7 @@ test('POST /hide masque une PR des autres puis la restaure', async () => {
   process.env.XDG_STATE_HOME = tmp;
 
   const PORT = 7791;
-  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600 });
+  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600, open: false });
   try {
     await new Promise((r) => setTimeout(r, 250)); // 1er poll
     const frag1 = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
@@ -184,7 +184,7 @@ test('POST /notify persiste la préférence et se reflète dans la page', async 
   process.env.XDG_STATE_HOME = tmp;
 
   const PORT = 7792;
-  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600 });
+  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600, open: false });
   try {
     await new Promise((r) => setTimeout(r, 150));
     // Défaut : cochée.
@@ -225,7 +225,7 @@ test('POST /theme persiste le thème, se reflète dans la page, ne perd pas noti
   process.env.XDG_STATE_HOME = tmp;
 
   const PORT = 7793;
-  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600 });
+  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600, open: false });
   try {
     await new Promise((r) => setTimeout(r, 150));
     // Défaut auto.
@@ -342,7 +342,7 @@ test('POST /fav* : épingle, filtre, retire — et ne perd ni notify ni theme', 
   process.env.XDG_STATE_HOME = tmp;
 
   const PORT = 7794;
-  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600 });
+  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600, open: false });
   const post = (p) => fetch(`http://localhost:${PORT}${p}`, { method: 'POST' });
   try {
     await new Promise((r) => setTimeout(r, 150));
@@ -423,7 +423,7 @@ test('POST /fav/add : scope introuvable → 400, rien n’est persisté', async 
   process.env.XDG_STATE_HOME = tmp;
 
   const PORT = 7795;
-  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600 });
+  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600, open: false });
   try {
     await new Promise((r) => setTimeout(r, 150));
 
@@ -477,7 +477,7 @@ test('POST /refresh juste après un poll → pas de nouvelle collecte GitHub', a
   process.env.XDG_STATE_HOME = tmp;
 
   const PORT = 7796;
-  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600 });
+  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600, open: false });
   try {
     await new Promise((r) => setTimeout(r, 150)); // 1er poll
     assert.equal(polls, 1, 'un seul poll au démarrage');
@@ -585,7 +585,7 @@ test('POST /sort : trie, inverse au re-clic, persiste, 400 sur clé inconnue', a
   process.env.XDG_STATE_HOME = tmp;
 
   const PORT = 7797;
-  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600 });
+  const server = serve({ gh, me: 'moi', scope: null, port: PORT, intervalSeconds: 3600, open: false });
   try {
     await new Promise((r) => setTimeout(r, 250)); // 1er poll
     // Défaut date desc : la récente (#2) d'abord.
