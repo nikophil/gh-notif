@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { approvalsOf, approvalKey, isReady, newApprovals, diffApprovals, READY_THRESHOLD } from '../src/approvals.js';
+import { approvalsOf, changesRequestedOf, approvalKey, isReady, newApprovals, diffApprovals, READY_THRESHOLD } from '../src/approvals.js';
 
 test('approvalsOf: reviewers whose latest review is APPROVED (login + submittedAt)', () => {
   assert.deepEqual(approvalsOf(undefined), []);
@@ -35,6 +35,38 @@ test('approvalsOf: reviewers whose latest review is APPROVED (login + submittedA
       { login: 'alice', submittedAt: '2026-06-21T10:00:00Z' },
       { login: 'bob', submittedAt: '2026-06-21T12:00:00Z' },
     ],
+  );
+});
+
+test('changesRequestedOf: reviewers whose latest review is CHANGES_REQUESTED', () => {
+  assert.deepEqual(changesRequestedOf(undefined), []);
+  assert.deepEqual(changesRequestedOf([]), []);
+
+  // APPROVED / COMMENTED ignored, CHANGES_REQUESTED kept
+  assert.deepEqual(
+    changesRequestedOf([
+      { author: { login: 'alice' }, state: 'CHANGES_REQUESTED', submittedAt: '2026-06-20T10:00:00Z' },
+      { author: { login: 'bob' }, state: 'APPROVED', submittedAt: '2026-06-20T11:00:00Z' },
+    ]),
+    [{ login: 'alice', submittedAt: '2026-06-20T10:00:00Z' }],
+  );
+
+  // request-changes then later APPROVED by the same user → no longer counts
+  assert.deepEqual(
+    changesRequestedOf([
+      { author: { login: 'alice' }, state: 'CHANGES_REQUESTED', submittedAt: '2026-06-20T10:00:00Z' },
+      { author: { login: 'alice' }, state: 'APPROVED', submittedAt: '2026-06-21T10:00:00Z' },
+    ]),
+    [],
+  );
+
+  // two distinct reviewers requesting changes
+  assert.deepEqual(
+    changesRequestedOf([
+      { author: { login: 'alice' }, state: 'CHANGES_REQUESTED', submittedAt: '2026-06-20T10:00:00Z' },
+      { author: { login: 'bob' }, state: 'CHANGES_REQUESTED', submittedAt: '2026-06-21T12:00:00Z' },
+    ]).map((r) => r.login),
+    ['alice', 'bob'],
   );
 });
 

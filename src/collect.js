@@ -1,6 +1,6 @@
 import { classify, classifyVerdict, CATEGORY, TRIGGER_FOR } from './filter.js';
 import { reconcile, isHidden, keyOf } from './hidden.js';
-import { approvalsOf } from './approvals.js';
+import { approvalsOf, changesRequestedOf } from './approvals.js';
 
 // Max concurrency of `gh` calls (avoids spawning dozens of processes at once /
 // hitting GitHub's secondary rate-limit). Lowered to smooth out the cold-start
@@ -309,6 +309,7 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
       statusCheckRollupState: d?.statusCheckRollupState ?? null, // basis of ciFromState for recomputeCi
       state: prState(d),
       approvals: approvers.length,
+      changesRequested: changesRequestedOf(d?.reviews).length, // reviewers whose latest review requests changes
     };
     if (d && d.author?.login === me) {
       mine.push(row); // my PRs: never hidden, we keep my drafts

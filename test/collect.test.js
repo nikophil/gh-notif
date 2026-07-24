@@ -445,6 +445,7 @@ test('collectPRs: an unseen pending review adds an « others » PR with a review
     details: () => ({ number: 98, title: 'To review', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 3, deletions: 3, statusCheckRollupState: 'PENDING', state: 'OPEN', isDraft: false, reviews: [
       { author: { login: 'dan' }, state: 'APPROVED', submittedAt: '2026-06-20T10:00:00Z' },
       { author: { login: 'eve' }, state: 'COMMENTED', submittedAt: '2026-06-20T11:00:00Z' },
+      { author: { login: 'frank' }, state: 'CHANGES_REQUESTED', submittedAt: '2026-06-20T12:00:00Z' },
     ] }),
   });
   const { mine, others } = await collectPRs(gh, ME, {});
@@ -454,6 +455,7 @@ test('collectPRs: an unseen pending review adds an « others » PR with a review
   assert.equal(others[0].ci, 'pending');
   assert.equal(others[0].state, 'open');
   assert.equal(others[0].approvals, 1);
+  assert.equal(others[0].changesRequested, 1); // frank requested changes
 });
 
 // ── approvals (data.approvalEvents) ───────────────────────────────────────────

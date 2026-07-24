@@ -28,6 +28,26 @@ export function approvalsOf(reviews) {
   return out;
 }
 
+// Reviewers whose LATEST review is CHANGES_REQUESTED (mirror of approvalsOf).
+// A user who requested changes then later approved no longer counts (only the
+// latest review of each user is decisive, like the GitHub UI). Consumed by the
+// « changes requested » indicator of the ✅ column (html.js), zero cost.
+export function changesRequestedOf(reviews) {
+  if (!Array.isArray(reviews)) return [];
+  const latestByUser = new Map();
+  for (const r of reviews) {
+    const login = r.author?.login;
+    if (!login) continue;
+    const prev = latestByUser.get(login);
+    if (!prev || (r.submittedAt || '') >= (prev.submittedAt || '')) latestByUser.set(login, r);
+  }
+  const out = [];
+  for (const r of latestByUser.values()) {
+    if ((r.state || '').toUpperCase() === 'CHANGES_REQUESTED') out.push({ login: r.author.login, submittedAt: r.submittedAt });
+  }
+  return out;
+}
+
 // Dedup key of an approval (no review id in GraphQL → login+date).
 export function approvalKey(repo, number, login, submittedAt) {
   return `${repo}#${number}:${login}:${submittedAt}`;

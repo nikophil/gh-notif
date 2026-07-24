@@ -84,6 +84,30 @@ test('renderFragment: approvals (number, · if zero)', () => {
   assert.ok(out.includes('3'));
 });
 
+test('renderFragment: changes-requested icon (red file-diff) + tooltip', () => {
+  const out = renderFragment({ mine: [myRow({ approvals: 2, changesRequested: 1 })], others: [] }, { now: NOW });
+  assert.match(out, /title="1 change requested"/);
+  assert.ok(out.includes('<svg'), 'the file-diff svg is embedded');
+  assert.ok(out.includes('var(--danger)'), 'icon tinted with the danger color');
+});
+
+test('renderFragment: changes-requested plural in the tooltip', () => {
+  const out = renderFragment({ mine: [myRow({ approvals: 0, changesRequested: 2 })], others: [] }, { now: NOW });
+  assert.match(out, /title="2 changes requested"/);
+});
+
+test('renderFragment: changes-requested icon shown even with 0 approvals', () => {
+  const out = renderFragment({ mine: [myRow({ approvals: 0, changesRequested: 1 })], others: [] }, { now: NOW });
+  assert.match(out, /title="1 change requested"/);
+  assert.ok(!out.includes('title="No approval"'), 'no « No approval » placeholder when changes are requested');
+});
+
+test('renderFragment: no changes-requested icon when count is zero', () => {
+  const out = renderFragment({ mine: [myRow({ approvals: 0, changesRequested: 0 })], others: [] }, { now: NOW });
+  assert.match(out, /title="No approval"/);
+  assert.ok(!out.includes('change requested'));
+});
+
 test('renderFragment: others → author, relative date, diff +/−', () => {
   const out = renderFragment({ mine: [], others: [otherRow({ state: 'merged', approvals: 4 })] }, { now: NOW });
   assert.ok(out.includes('@alice'));

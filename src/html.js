@@ -84,11 +84,25 @@ const triggersCell = (keys) => {
     .map(([, icon, label]) => titled(label, icon))
     .join(' ');
 };
+// GitHub « changes requested » review icon: octicon `file-diff` (the ± glyph),
+// inline SVG (zero external asset, like the favicon) tinted with --danger.
+const CHANGES_REQUESTED_ICON =
+  '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" style="fill:var(--danger);vertical-align:text-bottom">' +
+  '<path d="M8.75 1.75V5h3.25a.75.75 0 0 1 0 1.5H8.75v3.25a.75.75 0 0 1-1.5 0V6.5H4a.75.75 0 0 1 0-1.5h3.25V1.75a.75.75 0 0 1 1.5 0ZM4 13.25a.75.75 0 0 1 .75-.75h6.5a.75.75 0 0 1 0 1.5h-6.5a.75.75 0 0 1-.75-.75Z"></path>' +
+  '</svg>';
+
 // `ready` (my open PR & ≥ threshold) adds the 🎉 « ready to merge » badge.
-const approvalsCell = (n, ready = false) => {
-  if (!n) return titled('No approval', '·');
+// `changesRequested` (count of reviewers whose latest review requests changes)
+// adds the red file-diff icon next to the count — shown even at 0 approvals
+// (a request-changes with no approval is exactly what you want to surface).
+const approvalsCell = (n, ready = false, changesRequested = 0) => {
+  const cr = changesRequested > 0
+    ? titled(`${changesRequested} change${changesRequested > 1 ? 's' : ''} requested`, CHANGES_REQUESTED_ICON)
+    : '';
+  if (!n) return cr || titled('No approval', '·');
   const count = titled(`${n} approval${n > 1 ? 's' : ''}`, String(n));
-  return ready ? `${count} ${titled('Ready to merge', '🎉')}` : count;
+  const badge = ready ? ` ${titled('Ready to merge', '🎉')}` : '';
+  return cr ? `${count}${badge} ${cr}` : `${count}${badge}`;
 };
 
 const tableRow = (cells, cls = '') => `<tr${cls ? ` class="${cls}"` : ''}>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`;
@@ -118,7 +132,7 @@ function mineTable(rows) {
       link(r.url, `#${r.number}`),
       link(r.url, r.title),
       stateCell(r.state),
-      approvalsCell(r.approvals, r.state === 'open' && isReady(r.approvals)),
+      approvalsCell(r.approvals, r.state === 'open' && isReady(r.approvals), r.changesRequested),
       triggersCell(r.triggers),
       ciCell(r.ci),
     ]),
@@ -144,7 +158,7 @@ function otherRow(r, now, hidden) {
       titled('Opened ' + relativeDate(r.createdAt, now), escapeHtml(relativeDate(r.createdAt, now))),
       diffCell(r.additions, r.deletions),
       stateCell(r.state),
-      approvalsCell(r.approvals),
+      approvalsCell(r.approvals, false, r.changesRequested),
       triggersCell(r.triggers),
       ciCell(r.ci),
       actionButton(r, hidden),
