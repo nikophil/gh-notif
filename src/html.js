@@ -1,7 +1,6 @@
-// Pure HTML rendering (no I/O) for the `gh notif --serve` mode. Reuses the
-// presentation helpers already exported by render.js (triggersLabel, ciIcon,
-// stateIcon, relativeDate): only the formatting (terminal vs HTML) differs,
-// the display logic stays shared.
+// Pure HTML rendering (no I/O) for the local web dashboard (`gh notif`). Reuses
+// the presentation helpers exported by render.js (ciIcon, stateIcon, relativeDate,
+// checksByRepo): the display logic stays shared, only the HTML formatting lives here.
 import { ciIcon, stateIcon, relativeDate, checksByRepo } from './render.js';
 import { isReady } from './approvals.js';
 import { favoriteLabel } from './favorites.js';
@@ -218,7 +217,7 @@ export function renderLoading() {
 // asset). The JS reloads `/fragment` on startup then every `intervalMs`
 // (with a countdown), handles the « refresh » button, the « see the
 // Favorites bar: « ⭐ all » then one chip per pinned scope, the active one in .on.
-// An org shows as `mapado/*`, a repo as `owner/name` (`favoriteLabel`). Each
+// An org shows as `symfony/*`, a repo as `owner/name` (`favoriteLabel`). Each
 // chip carries a cross that removes it. With `counts` ({ total, byFav }), a badge
 // `(n)` = activity on others' PRs for that scope. Empty list → empty string
 // (no visual change for whoever doesn't use favorites).

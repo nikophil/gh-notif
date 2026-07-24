@@ -11,15 +11,15 @@ test('parseScope: empty → null, with « / » → repo, otherwise org', () => {
   assert.equal(parseScope(''), null);
   assert.equal(parseScope('   '), null);
   assert.equal(parseScope(null), null);
-  assert.deepEqual(parseScope('mapado'), { type: 'org', value: 'mapado' });
+  assert.deepEqual(parseScope('symfony'), { type: 'org', value: 'symfony' });
   assert.deepEqual(parseScope(' noctud/collection '), { type: 'repo', value: 'noctud/collection' });
 });
 
 test('normalizeFavorites: dedup, trim, ignore unusable values', () => {
-  assert.deepEqual(normalizeFavorites(['mapado', ' mapado ', 'zenstruck']), ['mapado', 'zenstruck']);
+  assert.deepEqual(normalizeFavorites(['symfony', ' symfony ', 'zenstruck']), ['symfony', 'zenstruck']);
   assert.deepEqual(normalizeFavorites(['', '   ', null, 42, {}, 'a']), ['a']);
   assert.deepEqual(normalizeFavorites(undefined), []);
-  assert.deepEqual(normalizeFavorites('mapado'), []); // tampered file: not an array
+  assert.deepEqual(normalizeFavorites('symfony'), []); // tampered file: not an array
 });
 
 test('normalizeFavorites preserves insertion order', () => {
@@ -27,9 +27,9 @@ test('normalizeFavorites preserves insertion order', () => {
 });
 
 test('addFavorite: appends at the end, idempotent, refuses empty', () => {
-  assert.deepEqual(addFavorite([], 'mapado'), ['mapado']);
-  assert.deepEqual(addFavorite(['mapado'], 'zenstruck'), ['mapado', 'zenstruck']);
-  assert.deepEqual(addFavorite(['mapado'], ' mapado '), ['mapado']); // already there → unchanged
+  assert.deepEqual(addFavorite([], 'symfony'), ['symfony']);
+  assert.deepEqual(addFavorite(['symfony'], 'zenstruck'), ['symfony', 'zenstruck']);
+  assert.deepEqual(addFavorite(['symfony'], ' symfony '), ['symfony']); // already there → unchanged
   assert.throws(() => addFavorite([], '  '), /requires a value/);
 });
 
@@ -76,8 +76,8 @@ test('removeFavorite: removes, no-op on absent value', () => {
 });
 
 test('favoriteScopes: list → scopes, empty list → null (= no filter)', () => {
-  assert.deepEqual(favoriteScopes(['mapado', 'noctud/collection']), [
-    { type: 'org', value: 'mapado' },
+  assert.deepEqual(favoriteScopes(['symfony', 'noctud/collection']), [
+    { type: 'org', value: 'symfony' },
     { type: 'repo', value: 'noctud/collection' },
   ]);
   assert.equal(favoriteScopes([]), null);
@@ -85,46 +85,46 @@ test('favoriteScopes: list → scopes, empty list → null (= no filter)', () =>
 });
 
 test('activeFavoriteOf: null if absent, unknown, or removed from the list', () => {
-  assert.equal(activeFavoriteOf({ activeFav: 'mapado' }, ['mapado', 'z']), 'mapado');
-  assert.equal(activeFavoriteOf({ activeFav: 'mapado' }, ['z']), null); // removed since
-  assert.equal(activeFavoriteOf({}, ['mapado']), null);
-  assert.equal(activeFavoriteOf({ activeFav: 42 }, ['mapado']), null); // tampered file
-  assert.equal(activeFavoriteOf(null, ['mapado']), null);
+  assert.equal(activeFavoriteOf({ activeFav: 'symfony' }, ['symfony', 'z']), 'symfony');
+  assert.equal(activeFavoriteOf({ activeFav: 'symfony' }, ['z']), null); // removed since
+  assert.equal(activeFavoriteOf({}, ['symfony']), null);
+  assert.equal(activeFavoriteOf({ activeFav: 42 }, ['symfony']), null); // tampered file
+  assert.equal(activeFavoriteOf(null, ['symfony']), null);
 });
 
 test('cycleFavorite: all → 1st → … → last → all', () => {
-  const list = ['mapado', 'noctud/collection', 'zenstruck'];
-  assert.equal(cycleFavorite(list, null), 'mapado');
-  assert.equal(cycleFavorite(list, 'mapado'), 'noctud/collection');
+  const list = ['symfony', 'noctud/collection', 'zenstruck'];
+  assert.equal(cycleFavorite(list, null), 'symfony');
+  assert.equal(cycleFavorite(list, 'symfony'), 'noctud/collection');
   assert.equal(cycleFavorite(list, 'noctud/collection'), 'zenstruck');
   assert.equal(cycleFavorite(list, 'zenstruck'), null); // full loop
 });
 
 test('cycleFavorite: empty list stays on null, unknown active restarts from the beginning', () => {
   assert.equal(cycleFavorite([], null), null);
-  assert.equal(cycleFavorite([], 'mapado'), null);
+  assert.equal(cycleFavorite([], 'symfony'), null);
   assert.equal(cycleFavorite(['a', 'b'], 'vanished'), 'a');
 });
 
 // Example data: two perimeters mixed, as after a collection on the union.
 const data = () => ({
-  mine: [{ repo: 'mapado/api', number: 1 }, { repo: 'zenstruck/foundry', number: 2 }],
-  others: [{ repo: 'mapado/front', number: 3 }, { repo: 'zenstruck/foundry', number: 4 }],
+  mine: [{ repo: 'symfony/api', number: 1 }, { repo: 'zenstruck/foundry', number: 2 }],
+  others: [{ repo: 'symfony/front', number: 3 }, { repo: 'zenstruck/foundry', number: 4 }],
   hidden: [{ repo: 'zenstruck/foundry', number: 5 }],
   hiddenCount: 1,
-  notifications: [{ repo: 'mapado/api', number: 1 }, { repo: 'zenstruck/foundry', number: 2 }],
-  debug: [{ repo: 'mapado/api' }, { repo: 'zenstruck/foundry' }],
+  notifications: [{ repo: 'symfony/api', number: 1 }, { repo: 'zenstruck/foundry', number: 2 }],
+  debug: [{ repo: 'symfony/api' }, { repo: 'zenstruck/foundry' }],
   approvalEvents: [{ repo: 'zenstruck/foundry' }],
 });
 
 test('filterDataByScope: filters all lists and recomputes hiddenCount', () => {
-  const out = filterDataByScope(data(), { type: 'org', value: 'mapado' });
+  const out = filterDataByScope(data(), { type: 'org', value: 'symfony' });
   assert.deepEqual(out.mine.map((r) => r.number), [1]);
   assert.deepEqual(out.others.map((r) => r.number), [3]);
   assert.deepEqual(out.hidden, []);
   assert.equal(out.hiddenCount, 0); // recomputed, not inherited from the original 1
   assert.deepEqual(out.notifications.map((r) => r.number), [1]);
-  assert.deepEqual(out.debug, [{ repo: 'mapado/api' }]);
+  assert.deepEqual(out.debug, [{ repo: 'symfony/api' }]);
 });
 
 test('filterDataByScope: precise repo scope', () => {
@@ -141,19 +141,19 @@ test('filterDataByScope: null scope → data unchanged (same references)', () =>
 
 test('filterDataByScope does not mutate the source data (the raw one serves the notifs)', () => {
   const d = data();
-  filterDataByScope(d, { type: 'org', value: 'mapado' });
+  filterDataByScope(d, { type: 'org', value: 'symfony' });
   assert.equal(d.mine.length, 2);
   assert.equal(d.hiddenCount, 1);
 });
 
 test('filterDataByScope: the non-filtered keys are kept as-is', () => {
   // approvalEvents feeds the desktop notifs: it must not be filtered here.
-  const out = filterDataByScope(data(), { type: 'org', value: 'mapado' });
+  const out = filterDataByScope(data(), { type: 'org', value: 'symfony' });
   assert.deepEqual(out.approvalEvents, [{ repo: 'zenstruck/foundry' }]);
 });
 
 test('favoriteLabel: org → « org/* », repo unchanged (display only)', () => {
-  assert.equal(favoriteLabel('mapado'), 'mapado/*');
+  assert.equal(favoriteLabel('symfony'), 'symfony/*');
   assert.equal(favoriteLabel('noctud/collection'), 'noctud/collection');
   assert.equal(favoriteLabel(' zenstruck '), 'zenstruck/*');
   assert.equal(favoriteLabel(''), '');
@@ -162,17 +162,17 @@ test('favoriteLabel: org → « org/* », repo unchanged (display only)', () => 
 
 test('favoriteCounts: others’ activity per favorite + total, on the raw union', () => {
   const others = [
-    { repo: 'mapado/api' }, { repo: 'mapado/front' },
+    { repo: 'symfony/api' }, { repo: 'symfony/front' },
     { repo: 'noctud/collection' }, { repo: 'zenstruck/foundry' },
   ];
-  const { total, byFav } = favoriteCounts(['mapado', 'noctud/collection', 'zenstruck'], others);
+  const { total, byFav } = favoriteCounts(['symfony', 'noctud/collection', 'zenstruck'], others);
   assert.equal(total, 4);
-  assert.deepEqual(byFav, { mapado: 2, 'noctud/collection': 1, zenstruck: 1 });
+  assert.deepEqual(byFav, { symfony: 2, 'noctud/collection': 1, zenstruck: 1 });
 });
 
 test('favoriteCounts: empty/invalid list or data → zeros, no crash', () => {
   assert.deepEqual(favoriteCounts([], []), { total: 0, byFav: {} });
-  assert.deepEqual(favoriteCounts(['mapado'], null), { total: 0, byFav: { mapado: 0 } });
+  assert.deepEqual(favoriteCounts(['symfony'], null), { total: 0, byFav: { symfony: 0 } });
   assert.deepEqual(favoriteCounts(null, [{ repo: 'a/b' }]), { total: 1, byFav: {} });
 });
 
@@ -184,12 +184,12 @@ test('closedPRsUrl: without scope → GitHub search author:@me is:closed', () =>
 });
 
 test('closedPRsUrl: org / repo scope → qualifier added (encoded)', () => {
-  assert.ok(closedPRsUrl({ type: 'org', value: 'mapado' }).endsWith('%20org%3Amapado'));
+  assert.ok(closedPRsUrl({ type: 'org', value: 'symfony' }).endsWith('%20org%3Asymfony'));
   assert.ok(closedPRsUrl({ type: 'repo', value: 'noctud/collection' }).endsWith('%20repo%3Anoctud%2Fcollection'));
 });
 
 test('closedPRsUrl: union of scopes → all qualifiers (OR-ed by GitHub)', () => {
-  const url = closedPRsUrl([{ type: 'org', value: 'mapado' }, { type: 'repo', value: 'a/b' }]);
-  assert.ok(url.includes('org%3Amapado'));
+  const url = closedPRsUrl([{ type: 'org', value: 'symfony' }, { type: 'repo', value: 'a/b' }]);
+  assert.ok(url.includes('org%3Asymfony'));
   assert.ok(url.includes('repo%3Aa%2Fb'));
 });

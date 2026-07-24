@@ -4,28 +4,17 @@
 # gh-notif
 
 A [`gh`](https://cli.github.com/) extension that gives you **finely filtered** GitHub notifications
-and a table display, where the native GitHub inbox is too noisy.
+in a **local, auto-refreshing web dashboard**, where the native GitHub inbox is too noisy.
 
-```
-📥 Your open PRs (6)
-┌──────────────────┬───────┬──────────────────────────────┬────────┬────┬──────────┬────┐
-│ Repository       │ PR    │ Title                        │ Status │ ✅ │ Triggers │ CI │
-├──────────────────┼───────┼──────────────────────────────┼────────┼────┼──────────┼────┤
-│ mapado/ticketing │ #7020 │ [WaitingList] Export waiting…│ 🟢     │ 2  │ 💬       │ ✅ │
-│ mapado/ticketing │ #7045 │ [CI] fix block-labeled-prs   │ 📝     │ ·  │          │ 🟡 │
-└──────────────────┴───────┴──────────────────────────────┴────────┴────┴──────────┴────┘
+Running `gh notif` starts a tiny local web server and opens a page presenting **two tables**:
 
-👥 Activity on others' PRs (34)
-┌──────────────────┬──────┬───────────────┬─────────┬────────┬──────────┬────────┬────┬──────────┬────┐
-│ Repository       │ PR   │ Title         │ Author  │ Opened │ Diff     │ Status │ ✅ │ Triggers │ CI │
-├──────────────────┼──────┼───────────────┼─────────┼────────┼──────────┼────────┼────┼──────────┼────┤
-│ mapado/oauth-srv │ #388 │ feat: add api…│ @lnahiro│ 2h ago │ +451 −10 │ 🟢     │ 1  │ 🔍       │ ✅ │
-└──────────────────┴──────┴───────────────┴─────────┴────────┴──────────┴────────┴────┴──────────┴────┘
-```
+![gh-notif dashboard](docs/screenshot.png)
+
+*(Sample data with open-source repositories; the page picks up the GitHub colors and follows your light/dark theme.)*
 
 ## What it does
 
-`gh notif` displays **two tables**:
+The dashboard shows **two tables**:
 
 - **📥 Your open PRs** — all your open PRs (a dashboard), with their status, the number of reviews
   received, the CI status and any activity triggers.
@@ -36,11 +25,10 @@ Common columns: **Status** (📝 draft · 🟢 open · 🟣 merged · 🔴 close
 **approvals** — distinct users whose last review approves, `·` if none).
 
 On **your** open PRs, from **2 approvals** the ✅ column shows **`2 🎉`**: the PR is
-**ready to merge**. In `--watch` / `--serve`, each new approval also pushes a
-**desktop notification** (`@bob approved your PR`, suffixed with `🎉 ready to merge` beyond 2).
+**ready to merge**. Each new approval also pushes a **desktop notification** (`@bob approved your
+PR`, suffixed with `🎉 ready to merge` beyond 2).
 
-The **repository / PR / title are clickable** (OSC 8 terminal links) and lead directly to
-the right target.
+The **repository / PR / title are clickable** and open in a new tab.
 
 ### What triggers a row (the « triggers »)
 
@@ -51,8 +39,8 @@ the right target.
 | ↩️ | reply | someone replied in a review thread you took part in |
 | 🗨️ | comment | someone commented on **your** PR |
 
-In the tables, only the emoji is shown (to save space); this legend gives its meaning. A single PR
-can accumulate several triggers.
+In the tables, only the emoji is shown (to save space); this legend gives its meaning (also on hover).
+A single PR can accumulate several triggers.
 
 ### What is deliberately **ignored**
 
@@ -64,10 +52,10 @@ can accumulate several triggers.
 
 ### Favorites — follow several scopes without mixing them
 
-You follow `mapado`, `noctud/collection` and `zenstruck`? Pin them:
+You follow `symfony`, `noctud/collection` and `zenstruck`? Pin them:
 
 ```bash
-gh notif fav add mapado
+gh notif fav add symfony
 gh notif fav add noctud/collection
 gh notif fav add zenstruck
 ```
@@ -76,105 +64,59 @@ Adding **verifies that the scope exists on GitHub** (org/user or repository): a 
 with a clear message instead of pinning a dead favorite.
 
 As soon as a favorite exists, `gh notif` no longer looks at all of GitHub but at **the union of
-your favorites**. A bar appears below the tables — an org is shown as `mapado/*` (all its
-repositories), a repository as-is:
+your favorites**, presented as **chips in the page header** — an org is shown as `symfony/*` (all its
+repositories), a repository as-is. Each chip carries a counter `(n)` = the **activity on others'
+PRs** in that scope (your own PRs and the hidden ones don't count) — including on the favorites you're
+not looking at, to see at a glance where things are moving.
 
-```
-⭐ all · [mapado/*] · noctud/collection · zenstruck/*
-↳ f to switch favorite · press h to hide/restore one of the others' PRs
-```
-
-**`f`** moves to the next favorite (then comes back to `⭐ all`). The choice is **persisted**: you
-find your view again at the next launch, or you force it with `gh notif --fav mapado`.
+Click a chip to switch, the cross removes it, and the **⭐** button pins the content of the scope
+field (the chip appears immediately, the tables follow as soon as the re-poll ends). The choice is
+**persisted**: you find your view again at the next launch, or you force it with
+`gh notif --fav symfony`. A manually entered scope takes back control from favorites (the chips go
+greyed out) until you click a chip again.
 
 The key point: **desktop notifications always cover *all* your favorites**, even those you're not
 looking at. The active favorite only filters the display — that's why switching favorite is instant
 and **costs no GitHub request**.
 
-In `--serve`, favorites are chips in the header, each with a counter `(n)` = the
-**activity on others' PRs** in that scope (your own PRs and the hidden ones don't count) —
-including on the favorites you're not looking at, to see at a glance where things are moving.
-Click to switch, the cross removes, and the **⭐** button pins the content of the scope field
-(the chip appears immediately, the tables follow as soon as the re-poll ends). A manually entered
-scope takes back control from favorites (the chips go greyed out) until you click a chip again.
+You can also list/manage favorites from the terminal:
+
+```bash
+gh notif fav list             # list favorites (⭐ = the one shown)
+gh notif fav rm zenstruck     # remove a favorite
+```
 
 > Limit: a GitHub search is capped at 256 characters, so the list is too (about ten favorites with
 > short names). Prefer an org over enumerating its repositories.
 
-### Hide one of the others' PRs
+## The web page
 
-A reminder is shown below the tables: **`↳ press h to hide one of the others' PRs`**.
-Press **`h`**, then type the **PR number** (the one from the « PR » column, e.g. `6861`) and
-**`Enter`**: the PR is hidden and hide mode **closes immediately** (`Backspace` corrects,
-`Esc` cancels). Your own PRs are never hidden. `q` quits `gh notif`.
+`gh notif` launches a small **local HTTP server** and opens the page, which **refreshes on its own**
+(without reloading):
 
-A hidden PR **reappears automatically as soon as a new trigger arrives** (reply to your thread,
-mention, comment). A requested review that you hide stays hidden until a real interaction.
-
-`gh notif --show-hidden` shows the hidden PRs again (greyed out, 🙈); in hide mode, retyping their
-number **restores** them. Also available with `--watch` (where, with `-v`, hiding/restoring adds
-a line to the log). The list of hidden PRs is persisted in
-`~/.local/state/gh-notif/hidden-v1.json`.
-
-> In pipe/redirection (non-TTY), `gh notif` displays then returns: no interaction.
-
-## `--watch`
-
-`gh notif --watch` displays **the same two tables as `gh notif`**, but **automatically refreshed**
-(~60 s, with a countdown), and **additionally pushes a desktop notification** (`notify-send` on
-Linux, `osascript` on macOS) for each new event.
-
-With **`-v`** (`--verbose`), the events detected during the session are also logged below the
-tables (the countdown and the spinner remain in all cases):
-
+```bash
+gh notif                # http://localhost:7777, opens the browser
+gh notif --port 8080    # on another port
+gh notif --no-open      # do not open the browser (the URL stays printed)
+gh notif --org symfony   # restricts the scope
 ```
-🔄 gh notif --watch · upd 14:36:50 · every 60s · Ctrl-C to stop
 
-📥 Your open PRs (5)
-┌────…
-👥 Activity on others' PRs (18)
-┌────…
-
-🔔 Detected events (session)        ← only with -v
-🔔 14:36:50  @lnahiro replied to you  ·  mapado/ticketing #7020 [WaitingList] Export…
-⏳ next check in 42s…
-```
+A **single server-side poll loop** (~60 s) queries GitHub and feeds the page; several open tabs
+therefore don't multiply the calls. The page refreshes on its own (~10 s) with a **countdown**;
+links open in a **new tab**. Each new event pushes a **desktop notification** (`notify-send` on
+Linux, `osascript` on macOS).
 
 On the very first launch, the existing backlog is marked « seen » **without alerting**: the tables
 are shown, but you're only notified (desktop) of events happening **after** startup.
 
-### Request cost (long loops)
-
-`--watch` and `--serve` run for a long time: to spare the GitHub **rate-limit**, a poll only
-re-inspects the notification threads **that have changed** since the last one (a per-thread cache);
-the others cost **0 requests**. A « calm » poll thus boils down to a few requests (notification
-list + searches + one GraphQL batch) instead of several dozen. If GitHub still returns a rate-limit
-(403/429), the next poll **backs off automatically** (backoff, up to 10 min) and a banner indicates
-it. `--interval N` sets the cadence (floor **60 s**).
-
-## `--serve` (web page)
-
-`gh notif --serve` launches a small **local HTTP server** and opens a **web page** presenting the
-**same two tables as `gh notif`**, which **refreshes on its own** (without reloading the page):
-
-```bash
-gh notif --serve              # http://localhost:7777, opens the browser
-gh notif --serve --port 8080  # on another port
-gh notif --serve --org mapado # restricts the scope (like the other modes)
-```
-
-The browser opens automatically on the URL. A **single server-side poll loop** (~60 s) queries
-GitHub and feeds the page; several open tabs therefore don't multiply the calls. The page refreshes
-on its own (~10 s) with a **countdown**; links open in a **new tab**. Like `--watch`, each new
-event pushes a **desktop notification** (`notify-send` on Linux, `osascript` on macOS).
-
 From the page, you can:
 
 - **🔄 refresh** immediately (without waiting for the next poll);
-- **hide / restore** one of the others' PRs via the **✕** button on its row (persisted, same list
-  as the terminal `h` key; reappears on a new trigger), and **🙈 hidden** shows the hidden PRs
-  (greyed out, restore button);
-- **filter by org/repo**: type `mapado` or `mapado/web` in the field then **Filter** (the server
+- **hide / restore** one of the others' PRs via the **✕** button on its row (persisted; reappears on
+  a new trigger — reply to your thread, mention, comment), and **🙈 hidden** shows the hidden PRs
+  (greyed out, restore button). Your own PRs are never hidden. The list is persisted in
+  `~/.local/state/gh-notif/hidden-v1.json`.
+- **filter by org/repo**: type `symfony` or `symfony/web` in the field then **Filter** (the server
   loads **only** that scope); **All** shows everything again.
 - **turn off desktop notifications**: uncheck **🔔 notifs** in the header. The server keeps tracking
   events (they are marked « seen » silently), it simply stops pushing notifs — re-checking therefore
@@ -183,10 +125,21 @@ From the page, you can:
 - **choose the theme**: the **🌗 auto / ☀️ light / 🌙 dark** switcher in the header. `auto` follows
   your system (default); `light`/`dark` force it. Applied immediately (without reloading) and
   **persisted** in the same preferences file.
+- **sort « others' PRs »**: click a column header (date / approvals / author) to sort; click again
+  to reverse. Persisted.
 
 The **look & feel** picks up the GitHub colors (Primer, light/dark depending on your system). Zero
 dependency: served by Node's native HTTP module, everything is inline (no external asset).
 `Ctrl-C` stops the server. A **🐛** link in the header leads to the debug page (see below).
+
+### Request cost (long loops)
+
+The server runs for a long time: to spare the GitHub **rate-limit**, a poll only re-inspects the
+notification threads **that have changed** since the last one (a per-thread cache); the others cost
+**0 requests**. A « calm » poll thus boils down to a few requests (notification list + searches +
+one GraphQL batch) instead of several dozen. If GitHub still returns a rate-limit (403/429), the
+next poll **backs off automatically** (backoff, up to 10 min). `--interval N` sets the cadence
+(floor **60 s**).
 
 ### Launch at startup (Linux · systemd)
 
@@ -195,7 +148,7 @@ To have the dashboard permanently, without relaunching it by hand every session,
 
 ```ini
 [Unit]
-Description=gh notif --serve (local GitHub dashboard)
+Description=gh notif (local GitHub dashboard)
 After=graphical-session.target network-online.target
 PartOf=graphical-session.target
 
@@ -205,8 +158,7 @@ WorkingDirectory=%h
 # node installed via nvm/asdf? the shebang is `#!/usr/bin/env node`: give an explicit PATH
 # Environment=PATH=%h/.nvm/versions/node/vXX.Y.Z/bin:/usr/local/bin:/usr/bin:/bin
 # avoids opening a browser tab on each (re)start
-Environment=BROWSER=/bin/true
-ExecStart=/usr/bin/gh notif --serve --port 7777
+ExecStart=/usr/bin/gh notif --port 7777 --no-open
 
 Restart=always
 RestartSec=10
@@ -228,8 +180,8 @@ Three points that make the service fail if you get them wrong:
   reads your auth in `~/.config/gh`. A system service has neither.
 - **explicit `PATH` if node comes from nvm/asdf**: systemd starts with a minimal `PATH`, and the
   entrypoint is a `#!/usr/bin/env node` — without it, `node: command not found`.
-- **`BROWSER=/bin/true`**: `--serve` opens the browser at startup (via `xdg-open`); without this
-  safeguard, each restart of the service opens a tab for you.
+- **`--no-open`** (or `BROWSER=/bin/true`): otherwise each restart of the service opens a browser tab
+  for you.
 
 Driving the service day-to-day:
 
@@ -250,24 +202,28 @@ After modifying the `.service` file, a `systemctl --user daemon-reload` is **man
 
 ## Debug — check detection
 
-To understand *why* a PR surfaces (or not), the debug mode exposes the **pipeline verdict**
-per notification thread: the GitHub `reason`, the number of comments, and the classification
-decision — **kept** (in trigger X) or **dropped** (with the reason).
+To understand *why* a PR surfaces (or not), the **`/debug`** page (🐛 link in the header) exposes the
+**pipeline verdict** per notification thread: the GitHub `reason`, the number of comments, and the
+classification decision — **kept** (in trigger X) or **dropped** (with the reason). It auto-refreshes;
+**`/api/debug`** returns the same diagnostic as JSON.
 
-- **`gh notif --debug`** (and `gh notif --watch --debug`): adds this dump below the tables, in the terminal.
-- **`gh notif --serve`**: the **`/debug`** page (🐛 link in the header) is **always available**
-  and auto-refreshes; **`/api/debug`** returns the same diagnostic as JSON.
+The page also carries a **« Checks by repo »** section listing, per repo, the distinct CI jobs.
+Tick a job to **ignore it** on that whole repo: an unimportant job (e.g. a label reminder) then no
+longer turns the PR to ❌, the CI verdict being recomputed without it **with no GitHub call**. The
+blocklist is persisted in `prefs-v1.json`
+(`"ignoredChecks": { "owner/repo": ["exact check name"] }`) and can also be edited by hand (with the
+app stopped).
 
 > ⚠️ GitHub **does not create a notification for your own actions**: quietly commenting on a PR
 > yourself won't make it surface (there's nothing to detect). The debug therefore shows the
 > pipeline's reasoning on real data, not « your messages ». The diagnostic capture is **always
-> active** (zero cost: the data is already fetched by the poll); only the display is gated.
+> active** (zero cost: the data is already fetched by the poll).
 
 ## Requirements
 
 - [`gh`](https://cli.github.com/) authenticated (`gh auth login`)
 - Node ≥ 18
-- Desktop notifications (optional: without them, `--watch` still logs in the terminal):
+- Desktop notifications (optional):
   - **Linux**: `notify-send` (package `libnotify-bin`)
   - **macOS**: `osascript` (built in, nothing to install)
 
@@ -282,31 +238,27 @@ gh extension install .
 ## Usage
 
 ```bash
-gh notif                      # two tables: your PRs / others' PRs
+gh notif                      # launch the local web page (http://localhost:7777)
+gh notif --port 8080          # web page on another port
+gh notif --no-open            # do not open the browser (the URL stays printed)
 gh notif --all                # includes already-read notifications
-gh notif --watch              # watches and pushes desktop notifs (~60s)
-gh notif --watch -v           # + log of events below the tables
-gh notif --serve              # local auto-refreshing web page (http://localhost:7777)
-gh notif --serve --port 8080  # web page on another port
-gh notif --watch --interval 120  # poll every 120s (floor 60s)
-gh notif --show-hidden        # also shows hidden PRs (greyed out, 🙈)
-gh notif --debug              # dump of the pipeline verdict (terminal; /debug in --serve)
-gh notif --org mapado         # limit to one organization
-gh notif --repo mapado/web    # limit to one repository
+gh notif --interval 120       # poll every 120s (floor 60s)
+gh notif --org symfony         # limit to one organization
+gh notif --repo symfony/web    # limit to one repository
 gh notif --repo               # limit to the current repository (gh repo view)
-gh notif --fav mapado         # start on this favorite (cf. « Favorites »)
+gh notif --fav symfony         # start on this favorite (cf. « Favorites »)
 
 gh notif fav list             # list favorites (⭐ = the one shown)
-gh notif fav add mapado       # pin an org…
+gh notif fav add symfony       # pin an org…
 gh notif fav add noctud/collection   # …or a repository
 gh notif fav rm zenstruck     # remove a favorite
 ```
 
-`--org` and `--repo` are mutually exclusive, also work with `--watch` and `--serve`,
-and **take precedence over favorites** (which are then ignored).
+`--org` and `--repo` are mutually exclusive and **take precedence over favorites** (which are then
+ignored, shown greyed out).
 
-> 💡 Colors and clickable links are enabled in an interactive terminal. In pipe/redirection (or with
-> `NO_COLOR`), the output is plain, deterministic text.
+> 💡 `--serve` and `--watch` are **deprecated no-ops**, kept so older invocations don't error:
+> serving the web page is now the default (and only) behavior.
 
 ## Development
 

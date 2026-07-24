@@ -4,8 +4,12 @@
 
 **Before any task on this repository, read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).** It describes
 the modules, the data flow and above all the **non-obvious decisions** (pitfalls that have already
-caused bugs: sticky `reason`, flattened review threads, dedup by URL, emoji width,
+caused bugs: sticky `reason`, flattened review threads, dedup by URL,
 typographic apostrophes…). Do not propose or write any code before re-reading it.
+
+**The only UI is the local web page** (`gh notif` starts the server and opens the browser). There is
+no terminal table rendering; `--serve`/`--watch` are deprecated no-ops kept so old invocations don't
+error.
 
 ## Quick reference
 
@@ -15,8 +19,8 @@ typographic apostrophes…). Do not propose or write any code before re-reading 
   in tests).
 - Before wrapping up a change: `npm test` green **and**
   `for f in gh-notif src/*.js test/*.js; do node --check "$f"; done`, plus a smoke test if you
-  touched the entrypoint or the rendering.
-- **Every smoke test of `--serve` MUST pass `--no-open`** (otherwise each launch opens a tab
+  touched the entrypoint or the web rendering (launch, curl `/`, then stop the process).
+- **Every smoke test of the server MUST pass `--no-open`** (otherwise each launch opens a tab
   in the user's browser).
-- Table alignment depends on `render.js#displayWidth`: any new icon/emoji must
-  pass the alignment test (all rows of a table have the same width).
+- The web page reuses the presentation helpers of `render.js` (`ciIcon`, `stateIcon`,
+  `relativeDate`, `checksByRepo`); the HTML itself lives in `html.js` / `serve.js`.

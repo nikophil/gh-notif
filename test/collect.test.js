@@ -50,24 +50,24 @@ test('collectPending maps the search items', async () => {
 
 // ── scope ──────────────────────────────────────────────────────────────────
 test('scopeMatches: null=everything, org=prefix, repo=exact', () => {
-  assert.equal(scopeMatches(null, 'mapado/ticketing'), true);
-  assert.equal(scopeMatches({ type: 'org', value: 'mapado' }, 'mapado/ticketing'), true);
-  assert.equal(scopeMatches({ type: 'org', value: 'mapado' }, 'other/repo'), false);
-  assert.equal(scopeMatches({ type: 'org', value: 'map' }, 'mapado/x'), false); // not a plain string startsWith
-  assert.equal(scopeMatches({ type: 'repo', value: 'mapado/ticketing' }, 'mapado/ticketing'), true);
-  assert.equal(scopeMatches({ type: 'repo', value: 'mapado/ticketing' }, 'mapado/web'), false);
+  assert.equal(scopeMatches(null, 'symfony/ticketing'), true);
+  assert.equal(scopeMatches({ type: 'org', value: 'symfony' }, 'symfony/ticketing'), true);
+  assert.equal(scopeMatches({ type: 'org', value: 'symfony' }, 'other/repo'), false);
+  assert.equal(scopeMatches({ type: 'org', value: 'map' }, 'symfony/x'), false); // not a plain string startsWith
+  assert.equal(scopeMatches({ type: 'repo', value: 'symfony/ticketing' }, 'symfony/ticketing'), true);
+  assert.equal(scopeMatches({ type: 'repo', value: 'symfony/ticketing' }, 'symfony/web'), false);
 });
 
 test('scopeQualifier', () => {
   assert.equal(scopeQualifier(null), '');
-  assert.equal(scopeQualifier({ type: 'org', value: 'mapado' }), ' org:mapado');
-  assert.equal(scopeQualifier({ type: 'repo', value: 'mapado/web' }), ' repo:mapado/web');
+  assert.equal(scopeQualifier({ type: 'org', value: 'symfony' }), ' org:symfony');
+  assert.equal(scopeQualifier({ type: 'repo', value: 'symfony/web' }), ' repo:symfony/web');
 });
 
 // ── Multiple scopes (union of favorites) ─────────────────────────────────
 
 test('toScopeList: null/object/array → null or non-empty array', () => {
-  const org = { type: 'org', value: 'mapado' };
+  const org = { type: 'org', value: 'symfony' };
   assert.equal(toScopeList(null), null);
   assert.equal(toScopeList([]), null);       // empty array = no filter
   assert.equal(toScopeList([null]), null);   // null entries pruned
@@ -76,23 +76,23 @@ test('toScopeList: null/object/array → null or non-empty array', () => {
 });
 
 test('matchesAnyScope: union of org + repo, null → everything passes', () => {
-  const scopes = [{ type: 'org', value: 'mapado' }, { type: 'repo', value: 'noctud/collection' }];
-  assert.equal(matchesAnyScope(scopes, 'mapado/api'), true);
+  const scopes = [{ type: 'org', value: 'symfony' }, { type: 'repo', value: 'noctud/collection' }];
+  assert.equal(matchesAnyScope(scopes, 'symfony/api'), true);
   assert.equal(matchesAnyScope(scopes, 'noctud/collection'), true);
   assert.equal(matchesAnyScope(scopes, 'noctud/other'), false); // repo ≠ org
   assert.equal(matchesAnyScope(scopes, 'zenstruck/foundry'), false);
   assert.equal(matchesAnyScope(null, 'anything/whatever'), true);
   assert.equal(matchesAnyScope([], 'anything/whatever'), true);
   // backward-compat: a single scope behaves as before
-  assert.equal(matchesAnyScope({ type: 'org', value: 'mapado' }, 'mapado/api'), true);
+  assert.equal(matchesAnyScope({ type: 'org', value: 'symfony' }, 'symfony/api'), true);
 });
 
 test('scopesQualifier: union OR-ed by GitHub in a single search', () => {
   assert.equal(scopesQualifier(null), '');
   assert.equal(scopesQualifier([]), '');
   assert.equal(
-    scopesQualifier([{ type: 'org', value: 'mapado' }, { type: 'repo', value: 'noctud/collection' }]),
-    ' org:mapado repo:noctud/collection',
+    scopesQualifier([{ type: 'org', value: 'symfony' }, { type: 'repo', value: 'noctud/collection' }]),
+    ' org:symfony repo:noctud/collection',
   );
 });
 
@@ -100,25 +100,25 @@ test('scopesQualifier: the real use case stays well under 256 characters', () =>
   // Beyond 256 characters, GitHub rejects the search — that's what
   // MAX_QUALIFIER_LENGTH (favorites.js) protects against on add.
   const scopes = [
-    { type: 'org', value: 'mapado' },
+    { type: 'org', value: 'symfony' },
     { type: 'repo', value: 'noctud/collection' },
     { type: 'org', value: 'zenstruck' },
   ];
-  assert.equal(scopesQualifier(scopes), ' org:mapado repo:noctud/collection org:zenstruck');
+  assert.equal(scopesQualifier(scopes), ' org:symfony repo:noctud/collection org:zenstruck');
   const q = `is:open is:pr review-requested:@me${scopesQualifier(scopes)}`;
   assert.ok(q.length < 256, `query of ${q.length} characters`);
 });
 
 test('collectNotifications filters on the union of scopes (favorites)', async () => {
-  const mapado = { ...reviewReqThread, id: 'tm', repository: { full_name: 'mapado/api' }, subject: { ...reviewReqThread.subject, url: 'https://api.github.com/repos/mapado/api/pulls/1' } };
+  const symfony = { ...reviewReqThread, id: 'tm', repository: { full_name: 'symfony/api' }, subject: { ...reviewReqThread.subject, url: 'https://api.github.com/repos/symfony/api/pulls/1' } };
   const zen = { ...reviewReqThread, id: 'tz', repository: { full_name: 'zenstruck/foundry' }, subject: { ...reviewReqThread.subject, url: 'https://api.github.com/repos/zenstruck/foundry/pulls/2' } };
   const outside = { ...reviewReqThread, id: 'tx', repository: { full_name: 'other/repo' }, subject: { ...reviewReqThread.subject, url: 'https://api.github.com/repos/other/repo/pulls/3' } };
   const debug = [];
-  await collectNotifications(fakeGh({ notifications: [mapado, zen, outside] }), ME, {
-    scope: [{ type: 'org', value: 'mapado' }, { type: 'org', value: 'zenstruck' }],
+  await collectNotifications(fakeGh({ notifications: [symfony, zen, outside] }), ME, {
+    scope: [{ type: 'org', value: 'symfony' }, { type: 'org', value: 'zenstruck' }],
     debug,
   });
-  assert.deepEqual(debug.map((d) => d.repo), ['mapado/api', 'zenstruck/foundry']);
+  assert.deepEqual(debug.map((d) => d.repo), ['symfony/api', 'zenstruck/foundry']);
 });
 
 test('collectPRs passes the union qualifier to both searches', async () => {
@@ -128,10 +128,10 @@ test('collectPRs passes the union qualifier to both searches', async () => {
     async searchReviewRequested(q) { seen.push(['pending', q]); return []; },
     async searchAuthored(q) { seen.push(['authored', q]); return []; },
   };
-  await collectPRs(gh, ME, { scope: [{ type: 'org', value: 'mapado' }, { type: 'repo', value: 'noctud/collection' }] });
+  await collectPRs(gh, ME, { scope: [{ type: 'org', value: 'symfony' }, { type: 'repo', value: 'noctud/collection' }] });
   assert.deepEqual(seen, [
-    ['pending', ' org:mapado repo:noctud/collection'],
-    ['authored', ' org:mapado repo:noctud/collection'],
+    ['pending', ' org:symfony repo:noctud/collection'],
+    ['authored', ' org:symfony repo:noctud/collection'],
   ]);
 });
 
@@ -197,11 +197,11 @@ test('ciOf: recomputes via ciFromChecks if blocklist, otherwise falls back to ci
 test('recomputeCi: recomputes the ci of mine/others/hidden from row.checks, 0 refetch', () => {
   const mk = (repo, ci, checks) => ({ repo, number: 1, ci, checks, statusCheckRollupState: 'FAILURE' });
   const data = {
-    mine: [mk('mapado/ticketing', 'fail', [{ name: 'jenkins', state: 'fail' }, { name: 'behat', state: 'pass' }])],
+    mine: [mk('symfony/ticketing', 'fail', [{ name: 'jenkins', state: 'fail' }, { name: 'behat', state: 'pass' }])],
     others: [mk('o/r', 'fail', [{ name: 'x', state: 'fail' }])],
-    hidden: [mk('mapado/ticketing', 'fail', [{ name: 'jenkins', state: 'fail' }])],
+    hidden: [mk('symfony/ticketing', 'fail', [{ name: 'jenkins', state: 'fail' }])],
   };
-  recomputeCi(data, { 'mapado/ticketing': ['jenkins'] });
+  recomputeCi(data, { 'symfony/ticketing': ['jenkins'] });
   assert.equal(data.mine[0].ci, 'pass');   // jenkins ignored → behat remains (pass)
   assert.equal(data.hidden[0].ci, 'none');  // jenkins ignored → nothing left
   assert.equal(data.others[0].ci, 'fail');  // repo without blocklist → ciFromState(FAILURE)
@@ -309,11 +309,11 @@ test('collectPRs: the per-repo blocklist recomputes the CI (red ignored job → 
     { name: 'Check Pull Requests label for merge block', state: 'fail' },
   ];
   const gh = fakeGh({
-    search: [{ number: 60, title: 'To review', html_url: 'https://github.com/mapado/ticketing/pull/60', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/mapado/ticketing' }],
+    search: [{ number: 60, title: 'To review', html_url: 'https://github.com/symfony/ticketing/pull/60', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/symfony/ticketing' }],
     // GitHub rollup = FAILURE (the red label job), but the real job is green
     details: () => ({ number: 60, title: 'To review', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, statusCheckRollupState: 'FAILURE', checks }),
   });
-  const opts = { ignoredChecks: { 'mapado/ticketing': ['Check Pull Requests label for merge block'] } };
+  const opts = { ignoredChecks: { 'symfony/ticketing': ['Check Pull Requests label for merge block'] } };
   const { others } = await collectPRs(gh, ME, opts);
   assert.equal(others[0].ci, 'pass');                 // recomputed without the ignored job
   assert.deepEqual(others[0].checks, checks);         // raw list exposed (debug view)
@@ -661,7 +661,7 @@ test('collectPRs: data.debug exposes the verdict (kept/dropped + reason) per thr
   const a = debug.find((d) => d.number === 42);
   assert.equal(a.verdict.kept, true);
   assert.equal(a.verdict.category, 'review_request');
-  assert.match(a.verdict.reason, /watch/);
+  assert.match(a.verdict.reason, /notification only/);
   assert.equal(a.ghReason, 'review_requested');
 
   const b = debug.find((d) => d.number === 7);

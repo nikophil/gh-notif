@@ -63,14 +63,14 @@ export function classifyVerdict(thread, me, inspection) {
     };
   }
 
-  // review_requested fallback: used ONLY by `--watch` (desktop notification
-  // of a new review request). In list mode, the `reason` is sticky and not very
+  // review_requested fallback: used ONLY by the poll-loop notifications (desktop
+  // notification of a new review request). In the tables, the `reason` is sticky and not very
   // reliable (stays after your review); there the "review" trigger comes exclusively from
   // the `review-requested:@me` search (collectPending), not from this item. See collect.js.
   if (reason === 'review_requested') {
     return {
       item: baseItem(thread, { category: CATEGORY.REVIEW_REQUEST, actor: null, url: prHtmlUrl(thread) }),
-      reason: 'review request (reported in --watch only)',
+      reason: 'review request (notification only)',
     };
   }
 

@@ -1,8 +1,8 @@
-// Mode `gh notif --serve`: a small local HTTP server (node:http, zero
-// dependency) that serves the same data as `gh notif` in an auto-refreshed
-// and interactive web page (hiding, org/repo filter, manual refresh). A single
-// poll loop feeds an in-memory snapshot; the HTTP requests serve it (several
-// tabs ≠ more GitHub calls). Like `--watch`, each new event pushes a desktop
+// The local web dashboard (`gh notif`, the default and only UI): a small local
+// HTTP server (node:http, zero dependency) serving the notifications in an
+// auto-refreshed and interactive web page (hiding, org/repo filter, manual
+// refresh). A single poll loop feeds an in-memory snapshot; the HTTP requests
+// serve it (several tabs ≠ more GitHub calls). Each new event pushes a desktop
 // notification.
 import http from 'node:http';
 import { existsSync } from 'node:fs';
@@ -163,8 +163,8 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   const hiddenFile = hiddenPath();
   const hidden = loadHidden(hiddenFile);
 
-  // Desktop notifications (like --watch): dedup by URL via state.js, silent
-  // seed on the 1st run (we only alert on what arrives afterwards).
+  // Desktop notifications: dedup by URL via state.js, silent seed on the 1st
+  // run (we only alert on what arrives afterwards).
   const sPath = statePath();
   let primed = existsSync(sPath);
   const state = loadState(sPath);
@@ -196,7 +196,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
 
   const notifyNew = (data) => {
     // Approvals first (independent of the disk seed below): a new approve
-    // → desktop notif, like --watch. See approvals.js / spec.
+    // → desktop notif. See approvals.js / spec.
     // diffApprovals ALWAYS records in seenApprovals (even when we do not notify)
     // → disabling the notifs = « mark seen silently », no burst on
     // re-enabling.
@@ -410,7 +410,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   server.on('close', () => clearTimeout(timer));
   server.listen(port, () => {
     const url = `http://localhost:${port}`;
-    process.stderr.write(`🔔 gh notif --serve · ${url} · Ctrl-C to stop\n`);
+    process.stderr.write(`🔔 gh notif · ${url} · Ctrl-C to stop\n`);
     if (open) openBrowser(url);
   });
   return server;

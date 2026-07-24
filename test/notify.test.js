@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CATEGORY } from '../src/filter.js';
-import { notifyMessage, notifyCommand, sendNotification, watchEventLine } from '../src/notify.js';
+import { notifyMessage, notifyCommand, sendNotification } from '../src/notify.js';
 
 const base = { repo: 'o/r', number: 42, title: 'My PR', url: 'https://github.com/o/r/pull/42' };
 
@@ -89,30 +89,4 @@ test('mention notif without resolved author → generic title without @null', ()
   const m = notifyMessage({ repo: 'o/r', number: 5, title: 'PR M', url: 'https://github.com/o/r/pull/5', category: CATEGORY.MENTION, actor: null });
   assert.equal(m.title, 'You were mentioned');
   assert.ok(!m.title.includes('@null'));
-});
-
-test('watchEventLine: timestamp + reason (trigger) + repo/PR/title', () => {
-  const item = { ...base, category: CATEGORY.MENTION, actor: 'alice' };
-  const line = watchEventLine(item, '14:32:05');
-  assert.ok(line.includes('14:32:05'), 'must include the time');
-  assert.ok(line.includes(notifyMessage(item).title), 'must include the exact notif reason');
-  assert.ok(line.includes('o/r #42'), 'must include repo + PR');
-  assert.ok(line.includes('My PR'), 'must include the title');
-});
-
-test('watchEventLine: reason for a requested review', () => {
-  const item = { ...base, category: CATEGORY.REVIEW_REQUEST, actor: null };
-  const line = watchEventLine(item, '09:00:00');
-  assert.ok(line.includes('New PR to review'));
-  assert.ok(line.includes('o/r #42'));
-});
-
-test('watchEventLine: repo/PR/title is an OSC 8 link (and plain if hyperlinks:false)', () => {
-  const item = { ...base, category: CATEGORY.MENTION, actor: 'alice' };
-  const linked = watchEventLine(item, '14:32:05'); // default: links enabled
-  assert.ok(linked.includes(`\x1b]8;;${base.url}\x1b\\`), 'OSC 8 sequence to the URL');
-  assert.ok(linked.includes('o/r #42 My PR'), 'link text intact');
-  const plain = watchEventLine(item, '14:32:05', { hyperlinks: false });
-  assert.ok(!plain.includes('\x1b]8;;'), 'no OSC 8 when disabled');
-  assert.ok(plain.includes('o/r #42 My PR'));
 });

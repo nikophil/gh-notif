@@ -303,10 +303,10 @@ test('classifyVerdict: author without activity from someone else → item null +
   assert.match(v.reason, /your own action/);
 });
 
-test('classifyVerdict: review_requested fallback → REVIEW_REQUEST + watch reason', () => {
+test('classifyVerdict: review_requested fallback → REVIEW_REQUEST + notification-only reason', () => {
   const v = classifyVerdict(prThread({ reason: 'review_requested' }), ME, null);
   assert.equal(v.item.category, CATEGORY.REVIEW_REQUEST);
-  assert.match(v.reason, /watch/);
+  assert.match(v.reason, /notification only/);
 });
 
 test('classify stays equivalent to classifyVerdict(...).item', () => {

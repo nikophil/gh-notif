@@ -1,7 +1,6 @@
 import { spawn as nodeSpawn } from 'node:child_process';
 import { CATEGORY } from './filter.js';
 import { isReady } from './approvals.js';
-import { hyperlink } from './render.js';
 
 export function notifyMessage(item) {
   let title;
@@ -35,19 +34,7 @@ export function sendNotification(item, spawn = nodeSpawn, platform = process.pla
   const { cmd, args } = notifyCommand(platform, notifyMessage(item));
   const child = spawn(cmd, [...args], { stdio: 'ignore' });
   // Best-effort: if the command is missing (ENOENT), we swallow the error instead
-  // of letting an unhandled 'error' event kill the --watch/--serve loop.
+  // of letting an unhandled 'error' event kill the server poll loop.
   if (child.on) child.on('error', () => {});
   if (child.unref) child.unref();
-}
-
-// Terminal line for a notification pushed by `--watch`: timestamp + reason
-// (the trigger) + clickable repo/PR/title (OSC 8). `title` is exactly the reason
-// shown in the desktop notification. `opts.hyperlinks` (default true) controls the
-// link — pass false outside a TTY.
-export function watchEventLine(item, time, opts = {}) {
-  const { title } = notifyMessage(item);
-  const target = hyperlink(item.url, `${item.repo} #${item.number} ${item.title}`, {
-    hyperlinks: opts.hyperlinks ?? true,
-  });
-  return `🔔 ${time}  ${title}  ·  ${target}`;
 }

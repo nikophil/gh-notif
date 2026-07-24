@@ -75,16 +75,16 @@ test('writing favorites loses neither notify nor theme (overwritten-key pitfall)
   savePrefs(p, { notify: false, theme: 'dark' });
   // The right way: mutate the loaded object then re-write it IN FULL.
   const prefs = loadPrefs(p);
-  prefs.favorites = ['mapado'];
-  prefs.activeFav = 'mapado';
+  prefs.favorites = ['symfony'];
+  prefs.activeFav = 'symfony';
   savePrefs(p, prefs);
-  assert.deepEqual(loadPrefs(p), { notify: false, theme: 'dark', favorites: ['mapado'], activeFav: 'mapado', sort: null, ignoredChecks: {} });
+  assert.deepEqual(loadPrefs(p), { notify: false, theme: 'dark', favorites: ['symfony'], activeFav: 'symfony', sort: null, ignoredChecks: {} });
   rmSync(dir, { recursive: true, force: true });
 });
 
 test('loadPrefs: the favorites array is not shared between calls', () => {
   const a = loadPrefs('/nope/nope/prefs.json');
-  a.favorites.push('mapado'); // accidental mutation of the first object
+  a.favorites.push('symfony'); // accidental mutation of the first object
   assert.deepEqual(loadPrefs('/nope/nope/prefs.json').favorites, []); // DEFAULTS intact
 });
 
@@ -118,15 +118,15 @@ test('ignoredChecksOf: map empty by default, tolerates absent/malformed', () => 
   assert.deepEqual(ignoredChecksOf({}), {});
   assert.deepEqual(ignoredChecksOf({ ignoredChecks: null }), {});
   assert.deepEqual(ignoredChecksOf({ ignoredChecks: 'nope' }), {}); // invalid type → {}
-  const m = { 'mapado/ticketing': ['Check Pull Requests label for merge block'] };
+  const m = { 'symfony/ticketing': ['Check Pull Requests label for merge block'] };
   assert.deepEqual(ignoredChecksOf({ ignoredChecks: m }), m);
 });
 
 test('ignoredChecksFor: list of a repo ignored jobs ([] if absent/invalid)', () => {
-  const prefs = { ignoredChecks: { 'mapado/ticketing': ['Check Pull Requests label for merge block'] } };
-  assert.deepEqual(ignoredChecksFor(prefs, 'mapado/ticketing'), ['Check Pull Requests label for merge block']);
+  const prefs = { ignoredChecks: { 'symfony/ticketing': ['Check Pull Requests label for merge block'] } };
+  assert.deepEqual(ignoredChecksFor(prefs, 'symfony/ticketing'), ['Check Pull Requests label for merge block']);
   assert.deepEqual(ignoredChecksFor(prefs, 'other/repo'), []);
-  assert.deepEqual(ignoredChecksFor({}, 'mapado/ticketing'), []);
+  assert.deepEqual(ignoredChecksFor({}, 'symfony/ticketing'), []);
   assert.deepEqual(ignoredChecksFor({ ignoredChecks: { 'o/r': 'oops' } }, 'o/r'), []); // non-array value → []
 });
 
@@ -145,16 +145,16 @@ test('ignoredChecks: round-trip and fresh instance (no shared reference)', () =>
 test('toggleIgnoredCheck: adds, removes, creates the repo, deletes the key if empty', () => {
   const prefs = { ignoredChecks: {} };
   // add (creates the repo)
-  toggleIgnoredCheck(prefs, 'mapado/ticketing', 'behat');
-  assert.deepEqual(prefs.ignoredChecks, { 'mapado/ticketing': ['behat'] });
+  toggleIgnoredCheck(prefs, 'symfony/ticketing', 'behat');
+  assert.deepEqual(prefs.ignoredChecks, { 'symfony/ticketing': ['behat'] });
   // add a second one
-  toggleIgnoredCheck(prefs, 'mapado/ticketing', 'phpstan');
-  assert.deepEqual(prefs.ignoredChecks['mapado/ticketing'], ['behat', 'phpstan']);
+  toggleIgnoredCheck(prefs, 'symfony/ticketing', 'phpstan');
+  assert.deepEqual(prefs.ignoredChecks['symfony/ticketing'], ['behat', 'phpstan']);
   // remove behat
-  toggleIgnoredCheck(prefs, 'mapado/ticketing', 'behat');
-  assert.deepEqual(prefs.ignoredChecks['mapado/ticketing'], ['phpstan']);
+  toggleIgnoredCheck(prefs, 'symfony/ticketing', 'behat');
+  assert.deepEqual(prefs.ignoredChecks['symfony/ticketing'], ['phpstan']);
   // remove the last one → the repo key disappears (clean map)
-  toggleIgnoredCheck(prefs, 'mapado/ticketing', 'phpstan');
+  toggleIgnoredCheck(prefs, 'symfony/ticketing', 'phpstan');
   assert.deepEqual(prefs.ignoredChecks, {});
 });
 

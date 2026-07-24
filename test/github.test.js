@@ -56,16 +56,16 @@ test('getReviewComments incremental: since + sort=updated&direction=asc', async 
 test('searchAuthored queries author:@me and accepts a qualifier', async () => {
   const runner = fakeRunner([['search/issues', JSON.stringify({ items: [{ number: 7 }] })]]);
   const gh = makeGh(runner);
-  const out = await gh.searchAuthored(' org:mapado');
+  const out = await gh.searchAuthored(' org:symfony');
   assert.equal(out[0].number, 7);
   const q = runner.calls[0].join(' ');
   assert.ok(q.includes('author:@me'));
-  assert.ok(q.includes('org:mapado'));
+  assert.ok(q.includes('org:symfony'));
 });
 
 test('currentRepo returns nameWithOwner, null if outside a repo', async () => {
-  const gh = makeGh(fakeRunner([['repo view', JSON.stringify({ nameWithOwner: 'mapado/ticketing' })]]));
-  assert.equal(await gh.currentRepo(), 'mapado/ticketing');
+  const gh = makeGh(fakeRunner([['repo view', JSON.stringify({ nameWithOwner: 'symfony/ticketing' })]]));
+  assert.equal(await gh.currentRepo(), 'symfony/ticketing');
   const ghErr = makeGh(async () => { throw new Error('not a git repo'); });
   assert.equal(await ghErr.currentRepo(), null);
 });
@@ -155,11 +155,11 @@ test('getPullDetailsBatch: empty list → no request', async () => {
 });
 
 test('scopeExists: org/user → GET users/…, repo → GET repos/…', async () => {
-  const runner = fakeRunner([['api users/mapado', '{"id":1}'], ['api repos/o/r', '{"id":2}']]);
+  const runner = fakeRunner([['api users/symfony', '{"id":1}'], ['api repos/o/r', '{"id":2}']]);
   const gh = makeGh(runner);
-  assert.equal(await gh.scopeExists({ type: 'org', value: 'mapado' }), true);
+  assert.equal(await gh.scopeExists({ type: 'org', value: 'symfony' }), true);
   assert.equal(await gh.scopeExists({ type: 'repo', value: 'o/r' }), true);
-  assert.ok(runner.calls[0].join(' ').startsWith('api users/mapado'));
+  assert.ok(runner.calls[0].join(' ').startsWith('api users/symfony'));
   assert.ok(runner.calls[1].join(' ').startsWith('api repos/o/r'));
 });
 
@@ -169,6 +169,6 @@ test('scopeExists: 404 → false, other failure (network…) → null (undetermi
   const ghStderr = makeGh(async () => { const e = new Error('exit 1'); e.stderr = 'gh: Not Found (HTTP 404)'; throw e; });
   assert.equal(await ghStderr.scopeExists({ type: 'repo', value: 'o/nope' }), false);
   const ghDown = makeGh(async () => { throw new Error('connect ETIMEDOUT'); });
-  assert.equal(await ghDown.scopeExists({ type: 'org', value: 'mapado' }), null);
+  assert.equal(await ghDown.scopeExists({ type: 'org', value: 'symfony' }), null);
   assert.equal(await ghDown.scopeExists(null), null); // invalid scope: undetermined
 });

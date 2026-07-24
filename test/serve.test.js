@@ -9,7 +9,7 @@ const OPTS = { now: NOW, intervalMs: 10000 };
 
 const okSnapshot = () => ({
   data: {
-    mine: [{ repo: 'mapado/web', number: 1, url: 'u', title: 't', triggers: ['comment'], ci: 'pass', state: 'open', approvals: 0 }],
+    mine: [{ repo: 'symfony/web', number: 1, url: 'u', title: 't', triggers: ['comment'], ci: 'pass', state: 'open', approvals: 0 }],
     others: [],
   },
   updatedAt: NOW,
@@ -87,8 +87,8 @@ test('GET /api/debug → JSON of the debug table', () => {
 });
 
 test('GET / pre-fills the scope field with the current scope', () => {
-  const res = handleRequest('/', okSnapshot(), { ...OPTS, scope: { type: 'org', value: 'mapado' } });
-  assert.match(res.body, /id="scope"[^>]*value="mapado"/);
+  const res = handleRequest('/', okSnapshot(), { ...OPTS, scope: { type: 'org', value: 'symfony' } });
+  assert.match(res.body, /id="scope"[^>]*value="symfony"/);
 });
 
 test('GET / : notifs checkbox checked by default, unchecked if notifyEnabled=false', () => {
@@ -117,14 +117,14 @@ test('parseScope : empty → null, org, owner/repo', () => {
   assert.equal(parseScope(''), null);
   assert.equal(parseScope('   '), null);
   assert.equal(parseScope(null), null);
-  assert.deepEqual(parseScope('mapado'), { type: 'org', value: 'mapado' });
-  assert.deepEqual(parseScope('mapado/web'), { type: 'repo', value: 'mapado/web' });
-  assert.deepEqual(parseScope('  mapado/web  '), { type: 'repo', value: 'mapado/web' });
+  assert.deepEqual(parseScope('symfony'), { type: 'org', value: 'symfony' });
+  assert.deepEqual(parseScope('symfony/web'), { type: 'repo', value: 'symfony/web' });
+  assert.deepEqual(parseScope('  symfony/web  '), { type: 'repo', value: 'symfony/web' });
 });
 
 test('scopeLabel : null → "", otherwise the value', () => {
   assert.equal(scopeLabel(null), '');
-  assert.equal(scopeLabel({ type: 'org', value: 'mapado' }), 'mapado');
+  assert.equal(scopeLabel({ type: 'org', value: 'symfony' }), 'symfony');
 });
 
 // ── integration: POST /hide hides the PR (stub gh, real server) ─────────────
@@ -134,7 +134,7 @@ test('POST /hide hides one of the others\' PRs then restores it', async () => {
     getCurrentUser: async () => 'me',
     listNotifications: async () => [],
     searchReviewRequested: async () => [
-      { repository_url: 'https://api.github.com/repos/mapado/web', number: 42, title: 't', html_url: 'u', updated_at: '2026-06-24T00:00:00Z' },
+      { repository_url: 'https://api.github.com/repos/symfony/web', number: 42, title: 't', html_url: 'u', updated_at: '2026-06-24T00:00:00Z' },
     ],
     searchAuthored: async () => [],
     getPullDetailsBatch: async (prs) => prs.map((p) => ({
@@ -153,16 +153,16 @@ test('POST /hide hides one of the others\' PRs then restores it', async () => {
   try {
     await new Promise((r) => setTimeout(r, 250)); // 1st poll
     const frag1 = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
-    assert.match(frag1, /mapado\/web#42/, 'the PR is visible at first');
+    assert.match(frag1, /symfony\/web#42/, 'the PR is visible at first');
 
     // hides the PR
-    await fetch(`http://localhost:${PORT}/hide?key=${encodeURIComponent('mapado/web#42')}`, { method: 'POST' });
+    await fetch(`http://localhost:${PORT}/hide?key=${encodeURIComponent('symfony/web#42')}`, { method: 'POST' });
     const frag2 = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
-    assert.ok(!frag2.includes('mapado/web#42'), 'the PR is hidden (absent)');
+    assert.ok(!frag2.includes('symfony/web#42'), 'the PR is hidden (absent)');
 
     // visible again in showHidden mode
     const frag3 = await (await fetch(`http://localhost:${PORT}/fragment?hidden=1`)).text();
-    assert.match(frag3, /mapado\/web#42/, 'reappears in « show hidden » mode');
+    assert.match(frag3, /symfony\/web#42/, 'reappears in « show hidden » mode');
   } finally {
     server.close();
   }
@@ -259,11 +259,11 @@ test('POST /theme persists the theme, is reflected in the page, does not lose no
 const mixedSnapshot = () => ({
   data: {
     mine: [
-      { repo: 'mapado/web', number: 1, url: 'u', title: 'at mapado', triggers: [], ci: 'pass', state: 'open', approvals: 0 },
+      { repo: 'symfony/web', number: 1, url: 'u', title: 'at symfony', triggers: [], ci: 'pass', state: 'open', approvals: 0 },
       { repo: 'zenstruck/foundry', number: 2, url: 'u', title: 'at zenstruck', triggers: [], ci: 'pass', state: 'open', approvals: 0 },
     ],
     others: [],
-    debug: [{ repo: 'mapado/web', number: 1, verdict: { kept: true, reason: 'r' } },
+    debug: [{ repo: 'symfony/web', number: 1, verdict: { kept: true, reason: 'r' } },
             { repo: 'zenstruck/foundry', number: 2, verdict: { kept: true, reason: 'r' } }],
   },
   updatedAt: NOW,
@@ -271,50 +271,50 @@ const mixedSnapshot = () => ({
 });
 
 test('GET / : the favorite chips are in the page, the active one marked', () => {
-  const res = handleRequest('/', okSnapshot(), { ...OPTS, favorites: ['mapado', 'zenstruck'], activeFav: 'mapado' });
-  assert.match(res.body, /data-fav="mapado" class="on"/);
+  const res = handleRequest('/', okSnapshot(), { ...OPTS, favorites: ['symfony', 'zenstruck'], activeFav: 'symfony' });
+  assert.match(res.body, /data-fav="symfony" class="on"/);
   assert.match(res.body, /data-fav="zenstruck"/);
 });
 
 test('GET /fragment : filtered on the active favorite (the snapshot, itself, keeps the union)', () => {
   const snap = mixedSnapshot();
-  const res = handleRequest('/fragment', snap, { ...OPTS, favorites: ['mapado', 'zenstruck'], activeFav: 'mapado' });
-  assert.match(res.body, /at mapado/);
+  const res = handleRequest('/fragment', snap, { ...OPTS, favorites: ['symfony', 'zenstruck'], activeFav: 'symfony' });
+  assert.match(res.body, /at symfony/);
   assert.doesNotMatch(res.body, /at zenstruck/);
   // ⚠️ the snapshot is NOT mutated: it is what feeds the desktop notifs
   assert.equal(snap.data.mine.length, 2);
 });
 
 test('GET /fragment without active favorite → the whole union is displayed', () => {
-  const res = handleRequest('/fragment', mixedSnapshot(), { ...OPTS, favorites: ['mapado', 'zenstruck'], activeFav: null });
-  assert.match(res.body, /at mapado/);
+  const res = handleRequest('/fragment', mixedSnapshot(), { ...OPTS, favorites: ['symfony', 'zenstruck'], activeFav: null });
+  assert.match(res.body, /at symfony/);
   assert.match(res.body, /at zenstruck/);
 });
 
 test('ad-hoc mode: an entered scope takes precedence, the active favorite does not re-filter', () => {
   const res = handleRequest('/fragment', mixedSnapshot(), {
-    ...OPTS, favorites: ['mapado'], activeFav: 'mapado', adhoc: true, scope: { type: 'org', value: 'zenstruck' },
+    ...OPTS, favorites: ['symfony'], activeFav: 'symfony', adhoc: true, scope: { type: 'org', value: 'zenstruck' },
   });
   assert.match(res.body, /at zenstruck/); // the collection already did the filtering
 });
 
 test('GET / in ad-hoc mode: greyed chips and none active', () => {
   const res = handleRequest('/', okSnapshot(), {
-    ...OPTS, favorites: ['mapado'], activeFav: 'mapado', adhoc: true, scope: { type: 'org', value: 'zenstruck' },
+    ...OPTS, favorites: ['symfony'], activeFav: 'symfony', adhoc: true, scope: { type: 'org', value: 'zenstruck' },
   });
   assert.match(res.body, /class="favs adhoc"/);
-  assert.doesNotMatch(res.body, /data-fav="mapado" class="on"/);
+  assert.doesNotMatch(res.body, /data-fav="symfony" class="on"/);
 });
 
 test('GET /debug-fragment also follows the active favorite', () => {
-  const res = handleRequest('/debug-fragment', mixedSnapshot(), { ...OPTS, favorites: ['mapado'], activeFav: 'mapado' });
-  assert.match(res.body, /mapado\/web/);
+  const res = handleRequest('/debug-fragment', mixedSnapshot(), { ...OPTS, favorites: ['symfony'], activeFav: 'symfony' });
+  assert.match(res.body, /symfony\/web/);
   assert.doesNotMatch(res.body, /zenstruck/);
 });
 
 test('scopeLabel : in favorites mode (scope = array) the field stays empty', () => {
-  assert.equal(scopeLabel([{ type: 'org', value: 'mapado' }, { type: 'org', value: 'zenstruck' }]), '');
-  assert.equal(scopeLabel({ type: 'org', value: 'mapado' }), 'mapado');
+  assert.equal(scopeLabel([{ type: 'org', value: 'symfony' }, { type: 'org', value: 'zenstruck' }]), '');
+  assert.equal(scopeLabel({ type: 'org', value: 'symfony' }), 'symfony');
 });
 
 // ── integration: /fav* routes (add, select, remove, persistence) ────────────
@@ -329,7 +329,7 @@ test('POST /fav* : pins, filters, removes — and loses neither notify nor theme
   const gh = {
     getCurrentUser: async () => 'me',
     listNotifications: async () => [],
-    searchReviewRequested: async (q) => { searches.push(q); return [pr('mapado/web', 1, 'at mapado'), pr('zenstruck/foundry', 2, 'at zenstruck')]; },
+    searchReviewRequested: async (q) => { searches.push(q); return [pr('symfony/web', 1, 'at symfony'), pr('zenstruck/foundry', 2, 'at zenstruck')]; },
     searchAuthored: async () => [],
     getPullDetailsBatch: async (prs) => prs.map(() => ({ author: { login: 'alice' }, state: 'OPEN', additions: 1, deletions: 0, reviews: [] })),
     getComment: async () => null,
@@ -351,46 +351,46 @@ test('POST /fav* : pins, filters, removes — and loses neither notify nor theme
 
     // Pins two favorites. The response leaves BEFORE the re-poll (instant chip):
     // the chip is already in the response, the existence was verified.
-    await post('/fav/add?value=mapado');
+    await post('/fav/add?value=symfony');
     const added = await (await post('/fav/add?value=zenstruck')).json();
-    assert.match(added.chips, /data-fav="mapado"/);
+    assert.match(added.chips, /data-fav="symfony"/);
     assert.match(added.chips, /data-fav="zenstruck"/);
-    assert.deepEqual(checked, [{ type: 'org', value: 'mapado' }, { type: 'org', value: 'zenstruck' }]);
-    assert.match(added.fragment, /at mapado/);
+    assert.deepEqual(checked, [{ type: 'org', value: 'symfony' }, { type: 'org', value: 'zenstruck' }]);
+    assert.match(added.fragment, /at symfony/);
     assert.match(added.fragment, /at zenstruck/); // no active favorite → union
 
     // The background refresh completes: the collection indeed covers the union
     // (a single OR-ed search). We let the async poll settle.
     await new Promise((r) => setTimeout(r, 200));
-    assert.equal(searches.at(-1), ' org:mapado org:zenstruck');
+    assert.equal(searches.at(-1), ' org:symfony org:zenstruck');
 
     // /view (client poll): chips with counters (others' activity) + updatedAt.
     const view = await (await fetch(`http://localhost:${PORT}/view`)).json();
     assert.match(view.chips, /⭐ all <span class="fav-n">\(2\)<\/span>/);
-    assert.match(view.chips, /mapado\/\* <span class="fav-n">\(1\)<\/span>/);
+    assert.match(view.chips, /symfony\/\* <span class="fav-n">\(1\)<\/span>/);
     assert.match(view.chips, /zenstruck\/\* <span class="fav-n">\(1\)<\/span>/);
     assert.ok(view.updatedAt > 0, 'updatedAt exposed for the client probe');
 
     // Selects a favorite: display filter, WITHOUT a new search.
     const before = searches.length;
-    const selected = await (await post('/fav?value=mapado')).json();
+    const selected = await (await post('/fav?value=symfony')).json();
     assert.equal(searches.length, before, 'switching favorite must cost no request');
-    assert.match(selected.fragment, /at mapado/);
+    assert.match(selected.fragment, /at symfony/);
     assert.doesNotMatch(selected.fragment, /at zenstruck/);
-    assert.match(selected.chips, /data-fav="mapado" class="on"/);
+    assert.match(selected.chips, /data-fav="symfony" class="on"/);
     // The counter of the other favorite stays visible even when we are not looking at it.
     assert.match(selected.chips, /zenstruck\/\* <span class="fav-n">\(1\)<\/span>/);
 
     // Persisted, without overwriting notify/theme (lost-key trap).
     let prefs = loadPrefs(prefsPath());
-    assert.deepEqual(prefs.favorites, ['mapado', 'zenstruck']);
-    assert.equal(prefs.activeFav, 'mapado');
+    assert.deepEqual(prefs.favorites, ['symfony', 'zenstruck']);
+    assert.equal(prefs.activeFav, 'symfony');
     assert.equal(prefs.notify, false);
     assert.equal(prefs.theme, 'dark');
 
     // Removing the active favorite falls back to « all ».
-    const removed = await (await post('/fav/rm?value=mapado')).json();
-    assert.doesNotMatch(removed.chips, /data-fav="mapado"/);
+    const removed = await (await post('/fav/rm?value=symfony')).json();
+    assert.doesNotMatch(removed.chips, /data-fav="symfony"/);
     prefs = loadPrefs(prefsPath());
     assert.deepEqual(prefs.favorites, ['zenstruck']);
     assert.equal(prefs.activeFav, null);
@@ -497,20 +497,20 @@ test('POST /refresh right after a poll → no new GitHub collection', async () =
 test('GET /view : JSON {chips, fragment, updatedAt}, counters from the snapshot', () => {
   const snap = mixedSnapshot();
   snap.data.others = [
-    { repo: 'mapado/front', number: 7, url: 'u', title: 'also', triggers: ['review'], ci: 'pass', author: 'bob', createdAt: '2026-06-21T12:00:00Z', additions: 1, deletions: 0, state: 'open', approvals: 0 },
+    { repo: 'symfony/front', number: 7, url: 'u', title: 'also', triggers: ['review'], ci: 'pass', author: 'bob', createdAt: '2026-06-21T12:00:00Z', additions: 1, deletions: 0, state: 'open', approvals: 0 },
   ];
-  const res = handleRequest('/view', snap, { ...OPTS, favorites: ['mapado', 'zenstruck'], activeFav: 'zenstruck' });
+  const res = handleRequest('/view', snap, { ...OPTS, favorites: ['symfony', 'zenstruck'], activeFav: 'zenstruck' });
   assert.equal(res.type, 'application/json; charset=utf-8');
   const d = JSON.parse(res.body);
   assert.equal(d.updatedAt, NOW);
-  // Counters = others' activity, computed on the UNION (mapado counts even
+  // Counters = others' activity, computed on the UNION (symfony counts even
   // if the active favorite is zenstruck).
-  assert.match(d.chips, /mapado\/\* <span class="fav-n">\(1\)<\/span>/);
+  assert.match(d.chips, /symfony\/\* <span class="fav-n">\(1\)<\/span>/);
   assert.match(d.chips, /zenstruck\/\* <span class="fav-n">\(0\)<\/span>/);
   assert.match(d.chips, /data-fav="zenstruck" class="on"/);
   // The fragment, itself, is filtered on the active favorite.
   assert.match(d.fragment, /at zenstruck/);
-  assert.doesNotMatch(d.fragment, /at mapado/);
+  assert.doesNotMatch(d.fragment, /at symfony/);
 });
 
 test('GET /fragment : « closed » link contextualized (ad-hoc > active favorite > union of favorites)', () => {
@@ -518,13 +518,13 @@ test('GET /fragment : « closed » link contextualized (ad-hoc > active favorite
   let res = handleRequest('/fragment', okSnapshot(), OPTS);
   assert.ok(res.body.includes('href="https://github.com/pulls?q=is%3Apr%20author%3A%40me%20is%3Aclosed"'));
   // Active favorite → its qualifier alone.
-  res = handleRequest('/fragment', okSnapshot(), { ...OPTS, favorites: ['mapado', 'a/b'], activeFav: 'mapado' });
-  assert.ok(res.body.includes('is%3Aclosed%20org%3Amapado"'));
+  res = handleRequest('/fragment', okSnapshot(), { ...OPTS, favorites: ['symfony', 'a/b'], activeFav: 'symfony' });
+  assert.ok(res.body.includes('is%3Aclosed%20org%3Asymfony"'));
   // « All » with favorites → union.
-  res = handleRequest('/fragment', okSnapshot(), { ...OPTS, favorites: ['mapado', 'a/b'], activeFav: null });
-  assert.ok(res.body.includes('org%3Amapado%20repo%3Aa%2Fb"'));
+  res = handleRequest('/fragment', okSnapshot(), { ...OPTS, favorites: ['symfony', 'a/b'], activeFav: null });
+  assert.ok(res.body.includes('org%3Asymfony%20repo%3Aa%2Fb"'));
   // Ad-hoc mode → the entered scope takes precedence over the favorites.
-  res = handleRequest('/fragment', okSnapshot(), { ...OPTS, favorites: ['mapado'], activeFav: 'mapado', scope: { type: 'repo', value: 'x/y' }, adhoc: true });
+  res = handleRequest('/fragment', okSnapshot(), { ...OPTS, favorites: ['symfony'], activeFav: 'symfony', scope: { type: 'repo', value: 'x/y' }, adhoc: true });
   assert.ok(res.body.includes('is%3Aclosed%20repo%3Ax%2Fy"'));
 });
 

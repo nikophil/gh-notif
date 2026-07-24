@@ -12,34 +12,41 @@
 imports `src/*.js` modules. All GitHub accesses go through `gh` (via `child_process`), which
 reuses the user's auth. Tests with the native `node:test` runner (`npm test`).
 
+**The only UI is a local web page** (`--serve` is the historical name; it is now the **default and
+only** mode). Running `gh notif` starts the HTTP server and opens the browser. There is **no terminal
+table rendering** anymore: the old one-shot list (`runList`) and `--watch` loop have been removed.
+The entrypoint only: parses args, manages the `fav` subcommand, resolves the scope, and calls
+`serve`. `--serve`/`--watch` are still **accepted as deprecated no-ops** (older invocations don't
+error).
+
 ## Modules and responsibilities
 
 | File | Role | Pure / testable? |
 |---------|------|------------------|
-| `gh-notif` | Entrypoint: parses args, resolves the scope, dispatches `runList` / `runWatch` / `serve`. | no (I/O, loop) |
+| `gh-notif` | Entrypoint: parses args, handles the `fav` subcommand, resolves the scope, calls `serve` (the only mode). | no (I/O) |
 | `src/github.js` | Thin wrapper around `gh` (`makeGh(runner)`), injectable `runner`. Returns raw JSON. | yes via runner stub |
 | `src/filter.js` | **Core**: `classify()` (filtering rules), `findReplyToMe()`, helpers. Pure functions. | yes |
 | `src/collect.js` | Orchestration: aggregates notifications + PR searches, fetches details, scope. | yes via gh stub |
-| `src/state.js` | Persistence + deduplication of `--watch`. | yes |
+| `src/state.js` | Persistence + deduplication of the poll-loop notifications. | yes |
 | `src/prefs.js` | Persisted UI preferences (`notify`, `theme`, `favorites`, `activeFav`, `sort`, `ignoredChecks`, with defaults/validation `isNotifyEnabled`/`themeOf`/`ignoredChecksOf`/`ignoredChecksFor`). Pure + JSON I/O, modeled on `state.js`. | yes |
 | `src/favorites.js` | Scope favorites: normalization/add/remove, `parseScope`, `f` key cycle, **`filterDataByScope`** (display filter), `favoriteLabel` (`org/*`) and `favoriteCounts` (badges). Pure. | yes |
 | `src/approvals.js` | Approvals on my PRs: `approvalsOf`, « ready to merge » threshold (`isReady`), event diff/seed (`diffApprovals`). Pure. | yes |
-| `src/notify.js` | Cross-platform desktop notifs (`notifyCommand`: `notify-send` Linux / `osascript` macOS) + terminal event line. | yes via spawn stub |
-| `src/render.js` | Aligned boxed tables, color, OSC 8 links, display helpers. | yes |
-| `src/spinner.js` | Spinner during requests (stderr, no-op outside TTY). | yes via stream stub |
+| `src/notify.js` | Cross-platform desktop notifs (`notifyCommand`: `notify-send` Linux / `osascript` macOS). | yes via spawn stub |
+| `src/render.js` | **Presentation helpers shared with the web** (`ciIcon`, `stateIcon`, `relativeDate`, `checksByRepo`) + the tiny terminal `favoritesBar` for `fav list`. No table rendering. | yes |
+| `src/spinner.js` | Spinner during the server poll (stderr, no-op outside TTY). | yes via stream stub |
 | `src/hidden.js` | Hiding of others' PRs: persistence, event signatures, reconciliation, numbers. | yes |
-| `src/html.js` | **Pure HTML** rendering of the `--serve` mode (`escapeHtml`, `renderFragment`, `renderShell`, `renderDebug`/`renderDebugShell`). Reuses the helpers of `render.js`. | yes |
+| `src/html.js` | **Pure HTML** rendering of the web page (`escapeHtml`, `renderFragment`, `renderShell`, `renderDebug`/`renderDebugShell`). Reuses the helpers of `render.js`. | yes |
 | `src/serve.js` | Local HTTP server (`node:http`) + poll loop: `handleRequest` (pure) + `serve` (I/O). | `handleRequest` yes; `serve` no (I/O) |
 | `src/ratelimit.js` | Rate-limit detection (`isRateLimitError`) + backoff (`nextBackoffSeconds`). Pure. | yes |
-| `src/sort.js` | Sorting of the « others' PRs » table in `--serve`: `normalizeSort`, `toggleSort` (click cycle), `sortRows` (sorted copy, missing at the end). Pure. | yes |
+| `src/sort.js` | Sorting of the « others' PRs » table (web): `normalizeSort`, `toggleSort` (click cycle), `sortRows` (sorted copy, missing at the end). Pure. | yes |
 
 Each module has a clear responsibility; the hard logic lives in **pure functions** tested on
 fixtures (no network call in test).
 
 ## Data flow
 
-The three modes (`gh notif`, `--watch`, `--serve`) share **the same core** `collectPRs`; only
-the output differs (terminal tables, loop that notifies, or web server).
+There is a single mode: the web server (`serve`). It drives a poll loop over the core
+`collectPRs`, feeds an in-memory snapshot, and renders it as HTML.
 
 ### Calls to GitHub (per poll)
 
@@ -50,12 +57,7 @@ costs **0 requests** thanks to the cache).
 
 ```mermaid
 flowchart LR
-  CLI["gh-notif · scope · --interval"] --> Mode{"mode"}
-  Mode -->|"default"| List[runList]
-  Mode -->|"--watch"| Watch[runWatch]
-  Mode -->|"--serve"| Serve[serve]
-  List --> Collect
-  Watch --> Collect
+  CLI["gh-notif · scope · --interval"] --> Serve[serve]
   Serve --> Collect
 
   subgraph Collect["collectPRs (1 poll)"]
@@ -85,8 +87,7 @@ flowchart LR
   Cache[("inspection cache<br/>Map by thread.id")] -. "unchanged thread → 0 requests" .-> INS
 
   Collect --> Out["mine · others · hidden · notifications"]
-  Out --> RT[render.js]
-  Out --> HT[html.js]
+  Out --> HT["html.js (via render.js helpers)"]
   Out --> ST["state.js → notify.js"]
 
   classDef socle fill:#dafbe1,stroke:#1a7f37,color:#0a3d1a;
@@ -100,32 +101,30 @@ sources (`collectNotifications` / `collectPending` / `collectAuthored`) go off i
 the inspection of threads runs in `mapLimit(CONCURRENCY=6)`. Details of the cache, of the
 incremental `since` and of the backoff: see trap §11.
 
-`--watch`: `runWatch` calls `collectPRs` at each poll (same data as `gh notif`) and
-**redraws both tables** (`drawWatch`: clears the screen in TTY then `renderList`). The detection
-of new items is done on `data.notifications` (the notification items, exposed by `collectPRs`)
-via `state.js`; each new item triggers `sendNotification` + a `watchEventLine` line
-stacked in a session log (max 8) shown below the tables. Then `countdown` until the
-next poll. Pending reviews / authored PRs (search issues) do **not** emit a
-desktop notif: only the items of `data.notifications` do.
+**Server poll loop** (`serve.js`): `collectPRs` runs at each poll (with the inspection cache) and
+feeds the in-memory snapshot. The detection of new items is done on `data.notifications` (the
+notification items, exposed by `collectPRs`) via `state.js`; each new item triggers
+`sendNotification`. Pending reviews / authored PRs (search issues) do **not** emit a desktop notif:
+only the items of `data.notifications` do.
 
 **Approvals on my PRs** (`src/approvals.js`). An approval does **not** arrive through a
 `/notifications` thread: it lives in the GraphQL `reviews` (already fetched → zero cost). `collectPRs`
 therefore exposes `data.approvalEvents` (one `{repo,number,title,actor,url,submittedAt,count}` event
-per approval, **only on my PRs in the `open` state** — not draft/merged/closed). `--watch` and
-`--serve` each keep a `Set seenApprovals` **in memory (per process)** + a
+per approval, **only on my PRs in the `open` state** — not draft/merged/closed). The server keeps a
+`Set seenApprovals` **in memory (per process)** + a
 `primedApprovals` flag: `diffApprovals` does a **silent seeding on the 1st poll** (we memorize everything
 without notifying → no burst at startup, even if a `seen-v2.json` already exists), then returns the
 new approvals → `sendNotification` (category `APPROVAL`, suffix `🎉 ready to merge` if
-`count ≥ 2`). The **`🎉` badge** in the ✅ column (terminal + web) is a **derived state** (`isReady`,
-≥ 2 on an open PR) shown independently of the notifs — so also visible in one-shot `gh notif`.
+`count ≥ 2`). The **`🎉` badge** in the ✅ column (web) is a **derived state** (`isReady`,
+≥ 2 on an open PR) shown independently of the notifs.
 Disk state discarded for approvals (the memory seed is enough; a restart re-seeds).
 
-`--serve` opens the browser at startup (`openBrowser`, best-effort) **unless `--no-open`**
+`serve` opens the browser at startup (`openBrowser`, best-effort) **unless `--no-open`**
 (option `open: false` of `serve()`) — to be used systematically for smoke tests, otherwise
 each launch stacks a tab.
 
-`--serve`: `serve` (`src/serve.js`) launches **a single poll loop** (`collectPRs`, same
-data as `gh notif`, respects the persisted `hidden` list) feeding an **in-memory snapshot**
+`serve` (`src/serve.js`) launches **a single poll loop** (`collectPRs`,
+respecting the persisted `hidden` list) feeding an **in-memory snapshot**
 `{ data, updatedAt, error }`, and mounts a `node:http` server. The **reads** (GET) are routed
 by `handleRequest(pathname, snapshot, {now, intervalMs, showHidden, scope})` (**pure**, testable
 without a socket): `GET /` → `renderShell` (page + polling JS, pre-filled scope field), `GET
@@ -166,10 +165,11 @@ real poll), never the display time — otherwise a reload would claim an update 
 (`updatedAt + INTERVAL`, clamped ≥ 5 s), not reset to full on each injection.
 
 The HTML rendering (`src/html.js`) **reuses** the presentation helpers of `render.js`
-(`ciIcon`, `stateIcon`, `relativeDate`): only the medium (terminal vs HTML) differs. The browser
+(`ciIcon`, `stateIcon`, `relativeDate`, `checksByRepo`): the display logic stays shared, only the
+HTML formatting lives in html.js. The browser
 re-fetches `/fragment` **at the same rhythm as the poll** (`intervalSeconds`, 60 s by default); this
 re-fetch only **re-reads the in-memory snapshot** (0 GitHub call), so that multiple
-tabs do not multiply the requests. Like `--watch`, the loop detects new items
+tabs do not multiply the requests. The poll loop detects new items
 (`state.js` + `sendNotification`, silent seed on the 1st run, gating `REVIEW_REQUEST` on open
 PRs). Style in GitHub colors (Primer), all inline (no external asset).
 
@@ -227,13 +227,13 @@ sequenceDiagram
    only afterwards. `inspectThread` **always** fetches the review-comments (including for
    `review_requested`), not only for `reason: comment`.
 
-   **Corollary (source of authority for pending reviews).** The « review » trigger of the list mode
+   **Corollary (source of authority for pending reviews).** The « review » trigger of the tables
    never comes from a notification (sticky, unreliable): it comes exclusively from
    `collectPending` → `review-requested:@me` search, which GitHub empties as soon as you review. In
    practice `classify` can emit `REVIEW_REQUEST`, but `collectPRs` **ignores** it (absent from
-   `TRIGGER_FOR`); this item only serves `--watch` (notify a *new* review request).
+   `TRIGGER_FOR`); this item only serves the poll loop's notifications (notify a *new* review request).
    That's what prevents an already-reviewed PR (real ex.: #7036) from re-appearing with a « review » trigger.
-   ⚠️ On the `--watch` side, we only notify a `REVIEW_REQUEST` if the PR is **still open/pending**
+   ⚠️ On the notification side, we only notify a `REVIEW_REQUEST` if the PR is **still open/pending**
    (present in `data.mine`/`data.others`, thus in `collectPending` is:open) — otherwise a review request
    on a closed/merged PR would trigger « New PR to review » wrongly (real: #7004).
 
@@ -264,20 +264,19 @@ sequenceDiagram
    already read** as « replied to you » (real regression #6993). A reply is a new item only if
    it is after my last read. `last_read_at` null (never read) ⇒ no filter.
 
-3. **Dedup of `--watch` by event URL, never by `updated_at`.** GitHub bumps the thread's `updated_at`
+3. **Dedup of the poll notifications by event URL, never by `updated_at`.** GitHub bumps the thread's `updated_at`
    at each activity; deduping on it re-notifies in a loop (re-« review requested » as soon
    as someone else comments, double-notif of the same comment). We deduplicate on the precise URL
    (`item.url`). Versioned state file `seen-v2.json` (a key change requires a new name
    to avoid a flood on the migration).
 
-4. **First run of `--watch` = silent seed.** If the state file doesn't exist, we mark the whole
+4. **First run of the poll loop = silent seed.** If the state file doesn't exist, we mark the whole
    backlog « seen » without notifying; we only alert on what comes afterwards.
 
-5. **Emoji display width (`render.js#displayWidth`).** The alignment of the tables entirely
-   depends on it. Rules: wide emoji = 2 columns; **variation selector `U+FE0F` = 0**,
-   and a base followed by `U+FE0F` (e.g. `↩️`) counts 2; box-drawing and `−` (U+2212) = 1. Any
-   new icon must be validated by the alignment test (all the rows of a table have the
-   same `displayWidth`). Do not reintroduce the box-drawing block into `isWide`.
+5. **(Obsolete) Emoji display width.** This trap concerned the terminal boxed tables, which no
+   longer exist (the only UI is the web page; CSS handles alignment). `render.js#displayWidth`,
+   `truncate` and the framed-table machinery have been removed. Emoji are still used in the HTML
+   icons, but their column width is no longer a correctness concern.
 
 6. **Color / links auto-disabled outside TTY or if `NO_COLOR`.** Makes the non-TTY output
    deterministic → the tests pass `{color:false, hyperlinks:false}` and lock down the layout.
@@ -324,20 +323,16 @@ sequenceDiagram
     (empty signature) stays hidden until a real interaction (reply/mention/comment) — a
     re-request of review produces no event URL, so does not make it reappear.
     `collectPRs` reconciles and returns `{ others (visible), hidden (hidden rows), hiddenCount,
-    hiddenChanged }`. The interaction is **100% keyboard**: `h` enters hide mode (a reminder
-    « press h » stays shown), then you type the **PR number** (label = `assignLabels` =
-    `String(row.number)`, « PR » column) + Enter; the mode **closes as soon as a PR is
-    (un)hidden** (`Esc` cancels, `Backspace` corrects). In `--watch -v`, each hide/restore
-    adds a line to the session log. **Without mouse capture nor alt-screen** (mouse attempt
-    abandoned because it broke scroll/links/cursor), and **only** if stdin+stdout are TTYs — otherwise
-    « display then hand back ». In `--watch`, the poll is **frozen** during hide mode
-    (`waitNextPoll` neither counts down nor writes) to not redraw under the user. State
-    persisted in `~/.local/state/gh-notif/hidden-v1.json`. ⚠️ `TRIGGER_FOR` lives in `filter.js`
-    (not `collect.js`) to be shared with `hidden.js` without an import cycle.
+    hiddenChanged }`. The interaction is **web-only**: a **✕** button on each « others » row
+    → `POST /hide?key=repo#n` (`toggleHidden` + `saveHidden`, then a **local recompute** without a
+    refetch, cf. §serve); the **🙈 hidden** toggle (`?hidden=1`) shows the hidden rows greyed out
+    with a restore button. State persisted in `~/.local/state/gh-notif/hidden-v1.json`. ⚠️
+    `TRIGGER_FOR` lives in `filter.js` (not `collect.js`) to be shared with `hidden.js` without an
+    import cycle.
 
 11. **Poll cost & rate-limit (long loops).** A colleague was rate-limited: a « naive » poll
     emits ~50–70 requests, dominated at ~90% by the per-thread inspection (`getComment` +
-    paginated `getReviewComments`, for *each* notification). In a long loop (`serve.js`, `runWatch`),
+    paginated `getReviewComments`, for *each* notification). In the server poll loop (`serve.js`),
     we inject an **inspection cache** (`Map`, key = `thread.id`) into `collectPRs(..., { cache })`:
     - **unchanged thread** (same `thread.updated_at` as the cache entry) ⇒ `inspectThread` returns
       the memorized inspection, **0 requests**;
@@ -345,12 +340,12 @@ sequenceDiagram
       only brings back the delta (`since` = max `updated_at` seen, via `watermarkOf`), merged with the cache
       (`mergeReviewComments`, dedup by `id`, `fresh` wins);
     - the cache is **pruned** of the threads that disappeared from `/notifications`.
-    Without `cache` (the one-shot `gh notif`), behavior unchanged: always re-inspect. Shape of an
-    entry: `{ threadUpdatedAt, since, inspection:{ latestComment, reviewComments } }`.
+    Called without `cache`, `collectPRs` always re-inspects (the cache is a poll-loop optimization).
+    Shape of an entry: `{ threadUpdatedAt, since, inspection:{ latestComment, reviewComments } }`.
     **Backoff** (`src/ratelimit.js`, pure): on a `gh` error message resembling a rate-limit
     (`isRateLimitError`: `rate limit`/`secondary`/`abuse`/`403`/`429`), the next poll backs off
     (`nextBackoffSeconds`: doubles, cap 10 min); reset on success. `serve.js` reschedules via
-    **`setTimeout`** (not `setInterval`) to incorporate this delay; `runWatch` adds it to `waitNextPoll`.
+    **`setTimeout`** (not `setInterval`) to incorporate this delay.
     Interval adjustable by `--interval N`, **floor 60 s** (`effectiveInterval`). ⚠️ Known limitation
     (out of scope): the incremental `since` does not detect a comment **deleted** from a thread already
     in the cache.
@@ -362,10 +357,9 @@ sequenceDiagram
     dates, `commentsCount`, `latestCommentAuthor`, `verdict {kept, category, reason}`) — **without a comment
     body** (cost + privacy). `collectPRs` **always** provides this sink and returns
     `data.debug`: it's free (data already fetched/computed), so **always captured**; only
-    the display is gated. Renderings: terminal `renderDebugText` (render.js, gated by `--debug` in
-    `runList`/`runWatch`); web `renderDebug` + standalone page `renderDebugShell` (html.js), served
-    **always-on** in `--serve` via `/debug` (page), `/debug-fragment` (poll), `/api/debug` (JSON), with
-    a 🐛 link in the header. ⚠️ Product constraint: GitHub does **not** notify your own actions →
+    the display is gated. Rendering: web `renderDebug` + standalone page `renderDebugShell`
+    (html.js), served **always-on** via `/debug` (page), `/debug-fragment` (poll), `/api/debug`
+    (JSON), with a 🐛 link in the header. ⚠️ Product constraint: GitHub does **not** notify your own actions →
     the debug shows the reasoning, not « your messages ». ⚠️ `renderDebug` **escapes** all GitHub
     data (title, repo, reason) via `escapeHtml`. The debug view ALSO carries a **« Checks by
     repo »** section (`renderChecksSection` / `checksSectionText`): the blocklist being **per repo**, we present
@@ -390,30 +384,30 @@ sequenceDiagram
     a line break** in a string literal (the `…\n${url}` body is therefore **flattened into spaces**),
     and you must escape `\` **then** `"` (in that order) otherwise a PR title with quotes breaks the
     command. ⚠️ `sendNotification` attaches **`child.on('error', …)`** (like `openBrowser`): without it,
-    an absent command (ENOENT) emits an unhandled `error` event that **kills the loop**
-    `--watch`/`--serve`. Notifs stay **best-effort** (silent failure). Windows not covered (falls
+    an absent command (ENOENT) emits an unhandled `error` event that **kills the server poll loop**.
+    Notifs stay **best-effort** (silent failure). Windows not covered (falls
     back on `notify-send`, absent → silent no-op).
 
 14. **Favorites: we COLLECT the union, we FILTER at display.** A favorite is a pinned scope
-    (`favorites: ["mapado","noctud/collection","zenstruck"]` in `prefs-v1.json`). As soon as there
+    (`favorites: ["symfony","noctud/collection","zenstruck"]` in `prefs-v1.json`). As soon as there
     exists one, `collectPRs` receives an **array** of scopes — the union — and the active favorite
     (`activeFav`) is only a **display filter** (`filterDataByScope`) applied downstream.
     Intended consequences: the **desktop notifs of all the favorites** arrive continuously even
-    if we only look at one, and **switching favorite costs 0 requests** (`f` key in terminal,
-    chips in web). ⚠️ **The order is critical**:
+    if we only look at one, and **switching favorite costs 0 requests** (chips in the web header).
+    ⚠️ **The order is critical**:
     `collectPRs(union) → reconcile/hidden → notifyNew(data) → filterDataByScope(data, active) → rendering`.
     Filtering earlier breaks three things at once: (a) `notifyNew`/`diffApprovals` would lose the
     events of the inactive favorites — that's *the* reason the feature exists; (b) `reconcile`
     (§10) prunes the keys absent from the current entries, so **would erase the hiding** of the
     non-displayed favorites; (c) `markSeen` (§3/§4) must consume **all** the items, otherwise the queue
-    accumulates and re-notifies in a burst on the favorite change. In terminal as in web, `data`
+    accumulates and re-notifies in a burst on the favorite change. `data`
     therefore stays **raw** in memory (it's what feeds the hiding) and only the rendering is filtered.
 
     **Union in a single search.** GitHub **OR-es** the repeated scope qualifiers — measured:
     `repo:zenstruck/foundry` (6) + `repo:symfony/panther` (9) → both together **15** — including
     when mixing `org:` and `repo:`. `scopesQualifier` therefore concatenates, and the union does **not**
     cost N searches. `ensure()` already dedupes by `repo#number`, so favorites that
-    overlap (`mapado` + `mapado/api`) do not produce a duplicate. ⚠️ Safeguard: a GitHub
+    overlap (`symfony` + `symfony/api`) do not produce a duplicate. ⚠️ Safeguard: a GitHub
     search query is **capped at 256 characters**; `addFavorite` refuses beyond
     `MAX_QUALIFIER_LENGTH` (200). The constraint is the **length, not the number** — 10 favorites with
     short names pass, 5 with very long names don't.
@@ -453,7 +447,7 @@ sequenceDiagram
     **Favorites UI.** (a) **`(n)` counter** per chip = rows of « activity on others'
     PRs » (`data.others`, excluding hidden) under that scope — **not** `mine`, not the triggers —
     computed by `favoriteCounts` on the **raw union**: an inactive favorite keeps its counter.
-    (b) **Label**: an org displays `mapado/*`, a repo `owner/name` (`favoriteLabel`);
+    (b) **Label**: an org displays `symfony/*`, a repo `owner/name` (`favoriteLabel`);
     purely cosmetic, `data-fav`/stored value/URL argument stay the **raw** string.
     (c) **Existence verified on add** (`gh.scopeExists`, CLI and web): repo → `GET /repos/o/n`,
     org → `GET /users/x` (covers orgs **and** users). Tri-state: `false` (404) → clean refusal (400 web /
@@ -471,7 +465,7 @@ sequenceDiagram
     other → default direction: date `desc`, approvals `asc` — the least approved first —,
     author `asc`) + local recompute, **0 GitHub call**. Clickable headers rendered by
     `sortableTh` (html.js) **only if `opts.sort` is provided** to `renderFragment` — without it,
-    output strictly unchanged (compat; the terminal doesn't sort). The active column is
+    output strictly unchanged (compat). The active column is
     **discreetly highlighted** (all cells) via a `<colgroup>` emitted by `table()`:
     the index of the `<col class="sorted">` is derived from the **same `headers` array** as the th (no
     hard-coded `nth-child` → cannot desynchronize); CSS `col.sorted` = veil
@@ -481,7 +475,7 @@ sequenceDiagram
     sort). « Your PRs » is never sortable.
 
 16. **Ignored CI jobs (per-repo blocklist).** Some jobs are deliberately of little importance
-    (e.g. `mapado/ticketing` → *Prevent merging with blocking label*, a reminder to run the
+    (e.g. `symfony/ticketing` → *Prevent merging with blocking label*, a reminder to run the
     migrations by hand); the GitHub rollup going `FAILURE` as soon as **one** check fails, they
     drowned the signal of the real job (`continuous-integration/jenkins/branch`). We therefore declare, **per
     repo**, a blocklist in `prefs-v1.json` (`ignoredChecks: { "owner/name": ["check name", …] }`,
@@ -499,17 +493,16 @@ sequenceDiagram
     `ci`, **0 GitHub call** — `row.checks` already in memory; same philosophy as `/hide` §10, `/sort`
     §15). The response is the **re-rendered debug fragment**; the dashboard picks up the CI icons at its
     next `/view` (same `snapshot.data`). ⚠️ `ignoredChecks` is **mutable** in memory (re-toggled
-    by the POST). (b) **Manual**: edit `prefs-v1.json`. ⚠️ Editing by hand while a
-    `--serve`/`--watch` is running would be overwritten at the next POST (`prefs` object rewritten in full, §14) →
-    edit with the app stopped then relaunch. `runWatch`/`runList` (terminal) do **not** offer an
-    interactive toggle: manual editing only. The individual checks come from the
+    by the POST). (b) **Manual**: edit `prefs-v1.json`. ⚠️ Editing by hand while the server
+    is running would be overwritten at the next POST (`prefs` object rewritten in full, §14) →
+    edit with the app stopped then relaunch. The individual checks come from the
     `statusCheckRollup.contexts` (§8, same request).
 
 ## Test conventions
 
 - Pure logic (`filter`, `render` helpers, `state`, `collect`, `ciRollup`, `scope`): fixtures, no
   network. `github.js` tested via a `runner` stub that captures the args passed to `gh`.
-- Entrypoint (`gh-notif`): no unit tests (I/O + loop) → verified by manual smoke test.
+- Entrypoint (`gh-notif`): no unit tests (I/O) → verified by a manual smoke test (launch with
+  `--no-open`, curl `/`, `/fragment`, `/debug`, `/api/state`, then stop the process).
 - Before concluding: `npm test` green **and** `for f in gh-notif src/*.js test/*.js; do node --check "$f"; done`.
-- To verify the real alignment: render the output, strip ANSI/OSC, and confirm that all
-  the rows of the same table have the same `displayWidth`.
+- Every smoke test of the server **MUST pass `--no-open`** (otherwise each launch opens a browser tab).

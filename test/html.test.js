@@ -5,11 +5,11 @@ import { escapeHtml, renderFragment, renderShell, renderLoading, renderDebug, re
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
 
 const myRow = (over = {}) => ({
-  repo: 'mapado/web', number: 120, url: 'https://github.com/mapado/web/pull/120',
+  repo: 'symfony/web', number: 120, url: 'https://github.com/symfony/web/pull/120',
   title: 'fix header', triggers: ['comment'], ci: 'pass', state: 'open', approvals: 0, ...over,
 });
 const otherRow = (over = {}) => ({
-  repo: 'mapado/api', number: 55, url: 'https://github.com/mapado/api/pull/55',
+  repo: 'symfony/api', number: 55, url: 'https://github.com/symfony/api/pull/55',
   title: 'perf: cache', triggers: ['review'], ci: 'pass', author: 'alice',
   createdAt: '2026-06-21T12:00:00Z', additions: 412, deletions: 38, state: 'open', approvals: 2, ...over,
 });
@@ -32,7 +32,7 @@ test('renderFragment: section titles with counters', () => {
 
 test('renderFragment: link to the PR', () => {
   const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW });
-  assert.ok(out.includes('href="https://github.com/mapado/web/pull/120"'));
+  assert.ok(out.includes('href="https://github.com/symfony/web/pull/120"'));
 });
 
 test('renderFragment: dangerous title escaped (no injection)', () => {
@@ -119,7 +119,7 @@ test('renderFragment: links in a new tab (_blank + noopener)', () => {
 test('renderFragment: hide button (✕) on « others » rows, not on mine', () => {
   const out = renderFragment({ mine: [myRow()], others: [otherRow()] }, { now: NOW });
   // an action button targeting the others' PR
-  assert.match(out, /class="act"[^>]*data-key="mapado\/api#55"[^>]*data-act="hide"/);
+  assert.match(out, /class="act"[^>]*data-key="symfony\/api#55"[^>]*data-act="hide"/);
   // the « mine » section (1st section) has no act button
   const mineSection = out.split('👥')[0];
   assert.ok(!mineSection.includes('class="act"'));
@@ -129,16 +129,16 @@ test('renderFragment: showHidden shows hidden rows (greyed out + restore)', () =
   const data = {
     mine: [],
     others: [otherRow()],
-    hidden: [otherRow({ repo: 'mapado/old', number: 9, title: 'old PR' })],
+    hidden: [otherRow({ repo: 'symfony/old', number: 9, title: 'old PR' })],
     hiddenCount: 1,
   };
   const shown = renderFragment(data, { now: NOW, showHidden: true });
   assert.match(shown, /class="hid"/);                       // greyed-out row
-  assert.match(shown, /data-key="mapado\/old#9"[^>]*data-act="show"/); // restore button
+  assert.match(shown, /data-key="symfony\/old#9"[^>]*data-act="show"/); // restore button
   assert.match(shown, /1 hidden/);                          // counter in the title
   // without showHidden: the hidden row does not appear
   const hiddenView = renderFragment(data, { now: NOW, showHidden: false });
-  assert.ok(!hiddenView.includes('mapado/old#9'));
+  assert.ok(!hiddenView.includes('symfony/old#9'));
   assert.match(hiddenView, /1 hidden/); // counter shown even collapsed
 });
 
@@ -279,25 +279,25 @@ test('renderDebug: empty → neutral message', () => {
 
 test('renderDebug: « Checks by repo » section — DISTINCT checks per repo, ignored checked/struck', () => {
   const rows = [
-    { repo: 'mapado/ticketing', number: 60, ci: 'pass', checks: [
+    { repo: 'symfony/ticketing', number: 60, ci: 'pass', checks: [
       { name: 'continuous-integration/jenkins/branch', state: 'pass' },
       { name: 'Check Pull Requests label for merge block', state: 'fail' },
       { name: 'x<script>', state: 'pending' },
     ] },
-    { repo: 'mapado/ticketing', number: 61, ci: 'fail', checks: [
+    { repo: 'symfony/ticketing', number: 61, ci: 'fail', checks: [
       { name: 'continuous-integration/jenkins/branch', state: 'fail' }, // same check, other PR
       { name: 'behat', state: 'fail' },
     ] },
   ];
-  const out = renderDebug([], { rows, ignoredChecks: { 'mapado/ticketing': ['Check Pull Requests label for merge block'] } });
+  const out = renderDebug([], { rows, ignoredChecks: { 'symfony/ticketing': ['Check Pull Requests label for merge block'] } });
   assert.match(out, /Checks by repo/);
-  assert.match(out, /mapado\/ticketing/);
+  assert.match(out, /symfony\/ticketing/);
   // jenkins appears ONLY once despite 2 PRs (distinct checks per repo)
   assert.equal((out.match(/data-name="continuous-integration\/jenkins\/branch"/g) || []).length, 1);
   assert.match(out, /data-name="behat"/); // check from another PR of the same repo
   // the ignored job is checked + struck; the important job is not
   assert.match(out, /<del>Check Pull Requests label for merge block<\/del>/);
-  assert.match(out, /data-repo="mapado\/ticketing"[^>]*data-name="Check Pull Requests label for merge block"[^>]*checked/);
+  assert.match(out, /data-repo="symfony\/ticketing"[^>]*data-name="Check Pull Requests label for merge block"[^>]*checked/);
   assert.ok(!/data-name="continuous-integration\/jenkins\/branch"[^>]*checked/.test(out), 'jenkins not checked');
   // dangerous check name escaped (anti-injection)
   assert.match(out, /x&lt;script&gt;/);
@@ -325,39 +325,39 @@ test('renderDebugShell: standalone page that polls /debug-fragment, back link, n
 // ── Favorites bar (web) ───────────────────────────────────────────────────
 
 test('renderFavorites: active chip marked .on, « ⭐ all » active if no favorite', () => {
-  const list = ['mapado', 'zenstruck'];
-  const active = renderFavorites(list, 'mapado');
-  assert.match(active, /<button data-fav="mapado" class="on">mapado\/\*<\/button>/);
+  const list = ['symfony', 'zenstruck'];
+  const active = renderFavorites(list, 'symfony');
+  assert.match(active, /<button data-fav="symfony" class="on">symfony\/\*<\/button>/);
   assert.doesNotMatch(active, /<button data-fav="" class="on"/); // « all » not active
   const all = renderFavorites(list, null);
   assert.match(all, /<button data-fav="" class="on"/);
-  assert.doesNotMatch(all, /data-fav="mapado" class="on"/);
+  assert.doesNotMatch(all, /data-fav="symfony" class="on"/);
 });
 
 test('renderFavorites: an org shows as « org/* », a repo as-is — data-fav stays raw', () => {
-  const html = renderFavorites(['mapado', 'noctud/collection'], null);
-  assert.match(html, /data-fav="mapado"[^>]*>mapado\/\*</);            // decorated label…
-  assert.match(html, /data-fav-rm="mapado"/);                          // …raw value for the API
+  const html = renderFavorites(['symfony', 'noctud/collection'], null);
+  assert.match(html, /data-fav="symfony"[^>]*>symfony\/\*</);            // decorated label…
+  assert.match(html, /data-fav-rm="symfony"/);                          // …raw value for the API
   assert.match(html, /data-fav="noctud\/collection"[^>]*>noctud\/collection</); // repo unchanged
 });
 
 test('renderFavorites: counters (others’ activity) per chip and on « all »', () => {
-  const counts = { total: 8, byFav: { mapado: 5, zenstruck: 3 } };
-  const html = renderFavorites(['mapado', 'zenstruck'], null, { counts });
+  const counts = { total: 8, byFav: { symfony: 5, zenstruck: 3 } };
+  const html = renderFavorites(['symfony', 'zenstruck'], null, { counts });
   assert.match(html, /⭐ all <span class="fav-n">\(8\)<\/span>/);
-  assert.match(html, /mapado\/\* <span class="fav-n">\(5\)<\/span>/);
+  assert.match(html, /symfony\/\* <span class="fav-n">\(5\)<\/span>/);
   assert.match(html, /zenstruck\/\* <span class="fav-n">\(3\)<\/span>/);
 });
 
 test('renderFavorites: favorite absent from counters → (0); without counts → no badge', () => {
-  const html = renderFavorites(['mapado'], null, { counts: { total: 0, byFav: {} } });
-  assert.match(html, /mapado\/\* <span class="fav-n">\(0\)<\/span>/);
-  assert.doesNotMatch(renderFavorites(['mapado'], null), /fav-n/);
+  const html = renderFavorites(['symfony'], null, { counts: { total: 0, byFav: {} } });
+  assert.match(html, /symfony\/\* <span class="fav-n">\(0\)<\/span>/);
+  assert.doesNotMatch(renderFavorites(['symfony'], null), /fav-n/);
 });
 
 test('renderFavorites: each chip has its removal cross', () => {
-  const html = renderFavorites(['mapado'], null);
-  assert.match(html, /data-fav-rm="mapado"/);
+  const html = renderFavorites(['symfony'], null);
+  assert.match(html, /data-fav-rm="symfony"/);
 });
 
 test('renderFavorites: empty list → empty string (no visual change)', () => {
@@ -366,7 +366,7 @@ test('renderFavorites: empty list → empty string (no visual change)', () => {
 });
 
 test('renderFavorites: ad-hoc mode → greyed-out bar, no active chip', () => {
-  const html = renderFavorites(['mapado'], 'mapado', { adhoc: true });
+  const html = renderFavorites(['symfony'], 'symfony', { adhoc: true });
   assert.match(html, /class="favs adhoc"/);
   assert.doesNotMatch(html, /class="on"/);
 });
@@ -379,9 +379,9 @@ test('renderFavorites escapes the values (anti-injection: user input)', () => {
 });
 
 test('renderShell: integrates the favorites bar and the ⭐ pin button', () => {
-  const html = renderShell({ favorites: ['mapado'], activeFav: 'mapado' });
+  const html = renderShell({ favorites: ['symfony'], activeFav: 'symfony' });
   assert.match(html, /id="favs"/);
-  assert.match(html, /data-fav="mapado" class="on"/);
+  assert.match(html, /data-fav="symfony" class="on"/);
   assert.match(html, /id="scope-fav"/);
 });
 

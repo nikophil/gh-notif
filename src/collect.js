@@ -335,7 +335,7 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
   const hiddenRows = othersAll.filter((r) => isHidden(hidden, keyOf(r)));
 
   // `notifications` = already-classified notification items (with event url),
-  // exposed so that `--watch` detects new things without redoing the work.
+  // exposed so that the poll loop detects new things without redoing the work.
   // `debug` = pipeline verdict per thread (debug mode).
   return { mine, others, hidden: hiddenRows, hiddenCount: hiddenRows.length, hiddenChanged, notifications: items, approvalEvents, debug };
 }
