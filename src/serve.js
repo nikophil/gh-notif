@@ -17,7 +17,7 @@ import {
   favoriteScopes, activeFavoriteOf, filterDataByScope, favoriteCounts, closedPRsUrl,
 } from './favorites.js';
 import { diffApprovals } from './approvals.js';
-import { normalizeSort, toggleSort, sortRows, SORT_KEYS } from './sort.js';
+import { normalizeSort, toggleSort, sortRows, SORT_KEYS, MINE_SORT_KEYS } from './sort.js';
 import { sendNotification } from './notify.js';
 import { isRateLimitError, nextBackoffSeconds } from './ratelimit.js';
 import { startSpinner } from './spinner.js';
@@ -59,14 +59,16 @@ function recompute(data, hidden) {
 // no data yet (1st poll in progress) → spinner; otherwise → the tables.
 // ⚠️ The snapshot contains the data of the UNION of favorites; the active
 // favorite filter is applied HERE, at render time — never at collection (cf. §14).
-function fragmentBody(snapshot, { now, showHidden, viewScope = null, closedUrl = null, sort = null } = {}) {
+function fragmentBody(snapshot, { now, showHidden, viewScope = null, closedUrl = null, sort = null, sortMine = null } = {}) {
   if (snapshot.error) return `<p class="empty offline">⚠️ Error: ${escapeHtml(snapshot.error)}</p>`;
-  if (!snapshot.updatedAt) return renderLoading();
+  if (!snapshot.updatedAt) return renderLoading(viewScope?.value ?? '');
   let data = filterDataByScope(snapshot.data ?? { mine: [], others: [] }, viewScope);
   // Display sort of the « others » table (the hidden ones follow, consistency in
-  // ?hidden=1 mode). `sort` absent → collection order unchanged (compat).
+  // ?hidden=1 mode) and of « Your PRs » (independent state, its own key set).
+  // `sort`/`sortMine` absent → collection order unchanged (compat).
   if (sort) data = { ...data, others: sortRows(data.others, sort), hidden: sortRows(data.hidden, sort) };
-  return renderFragment(data, { now, showHidden, closedUrl, sort });
+  if (sortMine) data = { ...data, mine: sortRows(data.mine, sortMine, MINE_SORT_KEYS) };
+  return renderFragment(data, { now, showHidden, closedUrl, sort, sortMine });
 }
 
 // Scope(s) that the view DISPLAYS, to contextualize the « closed ↗ » link:
@@ -80,7 +82,7 @@ function linkScopes({ scope = null, activeFav = null, favorites = [] } = {}) {
 // Body of the debug fragment (pipeline verdict) — same error/loading handling.
 function debugBody(snapshot, { now, viewScope = null, ignoredChecks = {} } = {}) {
   if (snapshot.error) return `<p class="empty offline">⚠️ Error: ${escapeHtml(snapshot.error)}</p>`;
-  if (!snapshot.updatedAt) return renderLoading();
+  if (!snapshot.updatedAt) return renderLoading(viewScope?.value ?? '');
   const data = filterDataByScope(snapshot.data ?? {}, viewScope);
   // rows = mine + others + hidden → « Checks by PR » section (job names for the blocklist).
   const rows = [...(data.mine ?? []), ...(data.others ?? []), ...(data.hidden ?? [])];
@@ -91,7 +93,7 @@ function debugBody(snapshot, { now, viewScope = null, ignoredChecks = {} } = {})
 export function handleRequest(pathname, snapshot, opts = {}) {
   const {
     now, intervalMs, showHidden, scope, notifyEnabled = true, theme = 'auto',
-    favorites = [], activeFav = null, adhoc = false, sort = null, ignoredChecks = {},
+    favorites = [], activeFav = null, adhoc = false, sort = null, sortMine = null, ignoredChecks = {},
   } = opts;
   // Display filter: the active favorite, except in ad-hoc mode (the entered scope
   // already drives the collection, re-filtering would be redundant).
@@ -104,14 +106,14 @@ export function handleRequest(pathname, snapshot, opts = {}) {
     return { status: 200, type: 'text/html; charset=utf-8', body: renderShell({ intervalMs, scopeLabel: scopeLabel(scope), notifyEnabled, theme, favorites, activeFav, adhoc, counts }) };
   }
   if (pathname === '/fragment') {
-    return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, sort }) };
+    return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, sort, sortMine }) };
   }
   // Unified poll of the client: filtered tables + favorites bar (up-to-date counters)
   // + updatedAt (the client probes until it changes after an add/remove).
   if (pathname === '/view') {
     return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify({
       chips: renderFavorites(favorites, activeFav, { adhoc, counts }),
-      fragment: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, sort }),
+      fragment: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, sort, sortMine }),
       updatedAt: snapshot.updatedAt,
     }) };
   }
@@ -178,6 +180,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   let notifyEnabled = isNotifyEnabled(prefs);
   let theme = themeOf(prefs);
   let sort = normalizeSort(prefs.sort); // sort of the « others » table (persisted)
+  let sortMine = normalizeSort(prefs.sortMine, MINE_SORT_KEYS); // sort of « Your PRs » (persisted, Opened/Updated only)
   // favorites: pinned scopes (persisted). activeFav: the one we are looking at
   // (null = all). collectScope: what we actually request from GitHub.
   let favorites = normalizeFavorites(prefs.favorites);
@@ -271,6 +274,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         viewScope: scope ? null : parseScope(activeFav),
         closedUrl: closedPRsUrl(linkScopes({ scope, activeFav, favorites })),
         sort,
+        sortMine,
       }),
       updatedAt: snapshot.updatedAt,
     });
@@ -350,10 +354,19 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       }
       if (pathname === '/sort') {
         // Sort = pure display state: local recompute, NO GitHub call.
+        // `table=mine` targets the « Your PRs » state (its own key set);
+        // without it, the « others » one (historical behavior).
         const key = url.searchParams.get('key');
-        if (!SORT_KEYS.includes(key)) return send(400, 'text/plain; charset=utf-8', `unknown sort key: ${key ?? ''}`);
-        sort = toggleSort(sort, key);
-        prefs.sort = sort; // ⚠️ mutate + rewrite IN FULL (otherwise notify/theme lost)
+        const mine = url.searchParams.get('table') === 'mine';
+        const keys = mine ? MINE_SORT_KEYS : SORT_KEYS;
+        if (!keys.includes(key)) return send(400, 'text/plain; charset=utf-8', `unknown sort key: ${key ?? ''}`);
+        if (mine) {
+          sortMine = toggleSort(sortMine, key, MINE_SORT_KEYS);
+          prefs.sortMine = sortMine; // ⚠️ mutate + rewrite IN FULL (otherwise notify/theme lost)
+        } else {
+          sort = toggleSort(sort, key);
+          prefs.sort = sort; // ⚠️ mutate + rewrite IN FULL (otherwise notify/theme lost)
+        }
         savePrefs(prefsFile, prefs);
         return send(200, json, currentView(showHidden));
       }
@@ -405,6 +418,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       activeFav,
       adhoc: !!scope,
       sort,
+      sortMine,
       ignoredChecks,
     });
     send(status, type, body);

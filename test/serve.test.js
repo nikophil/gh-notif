@@ -576,6 +576,7 @@ test('POST /sort : sorts, reverses on re-click, persists, 400 on unknown key', a
       number: p.number, title: p.number === 1 ? 'old' : 'recent',
       author: { login: p.number === 1 ? 'zoe' : 'alice' },
       createdAt: p.number === 1 ? '2026-06-01T00:00:00Z' : '2026-06-20T00:00:00Z',
+      updatedAt: p.number === 1 ? '2026-06-02T00:00:00Z' : '2026-06-23T00:00:00Z',
       additions: 0, deletions: 0, isDraft: false, state: 'OPEN', reviews: [], statusCheckRollupState: 'SUCCESS',
     })),
     getComment: async () => null,
@@ -589,9 +590,9 @@ test('POST /sort : sorts, reverses on re-click, persists, 400 on unknown key', a
   const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false });
   try {
     await new Promise((r) => setTimeout(r, 250)); // 1st poll
-    // Default date desc: the recent one (#2) first.
+    // Default updated desc: the last-touched one (#2) first.
     const frag1 = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
-    assert.ok(frag1.indexOf('o/new#2') < frag1.indexOf('o/old#1'), 'default: date desc');
+    assert.ok(frag1.indexOf('o/new#2') < frag1.indexOf('o/old#1'), 'default: updated desc');
 
     // Click « Author » → alice before zoe, and the state is persisted on disk.
     const r1 = await fetch(`http://localhost:${PORT}/sort?key=author`, { method: 'POST' });
@@ -612,8 +613,46 @@ test('POST /sort : sorts, reverses on re-click, persists, 400 on unknown key', a
 
     // POST /sort triggers no GitHub poll (local recompute only).
     assert.equal(polls, 1, 'POST /sort triggers no GitHub poll');
+
+    // table=mine: its own persisted state (prefs.sortMine), the others' one untouched.
+    const m1 = await fetch(`http://localhost:${PORT}/sort?key=date&table=mine`, { method: 'POST' });
+    assert.equal(m1.status, 200);
+    assert.deepEqual(loadPrefs(prefsPath()).sortMine, { key: 'date', dir: 'desc' });
+    assert.deepEqual(loadPrefs(prefsPath()).sort, { key: 'author', dir: 'desc' });
+    // Re-click → reversed direction.
+    await fetch(`http://localhost:${PORT}/sort?key=date&table=mine`, { method: 'POST' });
+    assert.deepEqual(loadPrefs(prefsPath()).sortMine, { key: 'date', dir: 'asc' });
+    // A key outside MINE_SORT_KEYS (valid for others) → 400, preference intact.
+    const badMine = await fetch(`http://localhost:${PORT}/sort?key=author&table=mine`, { method: 'POST' });
+    assert.equal(badMine.status, 400);
+    assert.deepEqual(loadPrefs(prefsPath()).sortMine, { key: 'date', dir: 'asc' });
+    assert.equal(polls, 1, 'POST /sort?table=mine triggers no GitHub poll either');
   } finally {
     server.close();
     rmSync(tmp, { recursive: true, force: true });
   }
+});
+
+test('GET /fragment : opts.sortMine sorts « Your PRs » (independent of opts.sort)', () => {
+  const snap = () => ({
+    data: {
+      mine: [
+        { repo: 'o/m1', number: 11, url: 'u', title: 'stale', createdAt: '2026-06-10T00:00:00Z', updatedAt: '2026-06-11T00:00:00Z', additions: 0, deletions: 0, triggers: [], ci: 'pass', state: 'open', approvals: 0 },
+        { repo: 'o/m2', number: 12, url: 'u', title: 'fresh', createdAt: '2026-06-01T00:00:00Z', updatedAt: '2026-06-22T00:00:00Z', additions: 0, deletions: 0, triggers: [], ci: 'pass', state: 'open', approvals: 0 },
+      ],
+      others: [],
+    },
+    updatedAt: NOW,
+    error: null,
+  });
+  const res = handleRequest('/fragment', snap(), { ...OPTS, sortMine: { key: 'updated', dir: 'desc' } });
+  assert.ok(res.body.indexOf('>fresh<') < res.body.indexOf('>stale<'), 'updated desc: last-touched first');
+  assert.match(res.body, /data-sort-key="updated"[^>]*data-sort-table="mine"[^>]*>Updated ▾/);
+  // By opened date: the older-updated but newer-opened one comes back first.
+  const byDate = handleRequest('/fragment', snap(), { ...OPTS, sortMine: { key: 'date', dir: 'desc' } });
+  assert.ok(byDate.body.indexOf('>stale<') < byDate.body.indexOf('>fresh<'), 'date desc: newest opened first');
+  // Without sortMine: collection order kept, no sortable th on mine.
+  const bare = handleRequest('/fragment', snap(), { ...OPTS });
+  assert.ok(bare.body.indexOf('>stale<') < bare.body.indexOf('>fresh<'));
+  assert.ok(!bare.body.includes('data-sort-table'), 'compat: mine not sortable without opts.sortMine');
 });

@@ -1,29 +1,36 @@
-// Sorting of the « others' PRs » table in --serve. It's a DISPLAY STATE, like
-// the active favorite (cf. ARCHITECTURE.md §14): the data stays raw in memory,
-// sortRows applies at render time. A single active criterion at a time —
-// clicking another column REPLACES the sort (never a cumulation).
+// Sorting of the PR tables in --serve. It's a DISPLAY STATE, like the active
+// favorite (cf. ARCHITECTURE.md §14): the data stays raw in memory, sortRows
+// applies at render time. A single active criterion per table at a time —
+// clicking another column REPLACES the sort (never a cumulation). Each table
+// has its own key set and its own persisted state (`sort` for « others »,
+// `sortMine` for « Your PRs »).
 
-export const SORT_KEYS = ['date', 'approvals', 'author'];
+export const SORT_KEYS = ['date', 'updated', 'approvals', 'author'];
+// « Your PRs »: only the two date columns make sense (author = me).
+export const MINE_SORT_KEYS = ['date', 'updated'];
 
-// Default direction on the first click on a column: date → newest first,
+// Default direction on the first click on a column: dates → newest first,
 // approvals → least approved first (the ones that most need a review), author →
 // alphabetical.
-const DEFAULT_DIR = { date: 'desc', approvals: 'asc', author: 'asc' };
+const DEFAULT_DIR = { date: 'desc', updated: 'desc', approvals: 'asc', author: 'asc' };
 const DIRS = ['asc', 'desc'];
 
-export const DEFAULT_SORT = { key: 'date', dir: 'desc' };
+// `updated` desc: the PRs that moved last come first (valid for BOTH key
+// sets — keep it in MINE_SORT_KEYS).
+export const DEFAULT_SORT = { key: 'updated', dir: 'desc' };
 
 // Validates a sort state coming from prefs-v1.json (old/tampered file → default,
-// modeled on themeOf). Always returns a fresh copy.
-export function normalizeSort(raw) {
-  if (!raw || !SORT_KEYS.includes(raw.key) || !DIRS.includes(raw.dir)) return { ...DEFAULT_SORT };
+// modeled on themeOf). `keys` restricts to the table's key set (MINE_SORT_KEYS
+// for « Your PRs »). Always returns a fresh copy.
+export function normalizeSort(raw, keys = SORT_KEYS) {
+  if (!raw || !keys.includes(raw.key) || !DIRS.includes(raw.dir)) return { ...DEFAULT_SORT };
   return { key: raw.key, dir: raw.dir };
 }
 
 // Click on a header: same column → flip the direction; other column → that
 // column with its default direction.
-export function toggleSort(current, key) {
-  const cur = normalizeSort(current);
+export function toggleSort(current, key, keys = SORT_KEYS) {
+  const cur = normalizeSort(current, keys);
   if (cur.key === key) return { key, dir: cur.dir === 'asc' ? 'desc' : 'asc' };
   return { key, dir: DEFAULT_DIR[key] ?? 'asc' };
 }
@@ -32,13 +39,14 @@ export function toggleSort(current, key) {
 function valueOf(row, key) {
   if (key === 'approvals') return row.approvals ?? null; // 0 is a real value
   if (key === 'author') return row.author ? String(row.author).toLowerCase() : null;
-  return row.createdAt ?? null; // ISO 8601: lexical comparison is enough
+  if (key === 'updated') return row.updatedAt ?? null; // ISO 8601: lexical comparison is enough
+  return row.createdAt ?? null;
 }
 
 // Sorted copy (does not mutate the input). Missing always at the end whatever
 // the direction; equality → arrival order preserved (the native sort is stable).
-export function sortRows(rows, sort) {
-  const { key, dir } = normalizeSort(sort);
+export function sortRows(rows, sort, keys = SORT_KEYS) {
+  const { key, dir } = normalizeSort(sort, keys);
   const mul = dir === 'asc' ? 1 : -1;
   return [...(rows ?? [])].sort((a, b) => {
     const x = valueOf(a, key);

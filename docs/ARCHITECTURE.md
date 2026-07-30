@@ -28,7 +28,7 @@ error).
 | `src/filter.js` | **Core**: `classify()` (filtering rules), `findReplyToMe()`, helpers. Pure functions. | yes |
 | `src/collect.js` | Orchestration: aggregates notifications + PR searches, fetches details, scope. | yes via gh stub |
 | `src/state.js` | Persistence + deduplication of the poll-loop notifications. | yes |
-| `src/prefs.js` | Persisted UI preferences (`notify`, `theme`, `favorites`, `activeFav`, `sort`, `ignoredChecks`, with defaults/validation `isNotifyEnabled`/`themeOf`/`ignoredChecksOf`/`ignoredChecksFor`). Pure + JSON I/O, modeled on `state.js`. | yes |
+| `src/prefs.js` | Persisted UI preferences (`notify`, `theme`, `favorites`, `activeFav`, `sort`, `sortMine`, `ignoredChecks`, with defaults/validation `isNotifyEnabled`/`themeOf`/`ignoredChecksOf`/`ignoredChecksFor`). Pure + JSON I/O, modeled on `state.js`. | yes |
 | `src/favorites.js` | Scope favorites: normalization/add/remove, `parseScope`, `f` key cycle, **`filterDataByScope`** (display filter), `favoriteLabel` (`org/*`) and `favoriteCounts` (badges). Pure. | yes |
 | `src/approvals.js` | Approvals on my PRs: `approvalsOf`, « ready to merge » threshold (`isReady`), event diff/seed (`diffApprovals`). Pure. | yes |
 | `src/notify.js` | Cross-platform desktop notifs (`notifyCommand`: `notify-send` Linux / `osascript` macOS). | yes via spawn stub |
@@ -38,7 +38,7 @@ error).
 | `src/html.js` | **Pure HTML** rendering of the web page (`escapeHtml`, `renderFragment`, `renderShell`, `renderDebug`/`renderDebugShell`). Reuses the helpers of `render.js`. | yes |
 | `src/serve.js` | Local HTTP server (`node:http`) + poll loop: `handleRequest` (pure) + `serve` (I/O). | `handleRequest` yes; `serve` no (I/O) |
 | `src/ratelimit.js` | Rate-limit detection (`isRateLimitError`) + backoff (`nextBackoffSeconds`). Pure. | yes |
-| `src/sort.js` | Sorting of the « others' PRs » table (web): `normalizeSort`, `toggleSort` (click cycle), `sortRows` (sorted copy, missing at the end). Pure. | yes |
+| `src/sort.js` | Sorting of the web tables (« others » AND « Your PRs », each with its own key set): `normalizeSort`, `toggleSort` (click cycle), `sortRows` (sorted copy, missing at the end). Pure. | yes |
 
 Each module has a clear responsibility; the hard logic lives in **pure functions** tested on
 fixtures (no network call in test).
@@ -213,7 +213,7 @@ sequenceDiagram
 
 - **Thread** (`/notifications`): `{ id, reason, updated_at, subject:{title,url,latest_comment_url,type}, repository:{full_name} }`
 - **Item** (output of `classify`): `{ category, actor, url, repo, number, title, threadId, updatedAt }`
-- **Row** (output of `collectPRs`): `{ repo, number, url, title, triggers:[…], author, createdAt, additions, deletions, ci, checks:[{name,state}], statusCheckRollupState, state, approvals, changesRequested }` — `state` ∈ {draft,open,merged,closed} (via `prState`), `approvals` = number of **approvals** (via `countApprovals`: distinct users whose last review is APPROVED — not `reviews.length`), `changesRequested` = number of distinct users whose **last review is CHANGES_REQUESTED** (via `changesRequestedOf`, mirror of `approvalsOf`; zero cost, same GraphQL `reviews`). In the ✅ column, a non-zero `changesRequested` appends the GitHub `file-diff` octicon in red (`--danger`) — shown **even at 0 approvals** (a request-changes with no approval is exactly the signal to surface), tooltip « N change(s) requested ». `checks` = individual CI jobs normalized (`state` ∈ {pass,fail,pending}), consumed by the debug view and the CI recompute (cf. §16). `ci` = aggregated verdict (`ciOf`: `ciFromState` by default; `ciFromChecks` if the repo has a blocklist). `statusCheckRollupState` = raw rollup, kept for the **local recompute** (`recomputeCi`) after a web toggle — allows falling back on `ciFromState` if the repo's blocklist becomes empty again.
+- **Row** (output of `collectPRs`): `{ repo, number, url, title, triggers:[…], author, createdAt, updatedAt, additions, deletions, ci, checks:[{name,state}], statusCheckRollupState, state, approvals, changesRequested }` — `state` ∈ {draft,open,merged,closed} (via `prState`), `approvals` = number of **approvals** (via `countApprovals`: distinct users whose last review is APPROVED — not `reviews.length`), `changesRequested` = number of distinct users whose **last review is CHANGES_REQUESTED** (via `changesRequestedOf`, mirror of `approvalsOf`; zero cost, same GraphQL `reviews`). In the ✅ column, a non-zero `changesRequested` appends the GitHub `file-diff` octicon in red (`--danger`) — shown **even at 0 approvals** (a request-changes with no approval is exactly the signal to surface), tooltip « N change(s) requested ». `checks` = individual CI jobs normalized (`state` ∈ {pass,fail,pending}), consumed by the debug view and the CI recompute (cf. §16). `ci` = aggregated verdict (`ciOf`: `ciFromState` by default; `ciFromChecks` if the repo has a blocklist). `statusCheckRollupState` = raw rollup, kept for the **local recompute** (`recomputeCi`) after a web toggle — allows falling back on `ciFromState` if the repo's blocklist becomes empty again.
 - **scope**: `null` (everything) | `{ type:'org', value }` | `{ type:'repo', value:'owner/name' }` | **array** of these objects (union of favorites, cf. §14)
 
 ## Non-obvious decisions (⚠️ traps)
@@ -455,24 +455,31 @@ sequenceDiagram
     legitimate add on a transient incident. The `gh` stubs without `scopeExists`
     pass (`typeof` guard).
 
-15. **Sorting of « others' PRs » (`--serve`) = display state, like the active favorite.** A single
-    criterion `{key: date|approvals|author, dir}` (never a multi-column cumulation), persisted in
-    `prefs-v1.json` (`sort` key, `null` by default — `normalizeSort` applies `{date, desc}` at
-    usage, no migration). The sort applies in `fragmentBody` (serve.js), AFTER
-    `filterDataByScope` and never at the collection — same critical order as §14 (`data` stays raw:
-    hiding, notifs and favorite counters see no change). The hidden rows
-    (`?hidden=1`) follow the same sort. `POST /sort?key=…` = `toggleSort` (same column → reverse;
-    other → default direction: date `desc`, approvals `asc` — the least approved first —,
-    author `asc`) + local recompute, **0 GitHub call**. Clickable headers rendered by
-    `sortableTh` (html.js) **only if `opts.sort` is provided** to `renderFragment` — without it,
-    output strictly unchanged (compat). The active column is
-    **discreetly highlighted** (all cells) via a `<colgroup>` emitted by `table()`:
-    the index of the `<col class="sorted">` is derived from the **same `headers` array** as the th (no
+15. **Sorting of the tables (`--serve`) = display state, like the active favorite.** ONE
+    criterion per table (never a multi-column cumulation), each with its own persisted state
+    in `prefs-v1.json`: `sort` for « others » (`{key: date|updated|approvals|author, dir}`)
+    and `sortMine` for « Your PRs » (`{key: date|updated, dir}` — `MINE_SORT_KEYS`: author
+    is always me and approvals are of little use there; only the two date columns Opened/Updated
+    are clickable). Both `null` by default — `normalizeSort(raw, keys)` applies
+    **`{updated, desc}`** at usage (the PRs that moved last come first; the shared
+    `DEFAULT_SORT.key` must stay within `MINE_SORT_KEYS`), no migration. The sort applies in
+    `fragmentBody` (serve.js), AFTER `filterDataByScope` and never at the collection — same
+    critical order as §14 (`data` stays raw: hiding, notifs and favorite counters see no
+    change). The hidden rows (`?hidden=1`) follow the « others » sort. `POST /sort?key=…`
+    (+ **`&table=mine`** to target « Your PRs »; the th carries `data-sort-table`, forwarded by
+    the client) = `toggleSort` (same column → reverse; other → default direction: date/updated
+    `desc`, approvals `asc` — the least approved first —, author `asc`) + local recompute,
+    **0 GitHub call**. Clickable headers rendered by `sortableTh` (html.js) **only if
+    `opts.sort` (others) / `opts.sortMine` (mine) is provided** to `renderFragment` — without
+    them, output strictly unchanged (compat). The active column is **discreetly highlighted**
+    (all cells) via a `<colgroup>` emitted by `table()`: the index of the
+    `<col class="sorted">` is derived from the **same `headers` array** as the th (no
     hard-coded `nth-child` → cannot desynchronize); CSS `col.sorted` = veil
     `color-mix(accent 6%)` — the background of a `<col>` is painted **under** that of the rows, so the hover
     and the opacity of the hidden ones stay readable. Missing (`author`/
-    `createdAt` null) at the end of the list whatever the direction; equality → arrival order (stable
-    sort). « Your PRs » is never sortable.
+    `createdAt`/`updatedAt` null) at the end of the list whatever the direction; equality →
+    arrival order (stable sort). `updatedAt` comes from the PR's GraphQL `updatedAt` (same
+    batched request, zero extra cost) and feeds the « Updated » column of BOTH tables.
 
 16. **Ignored CI jobs (per-repo blocklist).** Some jobs are deliberately of little importance
     (e.g. `symfony/ticketing` → *Prevent merging with blocking label*, a reminder to run the

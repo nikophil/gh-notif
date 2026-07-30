@@ -23,11 +23,13 @@ const SORT_ARROW = { asc: ' ▴', desc: ' ▾' };
 
 // Sortable header: data-sort-key (click delegation, cf. renderShell) +
 // indicator if it's the active column. `sort` absent → bare th (compat).
-function sortableTh(html, key, sort) {
+// `table` ('mine') tags the th so the client posts /sort?table=… — the two
+// tables carry independent sort states (cf. §15).
+function sortableTh(html, key, sort, table = null) {
   if (!sort) return html;
   const active = sort.key === key;
   return {
-    attrs: ` data-sort-key="${key}" title="Sort"`,
+    attrs: ` data-sort-key="${key}"${table ? ` data-sort-table="${table}"` : ''} title="Sort"`,
     html: active ? `${html}${SORT_ARROW[sort.dir] ?? ''}` : html,
     active, // current sort column → marked in the colgroup (cf. table)
   };
@@ -124,13 +126,25 @@ function table(headers, rows) {
   return `<table>${colgroup}${head}${body}</table>`;
 }
 
-function mineTable(rows) {
-  const headers = ['Repository', 'PR', 'Title', 'Status', APPROVALS_TH, 'Triggers', 'CI'];
+// Relative-date cell (Opened / Updated), with the full label in the tooltip.
+const dateCell = (label, iso, now) =>
+  titled(`${label} ${relativeDate(iso, now)}`, escapeHtml(relativeDate(iso, now)));
+
+function mineTable(rows, now, sort = null) {
+  const headers = [
+    'Repository', 'PR', 'Title',
+    sortableTh('Opened', 'date', sort, 'mine'),
+    sortableTh('Updated', 'updated', sort, 'mine'),
+    'Diff', 'Status', APPROVALS_TH, 'Triggers', 'CI',
+  ];
   const trs = rows.map((r) =>
     tableRow([
       link(r.url, r.repo),
       link(r.url, `#${r.number}`),
       link(r.url, r.title),
+      dateCell('Opened', r.createdAt, now),
+      dateCell('Updated', r.updatedAt, now),
+      diffCell(r.additions, r.deletions),
       stateCell(r.state),
       approvalsCell(r.approvals, r.state === 'open' && isReady(r.approvals), r.changesRequested),
       triggersCell(r.triggers),
@@ -155,7 +169,8 @@ function otherRow(r, now, hidden) {
       link(r.url, `#${r.number}`),
       link(r.url, r.title),
       r.author ? `@${escapeHtml(r.author)}` : '?',
-      titled('Opened ' + relativeDate(r.createdAt, now), escapeHtml(relativeDate(r.createdAt, now))),
+      dateCell('Opened', r.createdAt, now),
+      dateCell('Updated', r.updatedAt, now),
       diffCell(r.additions, r.deletions),
       stateCell(r.state),
       approvalsCell(r.approvals, false, r.changesRequested),
@@ -172,6 +187,7 @@ function othersTable(others, hiddenRows, now, showHidden, sort = null) {
     'Repository', 'PR', 'Title',
     sortableTh('Author', 'author', sort),
     sortableTh('Opened', 'date', sort),
+    sortableTh('Updated', 'updated', sort),
     'Diff', 'Status',
     sortableTh(APPROVALS_TH, 'approvals', sort),
     'Triggers', 'CI', '',
@@ -190,12 +206,14 @@ function othersTable(others, hiddenRows, now, showHidden, sort = null) {
 // GitHub, contextualized on the view (computed upstream, cf. closedPRsUrl). If it
 // is provided, the « Your PRs » section is rendered even empty (access to history).
 // `sort` (optional) = sort state `{key,dir}` of the « others » table — clickable
-// headers + indicator; absent → bare th (compat).
+// headers + indicator; absent → bare th (compat). `sortMine` (optional) = same
+// for « Your PRs » (Opened/Updated columns only), independent state.
 export function renderFragment(data, opts = {}) {
   const now = opts.now ?? Date.now();
   const showHidden = !!opts.showHidden;
   const closedUrl = opts.closedUrl ?? null;
   const sort = opts.sort ?? null;
+  const sortMine = opts.sortMine ?? null;
   const mine = data?.mine ?? [];
   const others = data?.others ?? [];
   const hiddenRows = data?.hidden ?? [];
@@ -206,7 +224,7 @@ export function renderFragment(data, opts = {}) {
     const hist = closedUrl
       ? ` <a class="hist" href="${escapeHtml(closedUrl)}" target="_blank" rel="noopener">closed ↗</a>`
       : '';
-    blocks.push(`<section><h2>📥 Your open PRs (${mine.length})${hist}</h2>${mine.length > 0 ? mineTable(mine) : ''}</section>`);
+    blocks.push(`<section><h2>📥 Your open PRs (${mine.length})${hist}</h2>${mine.length > 0 ? mineTable(mine, now, sortMine) : ''}</section>`);
   }
   if (others.length > 0 || (showHidden && hiddenCount > 0)) {
     const count =
@@ -223,8 +241,13 @@ export function renderFragment(data, opts = {}) {
 
 // Block shown as long as the server has not yet fetched any data (1st cold
 // poll). The `data-loading` lets the client re-poll quickly until data arrives.
-export function renderLoading() {
-  return '<p class="empty" data-loading="1"><span class="spinner"></span> Loading notifications…</p>';
+export function renderLoading(scopeLabel = '') {
+  // The first collection (union of favorites) can take a few seconds; say so, and
+  // name the scope being loaded so a click on a favorite chip doesn't feel inert.
+  // `scopeLabel` is user-controlled (a favorite value) → escaped.
+  const where = scopeLabel ? ` for ${escapeHtml(scopeLabel)}` : '';
+  return `<p class="empty" data-loading="1"><span class="spinner"></span> Loading pull requests${where}… `
+    + '<span class="loading-hint">(first fetch, this can take a few seconds)</span></p>';
 }
 
 // Complete page served on `/`: HTML shell + inline CSS + JS (no external
@@ -318,6 +341,11 @@ ${FAVICON}
      color code as the theme switcher). The bar takes the full width under
      the header to stay readable up to 10 favorites. */
   #favs { flex-basis: 100%; }
+  /* First fetch in progress: dim the chips and show a wait cursor so a click
+     doesn't feel inert while the snapshot is not ready yet. */
+  #favs.loading { opacity: .5; }
+  #favs.loading button { cursor: progress; }
+  .loading-hint { color: var(--fg-muted); font-weight: 400; }
   .favs { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
   .favs.adhoc { opacity: .45; }
   .chip { display: inline-flex; }
@@ -437,8 +465,11 @@ ${FAVICON}
     left = Math.max(5, Math.min(INTERVAL / 1000, Math.round((t + INTERVAL - Date.now()) / 1000) + 2));
     stamp.classList.remove('offline');
     stamp.textContent = 'upd ' + new Date(t).toLocaleTimeString('en-US');
-    // Server not ready yet (1st poll in progress) → we re-poll quickly.
-    if (content.querySelector('[data-loading]')) left = 1;
+    // Server not ready yet (1st poll in progress) → we re-poll quickly and dim
+    // the favorites bar so a click on a chip doesn't feel inert until data lands.
+    var loading = !!content.querySelector('[data-loading]');
+    favs.classList.toggle('loading', loading);
+    if (loading) left = 1;
   }
   function fail() {
     stamp.classList.add('offline');
@@ -537,9 +568,16 @@ ${FAVICON}
     if (sel) { scopeInput.value = ''; act('/fav', 'value=' + encodeURIComponent(sel.getAttribute('data-fav'))); }
   });
   content.addEventListener('click', function (e) {
-    // Sort: click on a sortable header of the « others » table.
+    // Sort: click on a sortable header. data-sort-table ('mine') targets the
+    // « Your PRs » sort state; without it, the « others » one.
     var th = e.target.closest('th[data-sort-key]');
-    if (th) { act('/sort', 'key=' + encodeURIComponent(th.getAttribute('data-sort-key'))); return; }
+    if (th) {
+      var sq = 'key=' + encodeURIComponent(th.getAttribute('data-sort-key'));
+      var tbl = th.getAttribute('data-sort-table');
+      if (tbl) sq += '&table=' + encodeURIComponent(tbl);
+      act('/sort', sq);
+      return;
+    }
     var btn = e.target.closest('.act');
     if (!btn) return;
     act('/hide', 'key=' + encodeURIComponent(btn.getAttribute('data-key')));

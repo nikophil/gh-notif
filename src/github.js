@@ -16,7 +16,7 @@ function parseJson(stdout) {
 
 // PR fields fetched all at once via GraphQL (cf. getPullDetailsBatch).
 const PR_FRAGMENT = `fragment pr on PullRequest {
-  number title author { login } createdAt additions deletions isDraft state
+  number title author { login } createdAt updatedAt additions deletions isDraft state
   latestOpinionatedReviews(first: 100) { nodes { author { login } state submittedAt } }
   commits(last: 1) { nodes { commit { statusCheckRollup {
     state
@@ -56,6 +56,7 @@ function normalizePull(pr) {
     title: pr.title,
     author: pr.author ? { login: pr.author.login } : null,
     createdAt: pr.createdAt,
+    updatedAt: pr.updatedAt,
     additions: pr.additions,
     deletions: pr.deletions,
     isDraft: pr.isDraft,

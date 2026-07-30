@@ -13,7 +13,7 @@ test('prefsPath respects XDG_STATE_HOME', () => {
 });
 
 test('loadPrefs: missing file → defaults (notify: true, theme: auto)', () => {
-  assert.deepEqual(loadPrefs('/nope/nope/prefs.json'), { notify: true, theme: 'auto', favorites: [], activeFav: null, sort: null, ignoredChecks: {} });
+  assert.deepEqual(loadPrefs('/nope/nope/prefs.json'), { notify: true, theme: 'auto', favorites: [], activeFav: null, sort: null, sortMine: null, ignoredChecks: {} });
 });
 
 test('loadPrefs: corrupted file → defaults', () => {
@@ -22,7 +22,7 @@ test('loadPrefs: corrupted file → defaults', () => {
   savePrefs(p, {}); // writes a valid object…
   rmSync(p, { force: true });
   // …then we re-read a nonexistent path: default applied
-  assert.deepEqual(loadPrefs(p), { notify: true, theme: 'auto', favorites: [], activeFav: null, sort: null, ignoredChecks: {} });
+  assert.deepEqual(loadPrefs(p), { notify: true, theme: 'auto', favorites: [], activeFav: null, sort: null, sortMine: null, ignoredChecks: {} });
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -30,7 +30,7 @@ test('save then load round-trip (notify: false persisted)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ghnotif-'));
   const p = join(dir, 'sub', 'prefs.json');
   savePrefs(p, { notify: false });
-  assert.deepEqual(loadPrefs(p), { notify: false, theme: 'auto', favorites: [], activeFav: null, sort: null, ignoredChecks: {} });
+  assert.deepEqual(loadPrefs(p), { notify: false, theme: 'auto', favorites: [], activeFav: null, sort: null, sortMine: null, ignoredChecks: {} });
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -78,7 +78,7 @@ test('writing favorites loses neither notify nor theme (overwritten-key pitfall)
   prefs.favorites = ['symfony'];
   prefs.activeFav = 'symfony';
   savePrefs(p, prefs);
-  assert.deepEqual(loadPrefs(p), { notify: false, theme: 'dark', favorites: ['symfony'], activeFav: 'symfony', sort: null, ignoredChecks: {} });
+  assert.deepEqual(loadPrefs(p), { notify: false, theme: 'dark', favorites: ['symfony'], activeFav: 'symfony', sort: null, sortMine: null, ignoredChecks: {} });
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -92,7 +92,7 @@ test('loadPrefs: persisted theme kept, notify filled by default', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ghnotif-'));
   const p = join(dir, 'prefs.json');
   savePrefs(p, { theme: 'dark' });
-  assert.deepEqual(loadPrefs(p), { notify: true, theme: 'dark', favorites: [], activeFav: null, sort: null, ignoredChecks: {} });
+  assert.deepEqual(loadPrefs(p), { notify: true, theme: 'dark', favorites: [], activeFav: null, sort: null, sortMine: null, ignoredChecks: {} });
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -108,7 +108,7 @@ test('loadPrefs: sort null by default, persisted as-is without losing the other 
   savePrefs(p, prefs);
   assert.deepEqual(loadPrefs(p), {
     notify: false, theme: 'auto', favorites: [], activeFav: null,
-    sort: { key: 'author', dir: 'asc' }, ignoredChecks: {},
+    sort: { key: 'author', dir: 'asc' }, sortMine: null, ignoredChecks: {},
   });
   rmSync(dir, { recursive: true, force: true });
 });

@@ -6,12 +6,13 @@ const NOW = new Date('2026-06-24T12:00:00Z').getTime();
 
 const myRow = (over = {}) => ({
   repo: 'symfony/web', number: 120, url: 'https://github.com/symfony/web/pull/120',
-  title: 'fix header', triggers: ['comment'], ci: 'pass', state: 'open', approvals: 0, ...over,
+  title: 'fix header', triggers: ['comment'], ci: 'pass', state: 'open', approvals: 0,
+  createdAt: '2026-06-22T12:00:00Z', updatedAt: '2026-06-23T12:00:00Z', additions: 17, deletions: 4, ...over,
 });
 const otherRow = (over = {}) => ({
   repo: 'symfony/api', number: 55, url: 'https://github.com/symfony/api/pull/55',
   title: 'perf: cache', triggers: ['review'], ci: 'pass', author: 'alice',
-  createdAt: '2026-06-21T12:00:00Z', additions: 412, deletions: 38, state: 'open', approvals: 2, ...over,
+  createdAt: '2026-06-21T12:00:00Z', updatedAt: '2026-06-22T00:00:00Z', additions: 412, deletions: 38, state: 'open', approvals: 2, ...over,
 });
 
 test('escapeHtml: escapes & < > " \'', () => {
@@ -128,6 +129,24 @@ test('renderFragment: empty state → « Nothing to report »', () => {
   assert.match(out, /Nothing to report/);
 });
 
+test('renderFragment: « mine » table shows Opened, Updated and Diff like the others table', () => {
+  const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW });
+  const mineSection = out.split('👥')[0];
+  assert.match(mineSection, /<th>Opened<\/th>/);
+  assert.match(mineSection, /<th>Updated<\/th>/);
+  assert.match(mineSection, /<th>Diff<\/th>/);
+  assert.match(mineSection, /Opened 2d ago/);        // tooltip on the relative date
+  assert.match(mineSection, /Updated 1d ago/);       // idem for the last update
+  assert.ok(mineSection.includes('<span class="add">+17</span>'));
+  assert.ok(mineSection.includes('<span class="del">−4</span>'));
+});
+
+test('renderFragment: « others » table shows Updated too', () => {
+  const out = renderFragment({ mine: [], others: [otherRow()] }, { now: NOW });
+  assert.match(out, /<th>Updated<\/th>/);
+  assert.match(out, /Updated 2d ago/);
+});
+
 test('renderFragment: only « mine » (others empty) doesn’t show the others section', () => {
   const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW });
   assert.match(out, /Your open PRs/);
@@ -213,6 +232,14 @@ test('renderLoading: spinner + label + data-loading sentinel', () => {
   assert.match(out, /class="spinner"/);
   assert.match(out, /Loading/);
   assert.match(out, /data-loading/);
+  // Generic message hints that the first fetch takes a moment.
+  assert.match(out, /first fetch/i);
+});
+
+test('renderLoading: contextual scope label (and escapes it)', () => {
+  assert.match(renderLoading('noctud'), /Loading pull requests for noctud/);
+  // A favorite value is user-controlled → escaped like everywhere else.
+  assert.match(renderLoading('a&b'), /a&amp;b/);
 });
 
 test('renderShell: 🐛 link to /debug in the header', () => {
@@ -454,6 +481,7 @@ test('renderFragment with opts.sort: clickable th + indicator on the active colu
   const html = renderFragment(data, { now: Date.parse('2026-07-23T00:00:00Z'), sort: { key: 'date', dir: 'desc' } });
   assert.match(html, /<th[^>]*data-sort-key="author"[^>]*>Author<\/th>/);
   assert.match(html, /<th[^>]*data-sort-key="date"[^>]*>Opened ▾<\/th>/); // active column + direction
+  assert.match(html, /<th[^>]*data-sort-key="updated"[^>]*>Updated<\/th>/);
   assert.match(html, /<th[^>]*data-sort-key="approvals"/);
   // asc → ▴
   const asc = renderFragment(data, { now: Date.parse('2026-07-23T00:00:00Z'), sort: { key: 'author', dir: 'asc' } });
@@ -469,12 +497,18 @@ test('renderFragment without opts.sort: unchanged output (no data-sort-key)', ()
   assert.ok(!html.includes('data-sort-key'), 'compat: no sortable th without opts.sort');
 });
 
-test('the « Your PRs » table never has a sortable header', () => {
+test('« Your PRs » is sortable only via opts.sortMine (opts.sort alone does not touch it)', () => {
   const data = { mine: [
     { repo: 'o/r', number: 1, url: 'u', title: 't', triggers: [], ci: 'pass', state: 'open', approvals: 0 },
   ], others: [] };
+  // opts.sort targets « others » only: without sortMine, mine stays bare.
   const html = renderFragment(data, { now: 0, sort: { key: 'date', dir: 'desc' } });
-  assert.ok(!html.includes('data-sort-key'), 'mine: no sort');
+  assert.ok(!html.includes('data-sort-key'), 'mine: no sort without sortMine');
+  // With sortMine: Opened/Updated clickable, tagged data-sort-table="mine".
+  const sorted = renderFragment(data, { now: 0, sortMine: { key: 'updated', dir: 'desc' } });
+  assert.match(sorted, /<th[^>]*data-sort-key="date"[^>]*data-sort-table="mine"[^>]*>Opened<\/th>/);
+  assert.match(sorted, /<th[^>]*data-sort-key="updated"[^>]*data-sort-table="mine"[^>]*>Updated ▾<\/th>/);
+  assert.ok(!sorted.includes('data-sort-key="author"'), 'mine: only the two date columns are sortable');
 });
 
 test('renderShell: the JS handles the click on th[data-sort-key] → POST /sort', () => {
@@ -504,7 +538,7 @@ test('active sort: the colgroup marks the active th column (derived position, no
   const data = { mine: [], others: [
     { repo: 'o/r', number: 1, url: 'u', title: 't', author: 'alice', createdAt: '2026-07-20T00:00:00Z', additions: 0, deletions: 0, triggers: ['review'], ci: 'pass', state: 'open', approvals: 0 },
   ] };
-  for (const key of ['author', 'date', 'approvals']) {
+  for (const key of ['author', 'date', 'updated', 'approvals']) {
     const html = renderFragment(data, { now: Date.parse('2026-07-23T00:00:00Z'), sort: { key, dir: 'asc' } });
     const col = sortedColIndex(html);
     assert.ok(col > 0, `colgroup present and marked for ${key}`);
@@ -521,11 +555,17 @@ test('without opts.sort: no colgroup (unchanged output)', () => {
   assert.ok(!renderFragment(data, { now: 0 }).includes('<colgroup>'));
 });
 
-test('the « Your PRs » table never has a colgroup, even with active sort', () => {
+test('« Your PRs »: no colgroup without sortMine; with it, aligned on the active th', () => {
   const data = { mine: [
     { repo: 'o/r', number: 1, url: 'u', title: 't', triggers: [], ci: 'pass', state: 'open', approvals: 0 },
   ], others: [] };
   assert.ok(!renderFragment(data, { now: 0, sort: { key: 'date', dir: 'desc' } }).includes('<colgroup>'));
+  for (const key of ['date', 'updated']) {
+    const html = renderFragment(data, { now: 0, sortMine: { key, dir: 'desc' } });
+    const col = sortedColIndex(html);
+    assert.ok(col > 0, `colgroup present and marked for mine/${key}`);
+    assert.equal(col, thIndex(html, key), `col.sorted aligned with th ${key}`);
+  }
 });
 
 test('renderShell: col.sorted style present (discreet veil on the sorted column)', () => {

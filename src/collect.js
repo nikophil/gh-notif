@@ -302,6 +302,7 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
       triggers: [...e.triggers],
       author: d?.author?.login ?? null,
       createdAt: d?.createdAt ?? null,
+      updatedAt: d?.updatedAt ?? null,
       additions: d?.additions ?? 0,
       deletions: d?.deletions ?? 0,
       ci: ciOf(d, ignoredForRepo), // recompute if the repo has a blocklist, otherwise GitHub rollup
