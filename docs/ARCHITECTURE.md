@@ -164,6 +164,15 @@ real poll), never the display time — otherwise a reload would claim an update 
 (real bug). The « next check » counter is aligned on the **estimated next server poll**
 (`updatedAt + INTERVAL`, clamped ≥ 5 s), not reset to full on each injection.
 
+**A restart must show the restored view, not a stale browser copy (real bug).** The server
+restores `activeFav` from prefs at startup, but the browser could still show a long-gone
+ad-hoc state (old scope pre-filled in the filter field, greyed chips): the responses carried
+no `Cache-Control` (heuristic caching could resurrect a `/` shell captured in ad-hoc mode),
+and browsers restore user-typed form values on reload/session restore. Two guards: **every**
+HTTP response carries `Cache-Control: no-store` (in `send`, serve.js), and the client forces
+`scopeInput.value = scopeInput.defaultValue` at boot (`defaultValue` IS the server-rendered
+`value=""` attribute) with `autocomplete="off"` on the field.
+
 The HTML rendering (`src/html.js`) **reuses** the presentation helpers of `render.js`
 (`ciIcon`, `stateIcon`, `relativeDate`, `checksByRepo`): the display logic stays shared, only the
 HTML formatting lives in html.js. The browser

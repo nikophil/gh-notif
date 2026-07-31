@@ -247,6 +247,16 @@ test('renderShell: 🐛 link to /debug in the header', () => {
   assert.match(out, /href="\/debug"/);
 });
 
+test('renderShell: the scope input cannot be resurrected by browser form restore', () => {
+  const out = renderShell({ intervalMs: 10000 });
+  // Browsers restore user-typed values on reload/session restore: a long-gone
+  // ad-hoc scope would reappear after a server restart. autocomplete="off"
+  // disables it (Firefox), and the boot script forces the server-rendered value
+  // back (defaultValue = the value="" attribute).
+  assert.match(out, /id="scope"[^>]*autocomplete="off"/);
+  assert.ok(out.includes('scopeInput.value = scopeInput.defaultValue'), 'boot resync to the server state');
+});
+
 test('renderShell: 📬 link to the real GitHub notifications page', () => {
   const out = renderShell({ intervalMs: 10000 });
   assert.match(out, /href="https:\/\/github\.com\/notifications"/);

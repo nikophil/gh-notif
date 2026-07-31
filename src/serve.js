@@ -285,7 +285,10 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
     const url = new URL(req.url, 'http://localhost');
     const pathname = url.pathname;
     const showHidden = url.searchParams.get('hidden') === '1';
-    const send = (status, type, body) => { res.writeHead(status, { 'content-type': type }); res.end(body); };
+    // no-store: without it the browser may serve a cached copy of `/` captured in a
+    // past state (e.g. ad-hoc scope) after a server restart, instead of the
+    // restored view (activeFav) — the page must always reflect the live server.
+    const send = (status, type, body) => { res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store' }); res.end(body); };
 
     if (req.method === 'POST') {
       if (pathname === '/refresh') {

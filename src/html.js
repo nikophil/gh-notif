@@ -411,7 +411,7 @@ ${FAVICON}
   <span class="spacer"></span>
   <div class="group" role="group" aria-label="Displayed data">
     <span class="input-group">
-      <input id="scope" placeholder="org or owner/repo" value="${escapeHtml(scopeLabel)}">
+      <input id="scope" placeholder="org or owner/repo" autocomplete="off" value="${escapeHtml(scopeLabel)}">
       <button id="scope-apply" title="Filter on this scope">Filter</button>
       <button id="scope-fav" title="Pin this scope to favorites">⭐</button>
       <button id="scope-all" title="Show all">All</button>
@@ -440,6 +440,10 @@ ${FAVICON}
   var content = document.getElementById('content');
   var stamp = document.getElementById('stamp');
   var scopeInput = document.getElementById('scope');
+  // Browsers restore user-typed form values on reload/session restore, which can
+  // resurrect a long-gone ad-hoc scope after a server restart. defaultValue IS the
+  // server-rendered state (the value="" attribute) → force it back on boot.
+  scopeInput.value = scopeInput.defaultValue;
   var favs = document.getElementById('favs');
   var toggleBtn = document.getElementById('toggle-hidden');
   var showHidden = false;

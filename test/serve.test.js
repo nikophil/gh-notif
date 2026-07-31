@@ -168,6 +168,40 @@ test('POST /hide hides one of the others\' PRs then restores it', async () => {
   }
 });
 
+// ── integration: every response forbids browser caching ─────────────────────
+test('all HTTP responses carry Cache-Control: no-store', async () => {
+  const gh = {
+    getCurrentUser: async () => 'me',
+    listNotifications: async () => [],
+    searchReviewRequested: async () => [],
+    searchAuthored: async () => [],
+    getPullDetailsBatch: async () => [],
+    getComment: async () => null,
+    getReviewComments: async () => [],
+  };
+  const tmp = `/tmp/gh-notif-test-cache-${process.pid}`;
+  rmSync(tmp, { recursive: true, force: true });
+  process.env.XDG_STATE_HOME = tmp;
+
+  const PORT = 7798;
+  const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false });
+  try {
+    await new Promise((r) => setTimeout(r, 150));
+    // Without no-store, the browser may resurrect a `/` shell cached in a past
+    // state (e.g. ad-hoc scope) after a server restart, instead of the restored
+    // view (activeFav) — real bug.
+    for (const path of ['/', '/view', '/fragment']) {
+      const res = await fetch(`http://localhost:${PORT}${path}`);
+      assert.equal(res.headers.get('cache-control'), 'no-store', `GET ${path}`);
+    }
+    const post = await fetch(`http://localhost:${PORT}/refresh`, { method: 'POST' });
+    assert.equal(post.headers.get('cache-control'), 'no-store', 'POST /refresh');
+  } finally {
+    server.close();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 // ── integration: POST /notify (de)activates the notifs + persists the preference ─
 test('POST /notify persists the preference and is reflected in the page', async () => {
   const gh = {
