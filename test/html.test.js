@@ -500,6 +500,7 @@ test('renderFragment with opts.sort: clickable th + indicator on the active colu
   assert.match(html, /<th[^>]*data-sort-key="date"[^>]*>Opened ▾<\/th>/); // active column + direction
   assert.match(html, /<th[^>]*data-sort-key="updated"[^>]*>Updated<\/th>/);
   assert.match(html, /<th[^>]*data-sort-key="approvals"/);
+  assert.match(html, /<th[^>]*data-sort-key="diff"[^>]*>Diff<\/th>/);
   // asc → ▴
   const asc = renderFragment(data, { now: Date.parse('2026-07-23T00:00:00Z'), sort: { key: 'author', dir: 'asc' } });
   assert.match(asc, /<th[^>]*data-sort-key="author"[^>]*>Author ▴<\/th>/);
@@ -521,11 +522,12 @@ test('« Your PRs » is sortable only via opts.sortMine (opts.sort alone does no
   // opts.sort targets « others » only: without sortMine, mine stays bare.
   const html = renderFragment(data, { now: 0, sort: { key: 'date', dir: 'desc' } });
   assert.ok(!html.includes('data-sort-key'), 'mine: no sort without sortMine');
-  // With sortMine: Opened/Updated clickable, tagged data-sort-table="mine".
+  // With sortMine: Opened/Updated/Diff clickable, tagged data-sort-table="mine".
   const sorted = renderFragment(data, { now: 0, sortMine: { key: 'updated', dir: 'desc' } });
   assert.match(sorted, /<th[^>]*data-sort-key="date"[^>]*data-sort-table="mine"[^>]*>Opened<\/th>/);
   assert.match(sorted, /<th[^>]*data-sort-key="updated"[^>]*data-sort-table="mine"[^>]*>Updated ▾<\/th>/);
-  assert.ok(!sorted.includes('data-sort-key="author"'), 'mine: only the two date columns are sortable');
+  assert.match(sorted, /<th[^>]*data-sort-key="diff"[^>]*data-sort-table="mine"[^>]*>Diff<\/th>/);
+  assert.ok(!sorted.includes('data-sort-key="author"'), 'mine: author is never sortable (always me)');
 });
 
 test('renderShell: the JS handles the click on th[data-sort-key] → POST /sort', () => {

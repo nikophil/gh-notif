@@ -18,11 +18,11 @@ test('normalizeSort: valid passes, invalid/absent → default', () => {
   assert.deepEqual(normalizeSort({ key: 'nope', dir: 'asc' }), DEFAULT_SORT);
   assert.deepEqual(normalizeSort({ key: 'date', dir: 'sideways' }), DEFAULT_SORT);
   assert.deepEqual(DEFAULT_SORT, { key: 'updated', dir: 'desc' });
-  assert.deepEqual(SORT_KEYS, ['date', 'updated', 'approvals', 'author']);
+  assert.deepEqual(SORT_KEYS, ['date', 'updated', 'approvals', 'author', 'diff']);
 });
 
-test('normalizeSort with MINE_SORT_KEYS: only date/updated valid, the rest → default', () => {
-  assert.deepEqual(MINE_SORT_KEYS, ['date', 'updated']);
+test('normalizeSort with MINE_SORT_KEYS: only date/updated/diff valid, the rest → default', () => {
+  assert.deepEqual(MINE_SORT_KEYS, ['date', 'updated', 'diff']);
   assert.ok(MINE_SORT_KEYS.includes(DEFAULT_SORT.key), 'the shared default must stay valid for mine');
   assert.deepEqual(normalizeSort({ key: 'date', dir: 'asc' }, MINE_SORT_KEYS), { key: 'date', dir: 'asc' });
   assert.deepEqual(normalizeSort({ key: 'author', dir: 'asc' }, MINE_SORT_KEYS), DEFAULT_SORT);
@@ -41,10 +41,12 @@ test('toggleSort: same column → flip the direction', () => {
 });
 
 test('toggleSort: other column → REPLACES, with the column default direction', () => {
-  // date → newest first; approvals → least approved first; author → A→Z
+  // date → newest first; approvals → least approved first; author → A→Z;
+  // diff → smallest first (the quick reviews)
   assert.deepEqual(toggleSort({ key: 'date', dir: 'asc' }, 'approvals'), { key: 'approvals', dir: 'asc' });
   assert.deepEqual(toggleSort({ key: 'approvals', dir: 'desc' }, 'author'), { key: 'author', dir: 'asc' });
   assert.deepEqual(toggleSort({ key: 'author', dir: 'desc' }, 'date'), { key: 'date', dir: 'desc' });
+  assert.deepEqual(toggleSort({ key: 'date', dir: 'asc' }, 'diff'), { key: 'diff', dir: 'asc' });
 });
 
 test('sortRows: date desc → newest opened first; asc → reverse', () => {
@@ -60,6 +62,34 @@ test('sortRows: updated desc (default) → last-touched first; asc → reverse',
 test('sortRows: approvals asc → least approved first', () => {
   assert.deepEqual(order(sortRows(rows(), { key: 'approvals', dir: 'asc' })), [2, 3, 1]);
   assert.deepEqual(order(sortRows(rows(), { key: 'approvals', dir: 'desc' })), [1, 3, 2]);
+});
+
+test('sortRows: diff = additions + deletions (asc → smallest first)', () => {
+  const withDiff = [
+    { number: 1, additions: 100, deletions: 50 },  // 150
+    { number: 2, additions: 0, deletions: 0 },     // 0: a real value, not missing
+    { number: 3, additions: 3, deletions: 40 },    // 43
+  ];
+  assert.deepEqual(order(sortRows(withDiff, { key: 'diff', dir: 'asc' })), [2, 3, 1]);
+  assert.deepEqual(order(sortRows(withDiff, { key: 'diff', dir: 'desc' })), [1, 3, 2]);
+});
+
+test('sortRows: diff missing (both counters absent) at the END whatever the direction', () => {
+  const withNulls = [
+    { number: 1 },                                  // no additions/deletions → missing
+    { number: 2, additions: 10, deletions: 0 },
+    { number: 3, additions: 0, deletions: 5 },      // a lone counter counts as 0
+  ];
+  assert.deepEqual(order(sortRows(withNulls, { key: 'diff', dir: 'asc' })), [3, 2, 1]);
+  assert.deepEqual(order(sortRows(withNulls, { key: 'diff', dir: 'desc' })), [2, 3, 1]);
+});
+
+test('sortRows: diff valid with MINE_SORT_KEYS too', () => {
+  const withDiff = [
+    { number: 1, additions: 9, deletions: 9 },
+    { number: 2, additions: 1, deletions: 0 },
+  ];
+  assert.deepEqual(order(sortRows(withDiff, { key: 'diff', dir: 'asc' }, MINE_SORT_KEYS)), [2, 1]);
 });
 
 test('sortRows: author case-insensitive (Alice < bob < zoe)', () => {

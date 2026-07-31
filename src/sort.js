@@ -5,14 +5,15 @@
 // has its own key set and its own persisted state (`sort` for « others »,
 // `sortMine` for « Your PRs »).
 
-export const SORT_KEYS = ['date', 'updated', 'approvals', 'author'];
-// « Your PRs »: only the two date columns make sense (author = me).
-export const MINE_SORT_KEYS = ['date', 'updated'];
+export const SORT_KEYS = ['date', 'updated', 'approvals', 'author', 'diff'];
+// « Your PRs »: the two date columns + the diff size (author = me, approvals of
+// little use there).
+export const MINE_SORT_KEYS = ['date', 'updated', 'diff'];
 
 // Default direction on the first click on a column: dates → newest first,
 // approvals → least approved first (the ones that most need a review), author →
-// alphabetical.
-const DEFAULT_DIR = { date: 'desc', updated: 'desc', approvals: 'asc', author: 'asc' };
+// alphabetical, diff → smallest first (the quick reviews).
+const DEFAULT_DIR = { date: 'desc', updated: 'desc', approvals: 'asc', author: 'asc', diff: 'asc' };
 const DIRS = ['asc', 'desc'];
 
 // `updated` desc: the PRs that moved last come first (valid for BOTH key
@@ -40,6 +41,12 @@ function valueOf(row, key) {
   if (key === 'approvals') return row.approvals ?? null; // 0 is a real value
   if (key === 'author') return row.author ? String(row.author).toLowerCase() : null;
   if (key === 'updated') return row.updatedAt ?? null; // ISO 8601: lexical comparison is enough
+  if (key === 'diff') {
+    // Size = additions + deletions (the two cells of the Diff column). Both
+    // absent → missing; a lone 0 is a real value (empty diff).
+    if (row.additions == null && row.deletions == null) return null;
+    return (row.additions ?? 0) + (row.deletions ?? 0);
+  }
   return row.createdAt ?? null;
 }
 

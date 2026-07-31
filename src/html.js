@@ -135,7 +135,8 @@ function mineTable(rows, now, sort = null) {
     'Repository', 'PR', 'Title',
     sortableTh('Opened', 'date', sort, 'mine'),
     sortableTh('Updated', 'updated', sort, 'mine'),
-    'Diff', 'Status', APPROVALS_TH, 'Triggers', 'CI',
+    sortableTh('Diff', 'diff', sort, 'mine'),
+    'Status', APPROVALS_TH, 'Triggers', 'CI',
   ];
   const trs = rows.map((r) =>
     tableRow([
@@ -188,7 +189,8 @@ function othersTable(others, hiddenRows, now, showHidden, sort = null) {
     sortableTh('Author', 'author', sort),
     sortableTh('Opened', 'date', sort),
     sortableTh('Updated', 'updated', sort),
-    'Diff', 'Status',
+    sortableTh('Diff', 'diff', sort),
+    'Status',
     sortableTh(APPROVALS_TH, 'approvals', sort),
     'Triggers', 'CI', '',
   ];

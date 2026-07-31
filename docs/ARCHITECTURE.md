@@ -466,10 +466,11 @@ sequenceDiagram
 
 15. **Sorting of the tables (`--serve`) = display state, like the active favorite.** ONE
     criterion per table (never a multi-column cumulation), each with its own persisted state
-    in `prefs-v1.json`: `sort` for « others » (`{key: date|updated|approvals|author, dir}`)
-    and `sortMine` for « Your PRs » (`{key: date|updated, dir}` — `MINE_SORT_KEYS`: author
-    is always me and approvals are of little use there; only the two date columns Opened/Updated
-    are clickable). Both `null` by default — `normalizeSort(raw, keys)` applies
+    in `prefs-v1.json`: `sort` for « others » (`{key: date|updated|approvals|author|diff, dir}`)
+    and `sortMine` for « Your PRs » (`{key: date|updated|diff, dir}` — `MINE_SORT_KEYS`: author
+    is always me and approvals are of little use there; the Opened/Updated/Diff columns
+    are clickable). `diff` sorts on the size `additions + deletions` (both counters
+    absent → missing, at the end; a lone 0 is a real value). Both `null` by default — `normalizeSort(raw, keys)` applies
     **`{updated, desc}`** at usage (the PRs that moved last come first; the shared
     `DEFAULT_SORT.key` must stay within `MINE_SORT_KEYS`), no migration. The sort applies in
     `fragmentBody` (serve.js), AFTER `filterDataByScope` and never at the collection — same
@@ -477,7 +478,8 @@ sequenceDiagram
     change). The hidden rows (`?hidden=1`) follow the « others » sort. `POST /sort?key=…`
     (+ **`&table=mine`** to target « Your PRs »; the th carries `data-sort-table`, forwarded by
     the client) = `toggleSort` (same column → reverse; other → default direction: date/updated
-    `desc`, approvals `asc` — the least approved first —, author `asc`) + local recompute,
+    `desc`, approvals `asc` — the least approved first —, author `asc`, diff `asc` — the
+    quick reviews first) + local recompute,
     **0 GitHub call**. Clickable headers rendered by `sortableTh` (html.js) **only if
     `opts.sort` (others) / `opts.sortMine` (mine) is provided** to `renderFragment` — without
     them, output strictly unchanged (compat). The active column is **discreetly highlighted**
