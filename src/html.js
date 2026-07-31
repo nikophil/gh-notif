@@ -428,6 +428,7 @@ ${FAVICON}
       <button type="button" data-theme-val="light"${theme === 'light' ? ' class="on"' : ''} title="Theme: light">☀️ light</button>
       <button type="button" data-theme-val="dark"${theme === 'dark' ? ' class="on"' : ''} title="Theme: dark">🌙 dark</button>
     </span>
+    <a id="github-link" href="https://github.com/notifications" target="_blank" rel="noopener" title="Open GitHub notifications">📬</a>
     <a id="debug-link" href="/debug" title="Debug: pipeline verdict">🐛</a>
   </div>
   <div id="fav-err" class="fav-err"></div>

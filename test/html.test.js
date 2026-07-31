@@ -247,6 +247,13 @@ test('renderShell: 🐛 link to /debug in the header', () => {
   assert.match(out, /href="\/debug"/);
 });
 
+test('renderShell: 📬 link to the real GitHub notifications page', () => {
+  const out = renderShell({ intervalMs: 10000 });
+  assert.match(out, /href="https:\/\/github\.com\/notifications"/);
+  // External link → new tab + noopener, like every GitHub link on the page.
+  assert.match(out, /id="github-link"[^>]*target="_blank"[^>]*rel="noopener"/);
+});
+
 test('renderShell: desktop notifs checkbox checked when enabled', () => {
   const out = renderShell({ intervalMs: 10000, notifyEnabled: true });
   assert.match(out, /id="notify"/);
