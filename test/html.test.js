@@ -442,13 +442,24 @@ test('renderFragment: CI pending → popover too (running checks clickable)', ()
   assert.match(out, /href="https:\/\/github\.com\/symfony\/api\/runs\/9" target="_blank" rel="noopener">build</);
 });
 
-test('renderFragment: CI pass/none or no checks → icon not clickable (no popover)', () => {
-  const pass = renderFragment({ mine: [myRow({ ci: 'pass', checks: failChecks })], others: [] }, { now: NOW });
-  assert.ok(!pass.includes('ci-btn'), 'pass → plain icon');
+test('renderFragment: CI pass → popover too (all runs reachable from the green check)', () => {
+  const checks = [
+    { name: 'phpstan', state: 'pass', url: 'https://github.com/symfony/web/runs/3' },
+    { name: 'mago', state: 'pass', url: null },
+  ];
+  const out = renderFragment({ mine: [myRow({ ci: 'pass', checks })], others: [] }, { now: NOW });
+  assert.match(out, /button class="ci-btn"/);
+  assert.match(out, /2 successful checks/);
+  assert.match(out, /href="https:\/\/github\.com\/symfony\/web\/runs\/3" target="_blank" rel="noopener">phpstan</);
+});
+
+test('renderFragment: no check detail → icon not clickable (no popover)', () => {
   const none = renderFragment({ mine: [myRow({ ci: 'none', checks: [] })], others: [] }, { now: NOW });
   assert.ok(!none.includes('ci-btn'), 'none → plain icon');
   const noChecks = renderFragment({ mine: [myRow({ ci: 'fail', checks: [] })], others: [] }, { now: NOW });
   assert.ok(!noChecks.includes('ci-btn'), 'fail without check detail → plain icon');
+  const noField = renderFragment({ mine: [myRow({ ci: 'pass' })], others: [] }, { now: NOW });
+  assert.ok(!noField.includes('ci-btn'), 'row without checks field (compat) → plain icon');
 });
 
 test('renderFragment: ignored checks (repo blocklist) struck/greyed in the popover', () => {

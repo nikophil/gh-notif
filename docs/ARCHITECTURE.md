@@ -516,11 +516,12 @@ sequenceDiagram
     edit with the app stopped then relaunch. The individual checks come from the
     `statusCheckRollup.contexts` (§8, same request).
 
-17. **CI checks popover (web).** When a PR's CI is `fail` or `pending` AND its `row.checks` are
-    known, the ✗/🟡 icon of the CI column becomes a button opening a GitHub-like popover: the
-    checks grouped « N failing checks » → « N pending check(s) » → « N successful checks », each
-    line with its state octicon and a link to the run (`target=_blank`; plain text if the run has
-    no URL). `pass`/`none` (or no check detail) keep the plain icon — nothing actionable. The run
+17. **CI checks popover (web).** As soon as a PR's `row.checks` are known, the icon of the CI
+    column (✗/🟡/✅ alike — green included, to reach any run's page) becomes a button opening a
+    GitHub-like popover: the checks grouped « N failing checks » → « N pending check(s) » → « N
+    successful checks », each line with its state octicon and a link to the run (`target=_blank`;
+    plain text if the run has no URL). Without check detail (`none`, or a row predating the
+    feature) the plain icon stays — nothing to show. The run
     URLs (`detailsUrl`/`targetUrl`) come from the SAME GraphQL batch (§8, zero extra cost),
     normalized into `checks[].url` by `normalizeContext`. ⚠️ The popover is rendered inline
     (hidden) by `html.js` but positioned **`position:fixed`** by the client: the sections clip

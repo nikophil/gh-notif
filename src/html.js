@@ -122,15 +122,15 @@ function ciPopover(checks, blocked) {
   return `<div class="ci-pop" hidden>${groups.join('')}</div>`;
 }
 
-// CI cell: plain icon (tooltip) — but when the CI is failing or running AND the
-// individual checks are known, the icon becomes a button opening the checks
-// popover (which runs failed / are still running, with links). pass/none stay
-// non-clickable: nothing actionable to show.
+// CI cell: plain icon (tooltip) — but as soon as the individual checks are
+// known, the icon becomes a button opening the checks popover (every run with
+// its link, whatever the verdict — green included). Without check detail
+// (none, or older snapshot), nothing to show → plain icon.
 const ciCell = (r, ignoredChecks = {}) => {
   const ci = r?.ci;
   const checks = r?.checks ?? [];
   const label = CI_LABEL[ci] || 'CI: none';
-  if ((ci !== 'fail' && ci !== 'pending') || checks.length === 0) return titled(label, ciIcon(ci));
+  if (checks.length === 0) return titled(label, ciIcon(ci));
   const blocked = new Set((ignoredChecks?.[r.repo] ?? []).map((n) => String(n).trim()));
   return `<span class="ci-wrap"><button class="ci-btn" title="${escapeHtml(label)} — show checks">${ciIcon(ci)}</button>${ciPopover(checks, blocked)}</span>`;
 };
