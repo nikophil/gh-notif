@@ -15,8 +15,12 @@ const TRIGGER_META = [
   ['reply', '↩️', 'Reply to your thread'],
   ['comment', '🗨️', 'Comment on your PR'],
 ];
-// Header of the « approvals » column (cryptic icon → title on hover).
-const APPROVALS_TH = '<abbr title="Approvals" style="text-decoration:none;cursor:help">✅</abbr>';
+// Icon-only column headers (cryptic emoji → full label on hover). Keeps the
+// narrow columns (approvals/status/triggers) from being widened by their title.
+const iconTh = (emoji, label) => `<abbr title="${label}" style="text-decoration:none;cursor:help">${emoji}</abbr>`;
+const APPROVALS_TH = iconTh('✅', 'Approvals');
+const STATUS_TH = iconTh('🚦', 'Status');
+const TRIGGERS_TH = iconTh('⚡', 'Triggers');
 
 // Sort indicator on the active column (▴ asc / ▾ desc).
 const SORT_ARROW = { asc: ' ▴', desc: ' ▾' };
@@ -107,6 +111,32 @@ const approvalsCell = (n, ready = false, changesRequested = 0) => {
   return cr ? `${count}${badge} ${cr}` : `${count}${badge}`;
 };
 
+// GitHub « copy » octicon, inline SVG (zero external asset, like the favicon).
+const COPY_ICON =
+  '<svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true" style="fill:currentColor;vertical-align:middle">' +
+  '<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"></path>' +
+  '<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"></path>' +
+  '</svg>';
+
+// Copy-to-clipboard button: data-copy carries the raw value (escaped as an
+// attribute), the client handles the click by delegation (cf. renderShell).
+const copyBtn = (value, label) =>
+  `<button class="copy" data-copy="${escapeHtml(value)}" title="${escapeHtml(label)}">${COPY_ICON}</button>`;
+
+// Branch cell: the head ref name in a small GitHub-like chip (truncated, full
+// name in the tooltip) linking to the branch tree — on the HEAD repo (a fork
+// for external PRs, like on GitHub), falling back on the base repo if the
+// fork is gone — + a tiny copy button. Missing branch → empty cell. The ref
+// is URL-encoded but its `/` are kept (tree URLs accept them).
+const branchCell = (r) => {
+  if (!r.branch) return '';
+  const repo = r.branchRepo || r.repo;
+  const tree = `https://github.com/${repo}/tree/${encodeURIComponent(r.branch).replace(/%2F/gi, '/')}`;
+  return `<a href="${escapeHtml(tree)}" target="_blank" rel="noopener">`
+    + `<code class="branch" title="${escapeHtml(r.branch)}">${escapeHtml(r.branch)}</code></a>`
+    + copyBtn(r.branch, 'Copy branch name');
+};
+
 const tableRow = (cells, cls = '') => `<tr${cls ? ` class="${cls}"` : ''}>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`;
 
 // A header is either a string (bare th), or { html, attrs } (sortable th —
@@ -132,17 +162,18 @@ const dateCell = (label, iso, now) =>
 
 function mineTable(rows, now, sort = null) {
   const headers = [
-    'Repository', 'PR', 'Title',
+    'Repository', 'PR', 'Title', 'Branch',
     sortableTh('Opened', 'date', sort, 'mine'),
     sortableTh('Updated', 'updated', sort, 'mine'),
     sortableTh('Diff', 'diff', sort, 'mine'),
-    'Status', APPROVALS_TH, 'Triggers', 'CI',
+    STATUS_TH, APPROVALS_TH, TRIGGERS_TH, 'CI',
   ];
   const trs = rows.map((r) =>
     tableRow([
       link(r.url, r.repo),
       link(r.url, `#${r.number}`),
       link(r.url, r.title),
+      branchCell(r),
       dateCell('Opened', r.createdAt, now),
       dateCell('Updated', r.updatedAt, now),
       diffCell(r.additions, r.deletions),
@@ -169,6 +200,7 @@ function otherRow(r, now, hidden) {
       link(r.url, r.repo),
       link(r.url, `#${r.number}`),
       link(r.url, r.title),
+      branchCell(r),
       r.author ? `@${escapeHtml(r.author)}` : '?',
       dateCell('Opened', r.createdAt, now),
       dateCell('Updated', r.updatedAt, now),
@@ -185,14 +217,14 @@ function otherRow(r, now, hidden) {
 
 function othersTable(others, hiddenRows, now, showHidden, sort = null) {
   const headers = [
-    'Repository', 'PR', 'Title',
+    'Repository', 'PR', 'Title', 'Branch',
     sortableTh('Author', 'author', sort),
     sortableTh('Opened', 'date', sort),
     sortableTh('Updated', 'updated', sort),
     sortableTh('Diff', 'diff', sort),
-    'Status',
+    STATUS_TH,
     sortableTh(APPROVALS_TH, 'approvals', sort),
-    'Triggers', 'CI', '',
+    TRIGGERS_TH, 'CI', '',
   ];
   const trs = [
     ...others.map((r) => otherRow(r, now, false)),
@@ -393,6 +425,19 @@ ${FAVICON}
   td:nth-child(2) a, td:nth-child(3) a { color: var(--accent); }
   .act { padding: .15rem .5rem; line-height: 1; color: var(--fg-muted); }
   .act:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
+  /* Branch copy button, GitHub-like: the bare copy octicon, dimmed until the
+     row is hovered, subtle rounded background on hover. The ✓ feedback is
+     injected by the client for a second. */
+  button.copy { border: 0; background: transparent; box-shadow: none; padding: .15rem .2rem;
+                margin-left: .15rem; border-radius: 4px; line-height: 1; font-size: .625rem;
+                color: var(--fg-muted); opacity: .4; vertical-align: middle; }
+  tbody tr:hover button.copy { opacity: 1; }
+  button.copy:hover { color: var(--accent); background: var(--btn-hover); }
+  /* Branch chip, GitHub-like (the ref shown on a PR page): tiny monospace on
+     an accent-tinted background, truncated, full name in the tooltip. */
+  code.branch { display: inline-block; max-width: 9rem; overflow: hidden; text-overflow: ellipsis;
+                vertical-align: middle; background: color-mix(in srgb, var(--accent) 10%, transparent);
+                color: var(--accent); padding: .1em .35em; border-radius: 4px; font-size: .625rem; }
   .spinner { display: inline-block; width: 1em; height: 1em; vertical-align: -2px;
              border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
              animation: ghn-spin .7s linear infinite; }
@@ -574,7 +619,27 @@ ${FAVICON}
     // Selecting a favorite leaves ad-hoc mode: clear the manual scope field too.
     if (sel) { scopeInput.value = ''; act('/fav', 'value=' + encodeURIComponent(sel.getAttribute('data-fav'))); }
   });
+  // Copy to the clipboard, with a fallback (execCommand) when the Clipboard
+  // API is unavailable (page served over plain http on a non-localhost host).
+  function copyText(v) {
+    if (navigator.clipboard) return navigator.clipboard.writeText(v);
+    var ta = document.createElement('textarea');
+    ta.value = v; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } finally { document.body.removeChild(ta); }
+    return Promise.resolve();
+  }
   content.addEventListener('click', function (e) {
+    // Copy button (branch name / PR number): ✓ feedback for a second. The
+    // fragment may be re-injected meanwhile — the stale button just vanishes.
+    var cp = e.target.closest('button.copy');
+    if (cp) {
+      copyText(cp.getAttribute('data-copy')).then(function () {
+        var old = cp.innerHTML;
+        cp.innerHTML = '✓';
+        setTimeout(function () { cp.innerHTML = old; }, 1000);
+      }).catch(function () {});
+      return;
+    }
     // Sort: click on a sortable header. data-sort-table ('mine') targets the
     // « Your PRs » sort state; without it, the « others » one.
     var th = e.target.closest('th[data-sort-key]');

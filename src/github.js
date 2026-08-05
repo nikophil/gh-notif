@@ -16,7 +16,8 @@ function parseJson(stdout) {
 
 // PR fields fetched all at once via GraphQL (cf. getPullDetailsBatch).
 const PR_FRAGMENT = `fragment pr on PullRequest {
-  number title author { login } createdAt updatedAt additions deletions isDraft state
+  number title author { login } createdAt updatedAt additions deletions isDraft state headRefName
+  headRepository { nameWithOwner }
   latestOpinionatedReviews(first: 100) { nodes { author { login } state submittedAt } }
   commits(last: 1) { nodes { commit { statusCheckRollup {
     state
@@ -61,6 +62,9 @@ function normalizePull(pr) {
     deletions: pr.deletions,
     isDraft: pr.isDraft,
     state: pr.state,
+    branch: pr.headRefName ?? null,
+    // repo hosting the head branch (a fork for external PRs; null if deleted).
+    branchRepo: pr.headRepository?.nameWithOwner ?? null,
     // latestOpinionatedReviews = latest APPROVED/CHANGES_REQUESTED review per
     // author (ignores COMMENTED): a comment does not cancel an approval.
     reviews: (pr.latestOpinionatedReviews?.nodes ?? []).map((r) => ({

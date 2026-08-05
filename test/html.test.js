@@ -147,6 +147,66 @@ test('renderFragment: « others » table shows Updated too', () => {
   assert.match(out, /Updated 2d ago/);
 });
 
+test('renderFragment: Branch column (both tables), GitHub-like chip + copy button', () => {
+  const out = renderFragment(
+    { mine: [myRow({ branch: 'feat/login' })], others: [otherRow({ branch: 'fix/cache' })] },
+    { now: NOW },
+  );
+  const mineSection = out.split('👥')[0];
+  const othersSection = out.split('👥')[1];
+  assert.match(mineSection, /<th>Branch<\/th>/);
+  assert.match(othersSection, /<th>Branch<\/th>/);
+  assert.match(mineSection, /class="branch"[^>]*>feat\/login</);
+  assert.ok(mineSection.includes('data-copy="feat/login"'));
+  assert.match(othersSection, /class="branch"[^>]*>fix\/cache</);
+  assert.ok(othersSection.includes('data-copy="fix/cache"'));
+});
+
+test('renderFragment: the branch chip links to the tree of the head repo', () => {
+  const out = renderFragment(
+    {
+      mine: [myRow({ branch: 'feat/login', branchRepo: 'symfony/web' })],
+      others: [otherRow({ branch: 'fix/cache', branchRepo: 'fork/api' })], // PR from a fork
+    },
+    { now: NOW },
+  );
+  assert.ok(out.includes('href="https://github.com/symfony/web/tree/feat/login"'));
+  assert.ok(out.includes('href="https://github.com/fork/api/tree/fix/cache"'));
+});
+
+test('renderFragment: branch link falls back on the base repo, URL-encodes the ref', () => {
+  const out = renderFragment(
+    { mine: [myRow({ branch: 'feat/a#b', branchRepo: null })], others: [] },
+    { now: NOW },
+  );
+  assert.ok(out.includes('href="https://github.com/symfony/web/tree/feat/a%23b"'));
+});
+
+test('renderFragment: Status/Triggers headers are icon-only (label in the tooltip)', () => {
+  const out = renderFragment({ mine: [myRow()], others: [otherRow()] }, { now: NOW });
+  assert.doesNotMatch(out, /<th>Status<\/th>/);
+  assert.doesNotMatch(out, /<th>Triggers<\/th>/);
+  assert.match(out, /<abbr title="Status"[^>]*>🚦<\/abbr>/);
+  assert.match(out, /<abbr title="Triggers"[^>]*>⚡<\/abbr>/);
+});
+
+test('renderFragment: no copy button on the PR number (branch only)', () => {
+  const out = renderFragment({ mine: [myRow({ branch: 'feat/x' })], others: [] }, { now: NOW });
+  assert.ok(!out.includes('data-copy="120"'));
+  assert.equal((out.match(/data-copy=/g) || []).length, 1); // the branch one
+});
+
+test('renderFragment: missing branch → empty cell, no copy button at all', () => {
+  const out = renderFragment({ mine: [myRow({ branch: null })], others: [] }, { now: NOW });
+  assert.equal((out.match(/data-copy=/g) || []).length, 0);
+});
+
+test('renderFragment: branch name escaped (anti-injection)', () => {
+  const out = renderFragment({ mine: [myRow({ branch: 'a"b<c' })], others: [] }, { now: NOW });
+  assert.ok(out.includes('a&quot;b&lt;c'));
+  assert.ok(!out.includes('a"b<c'));
+});
+
 test('renderFragment: only « mine » (others empty) doesn’t show the others section', () => {
   const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW });
   assert.match(out, /Your open PRs/);
