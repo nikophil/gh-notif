@@ -44,6 +44,17 @@ test('GET /fragment before the first poll (updatedAt null) → loading spinner',
   assert.match(res.body, /class="spinner"/);
 });
 
+test('GET /fragment forwards ignoredChecks → ignored check struck in the CI popover', () => {
+  const snap = okSnapshot();
+  snap.data.mine[0].ci = 'fail';
+  snap.data.mine[0].checks = [
+    { name: 'real', state: 'fail', url: 'https://x.test/2' },
+    { name: 'flaky', state: 'fail', url: 'https://x.test/1' },
+  ];
+  const res = handleRequest('/fragment', snap, { ...OPTS, ignoredChecks: { 'symfony/web': ['flaky'] } });
+  assert.match(res.body, /<li class="ci-check ignored">[^]*?flaky/);
+});
+
 test('GET /api/state → JSON round-trip', () => {
   const snap = okSnapshot();
   const res = handleRequest('/api/state', snap, OPTS);

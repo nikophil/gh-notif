@@ -405,6 +405,75 @@ test('renderDebug: empty → neutral message', () => {
   assert.match(renderDebug([], {}), /No notification thread/);
 });
 
+// ── CI checks popover (click on the ✗/🟡 icon of the CI column) ─────────────
+
+const failChecks = [
+  { name: 'behat', state: 'fail', url: 'https://github.com/symfony/web/runs/1' },
+  { name: 'jenkins/branch', state: 'fail', url: null },
+  { name: 'blocking label', state: 'pending', url: 'https://github.com/symfony/web/runs/2' },
+  { name: 'phpstan', state: 'pass', url: 'https://github.com/symfony/web/runs/3' },
+  { name: 'mago', state: 'pass', url: 'https://github.com/symfony/web/runs/4' },
+];
+
+test('renderFragment: CI fail → clickable icon + popover grouped à la GitHub', () => {
+  const out = renderFragment({ mine: [myRow({ ci: 'fail', checks: failChecks })], others: [] }, { now: NOW });
+  assert.match(out, /button class="ci-btn"/);
+  // groups with GitHub wording (plural handled), in order fail → pending → pass
+  assert.match(out, /2 failing checks/);
+  assert.match(out, /1 pending check</);
+  assert.match(out, /2 successful checks/);
+  assert.ok(out.indexOf('failing check') < out.indexOf('pending check'), 'failing before pending');
+  assert.ok(out.indexOf('pending check') < out.indexOf('successful check'), 'pending before successful');
+  // each check with a URL links to its run in a new tab
+  assert.match(out, /href="https:\/\/github\.com\/symfony\/web\/runs\/1" target="_blank" rel="noopener">behat</);
+  // a check without URL stays plain text (no dead link)
+  assert.ok(!/href[^>]*>jenkins\/branch</.test(out), 'no link without URL');
+  assert.ok(out.includes('jenkins/branch'), 'the linkless check is still listed');
+});
+
+test('renderFragment: CI pending → popover too (running checks clickable)', () => {
+  const checks = [
+    { name: 'build', state: 'pending', url: 'https://github.com/symfony/api/runs/9' },
+    { name: 'lint', state: 'pass', url: null },
+  ];
+  const out = renderFragment({ mine: [], others: [otherRow({ ci: 'pending', checks })] }, { now: NOW });
+  assert.match(out, /button class="ci-btn"/);
+  assert.match(out, /1 pending check</);
+  assert.match(out, /href="https:\/\/github\.com\/symfony\/api\/runs\/9" target="_blank" rel="noopener">build</);
+});
+
+test('renderFragment: CI pass/none or no checks → icon not clickable (no popover)', () => {
+  const pass = renderFragment({ mine: [myRow({ ci: 'pass', checks: failChecks })], others: [] }, { now: NOW });
+  assert.ok(!pass.includes('ci-btn'), 'pass → plain icon');
+  const none = renderFragment({ mine: [myRow({ ci: 'none', checks: [] })], others: [] }, { now: NOW });
+  assert.ok(!none.includes('ci-btn'), 'none → plain icon');
+  const noChecks = renderFragment({ mine: [myRow({ ci: 'fail', checks: [] })], others: [] }, { now: NOW });
+  assert.ok(!noChecks.includes('ci-btn'), 'fail without check detail → plain icon');
+});
+
+test('renderFragment: ignored checks (repo blocklist) struck/greyed in the popover', () => {
+  const checks = [
+    { name: 'real', state: 'fail', url: 'https://x.test/2' },
+    { name: 'flaky', state: 'fail', url: 'https://x.test/1' },
+  ];
+  const out = renderFragment(
+    { mine: [], others: [otherRow({ ci: 'fail', checks })] },
+    { now: NOW, ignoredChecks: { 'symfony/api': ['flaky'] } },
+  );
+  // the ignored check is struck (its line carries .ignored), the real one is not
+  assert.match(out, /<li class="ci-check ignored">[^]*?flaky/);
+  assert.ok(!/<li class="ci-check ignored">[^]*?real/.test(out), 'real check not struck');
+  assert.match(out, /<li class="ci-check">[^]*?real/);
+});
+
+test('renderFragment: dangerous check name and URL escaped in the popover', () => {
+  const checks = [{ name: 'x<script>alert(1)</script>', state: 'fail', url: 'https://x.test/"><script>' }];
+  const out = renderFragment({ mine: [myRow({ ci: 'fail', checks })], others: [] }, { now: NOW });
+  assert.ok(out.includes('x&lt;script&gt;'), 'check name escaped');
+  assert.ok(!out.includes('<script>alert(1)'), 'no raw script tag');
+  assert.ok(!out.includes('"><script>'), 'URL escaped in the attribute');
+});
+
 test('renderDebug: « Checks by repo » section — DISTINCT checks per repo, ignored checked/struck', () => {
   const rows = [
     { repo: 'symfony/ticketing', number: 60, ci: 'pass', checks: [

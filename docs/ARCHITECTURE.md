@@ -222,7 +222,7 @@ sequenceDiagram
 
 - **Thread** (`/notifications`): `{ id, reason, updated_at, subject:{title,url,latest_comment_url,type}, repository:{full_name} }`
 - **Item** (output of `classify`): `{ category, actor, url, repo, number, title, threadId, updatedAt }`
-- **Row** (output of `collectPRs`): `{ repo, number, url, title, triggers:[…], author, branch, branchRepo, createdAt, updatedAt, additions, deletions, ci, checks:[{name,state}], statusCheckRollupState, state, approvals, changesRequested }` — `branch` = the PR's `headRefName` and `branchRepo` = `headRepository.nameWithOwner` (same GraphQL batch, zero extra cost; null if missing), shown in the web « Branch » column as a small GitHub-like ref chip linking to the branch tree on the head repo (the fork for external PRs; fallback on `repo` if the fork is gone) with a copy button — `state` ∈ {draft,open,merged,closed} (via `prState`), `approvals` = number of **approvals** (via `countApprovals`: distinct users whose last review is APPROVED — not `reviews.length`), `changesRequested` = number of distinct users whose **last review is CHANGES_REQUESTED** (via `changesRequestedOf`, mirror of `approvalsOf`; zero cost, same GraphQL `reviews`). In the ✅ column, a non-zero `changesRequested` appends the GitHub `file-diff` octicon in red (`--danger`) — shown **even at 0 approvals** (a request-changes with no approval is exactly the signal to surface), tooltip « N change(s) requested ». `checks` = individual CI jobs normalized (`state` ∈ {pass,fail,pending}), consumed by the debug view and the CI recompute (cf. §16). `ci` = aggregated verdict (`ciOf`: `ciFromState` by default; `ciFromChecks` if the repo has a blocklist). `statusCheckRollupState` = raw rollup, kept for the **local recompute** (`recomputeCi`) after a web toggle — allows falling back on `ciFromState` if the repo's blocklist becomes empty again.
+- **Row** (output of `collectPRs`): `{ repo, number, url, title, triggers:[…], author, branch, branchRepo, createdAt, updatedAt, additions, deletions, ci, checks:[{name,state}], statusCheckRollupState, state, approvals, changesRequested }` — `branch` = the PR's `headRefName` and `branchRepo` = `headRepository.nameWithOwner` (same GraphQL batch, zero extra cost; null if missing), shown in the web « Branch » column as a small GitHub-like ref chip linking to the branch tree on the head repo (the fork for external PRs; fallback on `repo` if the fork is gone) with a copy button — `state` ∈ {draft,open,merged,closed} (via `prState`), `approvals` = number of **approvals** (via `countApprovals`: distinct users whose last review is APPROVED — not `reviews.length`), `changesRequested` = number of distinct users whose **last review is CHANGES_REQUESTED** (via `changesRequestedOf`, mirror of `approvalsOf`; zero cost, same GraphQL `reviews`). In the ✅ column, a non-zero `changesRequested` appends the GitHub `file-diff` octicon in red (`--danger`) — shown **even at 0 approvals** (a request-changes with no approval is exactly the signal to surface), tooltip « N change(s) requested ». `checks` = individual CI jobs normalized (`{name, state, url}`, `state` ∈ {pass,fail,pending}, `url` = run page — CheckRun `detailsUrl` / StatusContext `targetUrl`, null if absent), consumed by the debug view, the CI recompute (cf. §16) and the CI checks popover (cf. §17). `ci` = aggregated verdict (`ciOf`: `ciFromState` by default; `ciFromChecks` if the repo has a blocklist). `statusCheckRollupState` = raw rollup, kept for the **local recompute** (`recomputeCi`) after a web toggle — allows falling back on `ciFromState` if the repo's blocklist becomes empty again.
 - **scope**: `null` (everything) | `{ type:'org', value }` | `{ type:'repo', value:'owner/name' }` | **array** of these objects (union of favorites, cf. §14)
 
 ## Non-obvious decisions (⚠️ traps)
@@ -515,6 +515,21 @@ sequenceDiagram
     is running would be overwritten at the next POST (`prefs` object rewritten in full, §14) →
     edit with the app stopped then relaunch. The individual checks come from the
     `statusCheckRollup.contexts` (§8, same request).
+
+17. **CI checks popover (web).** When a PR's CI is `fail` or `pending` AND its `row.checks` are
+    known, the ✗/🟡 icon of the CI column becomes a button opening a GitHub-like popover: the
+    checks grouped « N failing checks » → « N pending check(s) » → « N successful checks », each
+    line with its state octicon and a link to the run (`target=_blank`; plain text if the run has
+    no URL). `pass`/`none` (or no check detail) keep the plain icon — nothing actionable. The run
+    URLs (`detailsUrl`/`targetUrl`) come from the SAME GraphQL batch (§8, zero extra cost),
+    normalized into `checks[].url` by `normalizeContext`. ⚠️ The popover is rendered inline
+    (hidden) by `html.js` but positioned **`position:fixed`** by the client: the sections clip
+    their content (`overflow:hidden` for the rounded corners), an absolute popover would be cut.
+    One popover at a time; closed on outside click, Escape, or fragment re-injection
+    (`setContent` calls `closeCiPop` — the node would be detached anyway). The repo's ignored
+    checks (§16) are struck/greyed in their group (display only, via `opts.ignoredChecks` of
+    `renderFragment`, forwarded by `fragmentBody`): they explain why the aggregated verdict can
+    differ from the raw rollup. All check names/URLs are escaped (anti-injection, as everywhere).
 
 ## Test conventions
 

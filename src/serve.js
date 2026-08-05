@@ -59,7 +59,7 @@ function recompute(data, hidden) {
 // no data yet (1st poll in progress) → spinner; otherwise → the tables.
 // ⚠️ The snapshot contains the data of the UNION of favorites; the active
 // favorite filter is applied HERE, at render time — never at collection (cf. §14).
-function fragmentBody(snapshot, { now, showHidden, viewScope = null, closedUrl = null, sort = null, sortMine = null } = {}) {
+function fragmentBody(snapshot, { now, showHidden, viewScope = null, closedUrl = null, sort = null, sortMine = null, ignoredChecks = {} } = {}) {
   if (snapshot.error) return `<p class="empty offline">⚠️ Error: ${escapeHtml(snapshot.error)}</p>`;
   if (!snapshot.updatedAt) return renderLoading(viewScope?.value ?? '');
   let data = filterDataByScope(snapshot.data ?? { mine: [], others: [] }, viewScope);
@@ -68,7 +68,9 @@ function fragmentBody(snapshot, { now, showHidden, viewScope = null, closedUrl =
   // `sort`/`sortMine` absent → collection order unchanged (compat).
   if (sort) data = { ...data, others: sortRows(data.others, sort), hidden: sortRows(data.hidden, sort) };
   if (sortMine) data = { ...data, mine: sortRows(data.mine, sortMine, MINE_SORT_KEYS) };
-  return renderFragment(data, { now, showHidden, closedUrl, sort, sortMine });
+  // `ignoredChecks` only affects the popover display (struck checks) — the CI
+  // verdict itself was already recomputed at collection (§16).
+  return renderFragment(data, { now, showHidden, closedUrl, sort, sortMine, ignoredChecks });
 }
 
 // Scope(s) that the view DISPLAYS, to contextualize the « closed ↗ » link:
@@ -106,14 +108,14 @@ export function handleRequest(pathname, snapshot, opts = {}) {
     return { status: 200, type: 'text/html; charset=utf-8', body: renderShell({ intervalMs, scopeLabel: scopeLabel(scope), notifyEnabled, theme, favorites, activeFav, adhoc, counts }) };
   }
   if (pathname === '/fragment') {
-    return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, sort, sortMine }) };
+    return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, sort, sortMine, ignoredChecks }) };
   }
   // Unified poll of the client: filtered tables + favorites bar (up-to-date counters)
   // + updatedAt (the client probes until it changes after an add/remove).
   if (pathname === '/view') {
     return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify({
       chips: renderFavorites(favorites, activeFav, { adhoc, counts }),
-      fragment: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, sort, sortMine }),
+      fragment: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, sort, sortMine, ignoredChecks }),
       updatedAt: snapshot.updatedAt,
     }) };
   }
@@ -275,6 +277,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         closedUrl: closedPRsUrl(linkScopes({ scope, activeFav, favorites })),
         sort,
         sortMine,
+        ignoredChecks,
       }),
       updatedAt: snapshot.updatedAt,
     });

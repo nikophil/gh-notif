@@ -55,12 +55,12 @@ const FAVICON =
 const LIGHT_VARS =
   '--canvas: #ffffff; --canvas-subtle: #f6f8fa; --canvas-inset: #f6f8fa;\n' +
   '    --fg: #1f2328; --fg-muted: #59636e; --border: #d1d9e0; --border-muted: #d1d9e0b3;\n' +
-  '    --accent: #0969da; --success: #1a7f37; --danger: #cf222e;\n' +
+  '    --accent: #0969da; --success: #1a7f37; --danger: #cf222e; --attention: #9a6700;\n' +
   '    --btn-bg: #f6f8fa; --btn-border: #1f23280f; --btn-hover: #eef1f4; --shadow: 0 1px 0 #1f23280a;';
 const DARK_VARS =
   '--canvas: #0d1117; --canvas-subtle: #151b23; --canvas-inset: #010409;\n' +
   '    --fg: #e6edf3; --fg-muted: #9198a1; --border: #3d444d; --border-muted: #3d444db3;\n' +
-  '    --accent: #4493f8; --success: #3fb950; --danger: #f85149;\n' +
+  '    --accent: #4493f8; --success: #3fb950; --danger: #f85149; --attention: #d29922;\n' +
   '    --btn-bg: #212830; --btn-border: #f0f6fc1a; --btn-hover: #2a313c; --shadow: 0 0 transparent;';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -83,7 +83,57 @@ const diffCell = (additions, deletions) =>
 // « icon » cells with an explanatory title="" on hover.
 const titled = (title, content) => `<span title="${escapeHtml(title)}">${content}</span>`;
 const stateCell = (state) => titled(STATE_LABEL[state] || state || '', stateIcon(state));
-const ciCell = (ci) => titled(CI_LABEL[ci] || 'CI: none', ciIcon(ci));
+// GitHub check-state octicons (x / dot-fill / check), inline SVG tinted with the
+// Primer state colors — the row icons of GitHub's own checks dropdown.
+const ciSvg = (path, color) =>
+  `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" style="fill:var(${color});vertical-align:text-bottom;flex:none">${path}</svg>`;
+const CHECK_STATE_ICON = {
+  fail: ciSvg('<path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"></path>', '--danger'),
+  pending: ciSvg('<path d="M8 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"></path>', '--attention'),
+  pass: ciSvg('<path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"></path>', '--success'),
+};
+
+// GitHub-like wording of the popover group headings (« 2 failing checks »).
+const CHECK_GROUP_LABEL = { fail: 'failing', pending: 'pending', pass: 'successful' };
+const groupHeading = (state, n) =>
+  `${n} ${CHECK_GROUP_LABEL[state]} check${n > 1 ? 's' : ''}`;
+
+// One check line of the popover: state octicon + name linking to the run in a
+// new tab (plain text if the run has no URL). An ignored check (repo blocklist,
+// §16) is struck/greyed but stays listed in its group — it explains why the
+// aggregated verdict may differ from the raw rollup.
+function ciCheckLine(c, blocked) {
+  const name = c.url ? link(c.url, c.name) : escapeHtml(c.name);
+  const ignored = blocked.has(String(c.name).trim());
+  return `<li class="ci-check${ignored ? ' ignored' : ''}">${CHECK_STATE_ICON[c.state] || ''} ${ignored ? `<del>${name}</del>` : name}</li>`;
+}
+
+// Popover listing the PR's checks grouped à la GitHub (failing first, then
+// pending, then successful). Rendered inline (hidden); the client toggles and
+// positions it on click (delegation in renderShell — fragments are re-injected
+// at every poll, like the copy buttons).
+function ciPopover(checks, blocked) {
+  const groups = ['fail', 'pending', 'pass']
+    .map((state) => ({ state, items: checks.filter((c) => c.state === state) }))
+    .filter((g) => g.items.length > 0)
+    .map((g) =>
+      `<p class="ci-group">${groupHeading(g.state, g.items.length)}</p>`
+      + `<ul>${g.items.map((c) => ciCheckLine(c, blocked)).join('')}</ul>`);
+  return `<div class="ci-pop" hidden>${groups.join('')}</div>`;
+}
+
+// CI cell: plain icon (tooltip) — but when the CI is failing or running AND the
+// individual checks are known, the icon becomes a button opening the checks
+// popover (which runs failed / are still running, with links). pass/none stay
+// non-clickable: nothing actionable to show.
+const ciCell = (r, ignoredChecks = {}) => {
+  const ci = r?.ci;
+  const checks = r?.checks ?? [];
+  const label = CI_LABEL[ci] || 'CI: none';
+  if ((ci !== 'fail' && ci !== 'pending') || checks.length === 0) return titled(label, ciIcon(ci));
+  const blocked = new Set((ignoredChecks?.[r.repo] ?? []).map((n) => String(n).trim()));
+  return `<span class="ci-wrap"><button class="ci-btn" title="${escapeHtml(label)} — show checks">${ciIcon(ci)}</button>${ciPopover(checks, blocked)}</span>`;
+};
 const triggersCell = (keys) => {
   const set = new Set(keys || []);
   return TRIGGER_META.filter(([k]) => set.has(k))
@@ -160,7 +210,7 @@ function table(headers, rows) {
 const dateCell = (label, iso, now) =>
   titled(`${label} ${relativeDate(iso, now)}`, escapeHtml(relativeDate(iso, now)));
 
-function mineTable(rows, now, sort = null) {
+function mineTable(rows, now, sort = null, ignoredChecks = {}) {
   const headers = [
     'Repository', 'PR', 'Title', 'Branch',
     sortableTh('Opened', 'date', sort, 'mine'),
@@ -180,7 +230,7 @@ function mineTable(rows, now, sort = null) {
       stateCell(r.state),
       approvalsCell(r.approvals, r.state === 'open' && isReady(r.approvals), r.changesRequested),
       triggersCell(r.triggers),
-      ciCell(r.ci),
+      ciCell(r, ignoredChecks),
     ]),
   );
   return table(headers, trs);
@@ -194,7 +244,7 @@ function actionButton(r, hidden) {
     : `<button class="act" data-key="${key}" data-act="hide" title="Hide">✕</button>`;
 }
 
-function otherRow(r, now, hidden) {
+function otherRow(r, now, hidden, ignoredChecks = {}) {
   return tableRow(
     [
       link(r.url, r.repo),
@@ -208,14 +258,14 @@ function otherRow(r, now, hidden) {
       stateCell(r.state),
       approvalsCell(r.approvals, false, r.changesRequested),
       triggersCell(r.triggers),
-      ciCell(r.ci),
+      ciCell(r, ignoredChecks),
       actionButton(r, hidden),
     ],
     hidden ? 'hid' : '',
   );
 }
 
-function othersTable(others, hiddenRows, now, showHidden, sort = null) {
+function othersTable(others, hiddenRows, now, showHidden, sort = null, ignoredChecks = {}) {
   const headers = [
     'Repository', 'PR', 'Title', 'Branch',
     sortableTh('Author', 'author', sort),
@@ -227,8 +277,8 @@ function othersTable(others, hiddenRows, now, showHidden, sort = null) {
     TRIGGERS_TH, 'CI', '',
   ];
   const trs = [
-    ...others.map((r) => otherRow(r, now, false)),
-    ...(showHidden ? hiddenRows.map((r) => otherRow(r, now, true)) : []),
+    ...others.map((r) => otherRow(r, now, false, ignoredChecks)),
+    ...(showHidden ? hiddenRows.map((r) => otherRow(r, now, true, ignoredChecks)) : []),
   ];
   return table(headers, trs);
 }
@@ -242,12 +292,15 @@ function othersTable(others, hiddenRows, now, showHidden, sort = null) {
 // `sort` (optional) = sort state `{key,dir}` of the « others » table — clickable
 // headers + indicator; absent → bare th (compat). `sortMine` (optional) = same
 // for « Your PRs » (Opened/Updated columns only), independent state.
+// `ignoredChecks` (optional) = per-repo blocklist (§16): strikes the ignored
+// checks inside the CI popover.
 export function renderFragment(data, opts = {}) {
   const now = opts.now ?? Date.now();
   const showHidden = !!opts.showHidden;
   const closedUrl = opts.closedUrl ?? null;
   const sort = opts.sort ?? null;
   const sortMine = opts.sortMine ?? null;
+  const ignoredChecks = opts.ignoredChecks ?? {};
   const mine = data?.mine ?? [];
   const others = data?.others ?? [];
   const hiddenRows = data?.hidden ?? [];
@@ -258,7 +311,7 @@ export function renderFragment(data, opts = {}) {
     const hist = closedUrl
       ? ` <a class="hist" href="${escapeHtml(closedUrl)}" target="_blank" rel="noopener">closed ↗</a>`
       : '';
-    blocks.push(`<section><h2>📥 Your open PRs (${mine.length})${hist}</h2>${mine.length > 0 ? mineTable(mine, now, sortMine) : ''}</section>`);
+    blocks.push(`<section><h2>📥 Your open PRs (${mine.length})${hist}</h2>${mine.length > 0 ? mineTable(mine, now, sortMine, ignoredChecks) : ''}</section>`);
   }
   if (others.length > 0 || (showHidden && hiddenCount > 0)) {
     const count =
@@ -266,7 +319,7 @@ export function renderFragment(data, opts = {}) {
         ? `(${others.length}, ${hiddenCount} hidden)`
         : `(${others.length})`;
     blocks.push(
-      `<section><h2>👥 Activity on others' PRs ${count}</h2>${othersTable(others, hiddenRows, now, showHidden, sort)}</section>`,
+      `<section><h2>👥 Activity on others' PRs ${count}</h2>${othersTable(others, hiddenRows, now, showHidden, sort, ignoredChecks)}</section>`,
     );
   }
   if (blocks.length === 0) return '<p class="empty">Nothing to report ✨</p>';
@@ -438,6 +491,25 @@ ${FAVICON}
   code.branch { display: inline-block; max-width: 9rem; overflow: hidden; text-overflow: ellipsis;
                 vertical-align: middle; background: color-mix(in srgb, var(--accent) 10%, transparent);
                 color: var(--accent); padding: .1em .35em; border-radius: 4px; font-size: .625rem; }
+  /* CI checks popover: the ✗/● icon becomes a discreet button opening a
+     GitHub-like panel listing the runs. position:fixed because the sections
+     clip their content (overflow:hidden for the rounded corners) — the client
+     positions the panel from the button's rect. */
+  button.ci-btn { border: 0; background: transparent; box-shadow: none; padding: 0 .1rem;
+                  border-radius: 4px; line-height: 1; font-size: inherit; }
+  button.ci-btn:hover { background: var(--btn-hover); }
+  .ci-pop { position: fixed; z-index: 30; min-width: 16rem; max-width: 26rem; max-height: 60vh;
+            overflow-y: auto; background: var(--canvas); border: 1px solid var(--border);
+            border-radius: 6px; box-shadow: 0 8px 24px rgba(1,4,9,.3); padding: .3rem 0;
+            font-size: .75rem; font-weight: 400; text-align: left; }
+  .ci-pop .ci-group { margin: 0; padding: .3rem .75rem .1rem; color: var(--fg-muted); font-weight: 600; }
+  .ci-pop ul { list-style: none; margin: 0; padding: 0; }
+  .ci-pop .ci-check { display: flex; align-items: center; gap: .45rem; padding: .25rem .75rem;
+                      white-space: nowrap; max-width: 26rem; overflow: hidden; text-overflow: ellipsis; }
+  .ci-pop .ci-check:hover { background: var(--canvas-subtle); }
+  .ci-pop .ci-check a { color: var(--fg); }
+  .ci-pop .ci-check a:hover { color: var(--accent); text-decoration: none; }
+  .ci-pop .ci-check.ignored { opacity: .5; }
   .spinner { display: inline-block; width: 1em; height: 1em; vertical-align: -2px;
              border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
              animation: ghn-spin .7s linear infinite; }
@@ -496,6 +568,15 @@ ${FAVICON}
   var showHidden = false;
   var left = INTERVAL / 1000;
 
+  // CI checks popover: one open at a time; closed on outside click, Escape,
+  // or fragment re-injection (the node would be detached anyway).
+  var openPop = null;
+  function closeCiPop() { if (openPop) { openPop.hidden = true; openPop = null; } }
+  document.addEventListener('click', function (e) {
+    if (openPop && !e.target.closest('.ci-pop') && !e.target.closest('button.ci-btn')) closeCiPop();
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeCiPop(); });
+
   function q(extra) {
     var p = [];
     if (showHidden) p.push('hidden=1');
@@ -507,6 +588,7 @@ ${FAVICON}
     stamp.innerHTML = '<span class="spinner"></span> updating…';
   }
   function setContent(html, updatedAt) {
+    closeCiPop();
     content.innerHTML = html;
     // « upd » = the time of the REAL GitHub poll (updatedAt of the server
     // snapshot), not the display time — otherwise a ctrl+R claims an update it
@@ -638,6 +720,23 @@ ${FAVICON}
         cp.innerHTML = '✓';
         setTimeout(function () { cp.innerHTML = old; }, 1000);
       }).catch(function () {});
+      return;
+    }
+    // CI popover: the ✗/● button toggles the checks panel of its row. The
+    // panel is position:fixed (sections clip their overflow) → positioned from
+    // the button's rect, clamped inside the viewport.
+    var cib = e.target.closest('button.ci-btn');
+    if (cib) {
+      var pop = cib.nextElementSibling;
+      var wasOpen = (pop === openPop);
+      closeCiPop();
+      if (!wasOpen && pop) {
+        pop.hidden = false;
+        var rect = cib.getBoundingClientRect();
+        pop.style.top = Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - pop.offsetHeight - 8)) + 'px';
+        pop.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - pop.offsetWidth - 8)) + 'px';
+        openPop = pop;
+      }
       return;
     }
     // Sort: click on a sortable header. data-sort-table ('mine') targets the

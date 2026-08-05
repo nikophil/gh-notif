@@ -113,10 +113,10 @@ test('getPullDetailsBatch: normalizes the checks (CheckRun + StatusContext) to {
       commits: { nodes: [{ commit: { statusCheckRollup: {
         state: 'FAILURE',
         contexts: { nodes: [
-          { __typename: 'CheckRun', name: 'Check Pull Requests label for merge block', conclusion: 'FAILURE', status: 'COMPLETED' },
-          { __typename: 'StatusContext', context: 'continuous-integration/jenkins/branch', state: 'SUCCESS' },
-          { __typename: 'CheckRun', name: 'build', conclusion: null, status: 'IN_PROGRESS' },
-          { __typename: 'CheckRun', name: 'lint', conclusion: 'SKIPPED', status: 'COMPLETED' },
+          { __typename: 'CheckRun', name: 'Check Pull Requests label for merge block', conclusion: 'FAILURE', status: 'COMPLETED', detailsUrl: 'https://github.com/o/r/runs/1' },
+          { __typename: 'StatusContext', context: 'continuous-integration/jenkins/branch', state: 'SUCCESS', targetUrl: 'https://ci.example.com/job/42' },
+          { __typename: 'CheckRun', name: 'build', conclusion: null, status: 'IN_PROGRESS', detailsUrl: 'https://github.com/o/r/runs/2' },
+          { __typename: 'CheckRun', name: 'lint', conclusion: 'SKIPPED', status: 'COMPLETED', detailsUrl: null },
           { __typename: 'StatusContext', context: 'deploy', state: 'PENDING' },
         ] },
       } } }] },
@@ -127,16 +127,18 @@ test('getPullDetailsBatch: normalizes the checks (CheckRun + StatusContext) to {
   const [pr] = await gh.getPullDetailsBatch([{ repo: 'o/r', number: 42 }]);
 
   assert.deepEqual(pr.checks, [
-    { name: 'Check Pull Requests label for merge block', state: 'fail' },
-    { name: 'continuous-integration/jenkins/branch', state: 'pass' },
-    { name: 'build', state: 'pending' },   // conclusion null + running
-    { name: 'lint', state: 'pass' },        // SKIPPED = non-blocking
-    { name: 'deploy', state: 'pending' },   // StatusContext PENDING
+    { name: 'Check Pull Requests label for merge block', state: 'fail', url: 'https://github.com/o/r/runs/1' },
+    { name: 'continuous-integration/jenkins/branch', state: 'pass', url: 'https://ci.example.com/job/42' },
+    { name: 'build', state: 'pending', url: 'https://github.com/o/r/runs/2' },   // conclusion null + running
+    { name: 'lint', state: 'pass', url: null },        // SKIPPED = non-blocking, no URL
+    { name: 'deploy', state: 'pending', url: null },   // StatusContext PENDING, targetUrl absent
   ]);
-  // the request does ask for the contexts
+  // the request does ask for the contexts AND the run URLs (same request, zero cost)
   const q = runner.calls[0].join(' ');
   assert.ok(q.includes('contexts'));
   assert.ok(q.includes('StatusContext'));
+  assert.ok(q.includes('detailsUrl'));
+  assert.ok(q.includes('targetUrl'));
 });
 
 test('getPullDetailsBatch: rollup without contexts → empty checks', async () => {

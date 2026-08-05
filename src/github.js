@@ -23,16 +23,18 @@ const PR_FRAGMENT = `fragment pr on PullRequest {
     state
     contexts(first: 100) { nodes {
       __typename
-      ... on CheckRun { name conclusion status }
-      ... on StatusContext { context state }
+      ... on CheckRun { name conclusion status detailsUrl }
+      ... on StatusContext { context state targetUrl }
     } }
   } } } }
 }`;
 
 // Normalizes a rollup context (Actions CheckRun OR commit StatusContext)
-// to { name, state } with state ∈ 'pass'|'fail'|'pending'. Returns null if the
-// node has no usable name. SKIPPED/NEUTRAL count as non-blocking (like
-// the GitHub rollup); a null conclusion = check running → pending.
+// to { name, state, url } with state ∈ 'pass'|'fail'|'pending'. Returns null if
+// the node has no usable name. SKIPPED/NEUTRAL count as non-blocking (like
+// the GitHub rollup); a null conclusion = check running → pending. `url` is the
+// run page (CheckRun.detailsUrl / StatusContext.targetUrl, null if absent) —
+// consumed by the CI popover of the web tables.
 const CHECKRUN_FAIL = new Set(['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE']);
 function normalizeContext(node) {
   if (!node) return null;
@@ -40,13 +42,13 @@ function normalizeContext(node) {
     if (!node.context) return null;
     const s = (node.state || '').toUpperCase();
     const state = s === 'SUCCESS' ? 'pass' : (s === 'FAILURE' || s === 'ERROR') ? 'fail' : 'pending';
-    return { name: node.context, state };
+    return { name: node.context, state, url: node.targetUrl ?? null };
   }
   // CheckRun (default): conclusion takes precedence, otherwise (null) the check is still running.
   if (!node.name) return null;
   const c = (node.conclusion || '').toUpperCase();
   const state = !c ? 'pending' : CHECKRUN_FAIL.has(c) ? 'fail' : 'pass';
-  return { name: node.name, state };
+  return { name: node.name, state, url: node.detailsUrl ?? null };
 }
 
 // Normalizes a GraphQL PullRequest node to the shape consumed by collect.js.
