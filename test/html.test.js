@@ -662,6 +662,7 @@ test('renderFragment with opts.sort: clickable th + indicator on the active colu
   assert.match(html, /<th[^>]*data-sort-key="updated"[^>]*>Updated<\/th>/);
   assert.match(html, /<th[^>]*data-sort-key="approvals"/);
   assert.match(html, /<th[^>]*data-sort-key="diff"[^>]*>Diff<\/th>/);
+  assert.match(html, /<th[^>]*data-sort-key="status"/); // icon th (🚦), like approvals
   // asc → ▴
   const asc = renderFragment(data, { now: Date.parse('2026-07-23T00:00:00Z'), sort: { key: 'author', dir: 'asc' } });
   assert.match(asc, /<th[^>]*data-sort-key="author"[^>]*>Author ▴<\/th>/);
@@ -688,6 +689,7 @@ test('« Your PRs » is sortable only via opts.sortMine (opts.sort alone does no
   assert.match(sorted, /<th[^>]*data-sort-key="date"[^>]*data-sort-table="mine"[^>]*>Opened<\/th>/);
   assert.match(sorted, /<th[^>]*data-sort-key="updated"[^>]*data-sort-table="mine"[^>]*>Updated ▾<\/th>/);
   assert.match(sorted, /<th[^>]*data-sort-key="diff"[^>]*data-sort-table="mine"[^>]*>Diff<\/th>/);
+  assert.match(sorted, /<th[^>]*data-sort-key="status"[^>]*data-sort-table="mine"/);
   assert.ok(!sorted.includes('data-sort-key="author"'), 'mine: author is never sortable (always me)');
 });
 
@@ -718,7 +720,7 @@ test('active sort: the colgroup marks the active th column (derived position, no
   const data = { mine: [], others: [
     { repo: 'o/r', number: 1, url: 'u', title: 't', author: 'alice', createdAt: '2026-07-20T00:00:00Z', additions: 0, deletions: 0, triggers: ['review'], ci: 'pass', state: 'open', approvals: 0 },
   ] };
-  for (const key of ['author', 'date', 'updated', 'approvals']) {
+  for (const key of ['author', 'date', 'updated', 'approvals', 'status']) {
     const html = renderFragment(data, { now: Date.parse('2026-07-23T00:00:00Z'), sort: { key, dir: 'asc' } });
     const col = sortedColIndex(html);
     assert.ok(col > 0, `colgroup present and marked for ${key}`);

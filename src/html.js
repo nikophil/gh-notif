@@ -236,7 +236,8 @@ function mineTable(rows, hiddenRows, now, showHidden, sort = null, ignoredChecks
     sortableTh('Opened', 'date', sort, 'mine'),
     sortableTh('Updated', 'updated', sort, 'mine'),
     sortableTh('Diff', 'diff', sort, 'mine'),
-    STATUS_TH, APPROVALS_TH, TRIGGERS_TH, 'CI', '',
+    sortableTh(STATUS_TH, 'status', sort, 'mine'),
+    APPROVALS_TH, TRIGGERS_TH, 'CI', '',
   ];
   const trs = [
     ...rows.map((r) => mineRow(r, now, false, ignoredChecks)),
@@ -281,7 +282,7 @@ function othersTable(others, hiddenRows, now, showHidden, sort = null, ignoredCh
     sortableTh('Opened', 'date', sort),
     sortableTh('Updated', 'updated', sort),
     sortableTh('Diff', 'diff', sort),
-    STATUS_TH,
+    sortableTh(STATUS_TH, 'status', sort),
     sortableTh(APPROVALS_TH, 'approvals', sort),
     TRIGGERS_TH, 'CI', '',
   ];

@@ -18,11 +18,11 @@ test('normalizeSort: valid passes, invalid/absent → default', () => {
   assert.deepEqual(normalizeSort({ key: 'nope', dir: 'asc' }), DEFAULT_SORT);
   assert.deepEqual(normalizeSort({ key: 'date', dir: 'sideways' }), DEFAULT_SORT);
   assert.deepEqual(DEFAULT_SORT, { key: 'updated', dir: 'desc' });
-  assert.deepEqual(SORT_KEYS, ['date', 'updated', 'approvals', 'author', 'diff']);
+  assert.deepEqual(SORT_KEYS, ['date', 'updated', 'approvals', 'author', 'diff', 'status']);
 });
 
-test('normalizeSort with MINE_SORT_KEYS: only date/updated/diff valid, the rest → default', () => {
-  assert.deepEqual(MINE_SORT_KEYS, ['date', 'updated', 'diff']);
+test('normalizeSort with MINE_SORT_KEYS: only date/updated/diff/status valid, the rest → default', () => {
+  assert.deepEqual(MINE_SORT_KEYS, ['date', 'updated', 'diff', 'status']);
   assert.ok(MINE_SORT_KEYS.includes(DEFAULT_SORT.key), 'the shared default must stay valid for mine');
   assert.deepEqual(normalizeSort({ key: 'date', dir: 'asc' }, MINE_SORT_KEYS), { key: 'date', dir: 'asc' });
   assert.deepEqual(normalizeSort({ key: 'author', dir: 'asc' }, MINE_SORT_KEYS), DEFAULT_SORT);
@@ -47,6 +47,9 @@ test('toggleSort: other column → REPLACES, with the column default direction',
   assert.deepEqual(toggleSort({ key: 'approvals', dir: 'desc' }, 'author'), { key: 'author', dir: 'asc' });
   assert.deepEqual(toggleSort({ key: 'author', dir: 'desc' }, 'date'), { key: 'date', dir: 'desc' });
   assert.deepEqual(toggleSort({ key: 'date', dir: 'asc' }, 'diff'), { key: 'diff', dir: 'asc' });
+  // status → actionable first (open before draft before merged/closed)
+  assert.deepEqual(toggleSort({ key: 'date', dir: 'asc' }, 'status'), { key: 'status', dir: 'asc' });
+  assert.deepEqual(toggleSort({ key: 'status', dir: 'asc' }, 'status'), { key: 'status', dir: 'desc' });
 });
 
 test('sortRows: date desc → newest opened first; asc → reverse', () => {
@@ -90,6 +93,36 @@ test('sortRows: diff valid with MINE_SORT_KEYS too', () => {
     { number: 2, additions: 1, deletions: 0 },
   ];
   assert.deepEqual(order(sortRows(withDiff, { key: 'diff', dir: 'asc' }, MINE_SORT_KEYS)), [2, 1]);
+});
+
+test('sortRows: status asc → open, draft, merged, closed (actionable first)', () => {
+  const withStates = [
+    { number: 1, state: 'closed' },
+    { number: 2, state: 'open' },
+    { number: 3, state: 'merged' },
+    { number: 4, state: 'draft' },
+  ];
+  assert.deepEqual(order(sortRows(withStates, { key: 'status', dir: 'asc' })), [2, 4, 3, 1]);
+  assert.deepEqual(order(sortRows(withStates, { key: 'status', dir: 'desc' })), [1, 3, 4, 2]);
+});
+
+test('sortRows: status missing or unknown at the END whatever the direction', () => {
+  const withNulls = [
+    { number: 1 },                    // no state → missing
+    { number: 2, state: 'weird' },    // unknown state → missing too
+    { number: 3, state: 'merged' },
+    { number: 4, state: 'open' },
+  ];
+  assert.deepEqual(order(sortRows(withNulls, { key: 'status', dir: 'asc' })), [4, 3, 1, 2]);
+  assert.deepEqual(order(sortRows(withNulls, { key: 'status', dir: 'desc' })), [3, 4, 1, 2]);
+});
+
+test('sortRows: status valid with MINE_SORT_KEYS too', () => {
+  const withStates = [
+    { number: 1, state: 'draft' },
+    { number: 2, state: 'open' },
+  ];
+  assert.deepEqual(order(sortRows(withStates, { key: 'status', dir: 'asc' }, MINE_SORT_KEYS)), [2, 1]);
 });
 
 test('sortRows: author case-insensitive (Alice < bob < zoe)', () => {

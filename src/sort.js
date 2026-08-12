@@ -5,15 +5,16 @@
 // has its own key set and its own persisted state (`sort` for « others »,
 // `sortMine` for « Your PRs »).
 
-export const SORT_KEYS = ['date', 'updated', 'approvals', 'author', 'diff'];
-// « Your PRs »: the two date columns + the diff size (author = me, approvals of
-// little use there).
-export const MINE_SORT_KEYS = ['date', 'updated', 'diff'];
+export const SORT_KEYS = ['date', 'updated', 'approvals', 'author', 'diff', 'status'];
+// « Your PRs »: the two date columns, the diff size and the status (author = me,
+// approvals of little use there).
+export const MINE_SORT_KEYS = ['date', 'updated', 'diff', 'status'];
 
 // Default direction on the first click on a column: dates → newest first,
 // approvals → least approved first (the ones that most need a review), author →
-// alphabetical, diff → smallest first (the quick reviews).
-const DEFAULT_DIR = { date: 'desc', updated: 'desc', approvals: 'asc', author: 'asc', diff: 'asc' };
+// alphabetical, diff → smallest first (the quick reviews), status → actionable
+// first (open before draft before merged/closed).
+const DEFAULT_DIR = { date: 'desc', updated: 'desc', approvals: 'asc', author: 'asc', diff: 'asc', status: 'asc' };
 const DIRS = ['asc', 'desc'];
 
 // `updated` desc: the PRs that moved last come first (valid for BOTH key
@@ -36,11 +37,16 @@ export function toggleSort(current, key, keys = SORT_KEYS) {
   return { key, dir: DEFAULT_DIR[key] ?? 'asc' };
 }
 
+// Semantic rank of the 🚦 column: NOT alphabetical — actionable first (open),
+// then draft, then the finished ones (merged/closed). Unknown state → missing.
+const STATE_RANK = { open: 0, draft: 1, merged: 2, closed: 3 };
+
 // Comparison value of a row for a key. null = missing (sorted at the end).
 function valueOf(row, key) {
   if (key === 'approvals') return row.approvals ?? null; // 0 is a real value
   if (key === 'author') return row.author ? String(row.author).toLowerCase() : null;
   if (key === 'updated') return row.updatedAt ?? null; // ISO 8601: lexical comparison is enough
+  if (key === 'status') return STATE_RANK[row.state] ?? null;
   if (key === 'diff') {
     // Size = additions + deletions (the two cells of the Diff column). Both
     // absent → missing; a lone 0 is a real value (empty diff).

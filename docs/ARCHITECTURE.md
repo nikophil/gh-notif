@@ -474,11 +474,13 @@ sequenceDiagram
 
 15. **Sorting of the tables (`--serve`) = display state, like the active favorite.** ONE
     criterion per table (never a multi-column cumulation), each with its own persisted state
-    in `prefs-v1.json`: `sort` for « others » (`{key: date|updated|approvals|author|diff, dir}`)
-    and `sortMine` for « Your PRs » (`{key: date|updated|diff, dir}` — `MINE_SORT_KEYS`: author
-    is always me and approvals are of little use there; the Opened/Updated/Diff columns
+    in `prefs-v1.json`: `sort` for « others » (`{key: date|updated|approvals|author|diff|status, dir}`)
+    and `sortMine` for « Your PRs » (`{key: date|updated|diff|status, dir}` — `MINE_SORT_KEYS`: author
+    is always me and approvals are of little use there; the Opened/Updated/Diff/🚦 columns
     are clickable). `diff` sorts on the size `additions + deletions` (both counters
-    absent → missing, at the end; a lone 0 is a real value). Both `null` by default — `normalizeSort(raw, keys)` applies
+    absent → missing, at the end; a lone 0 is a real value). `status` sorts the 🚦 column on a
+    **semantic rank, not alphabetical** (`STATE_RANK`: open 0 → draft 1 → merged 2 → closed 3,
+    « actionable first »; unknown/absent state → missing, at the end). Both `null` by default — `normalizeSort(raw, keys)` applies
     **`{updated, desc}`** at usage (the PRs that moved last come first; the shared
     `DEFAULT_SORT.key` must stay within `MINE_SORT_KEYS`), no migration. The sort applies in
     `fragmentBody` (serve.js), AFTER `filterDataByScope` and never at the collection — same
@@ -487,7 +489,7 @@ sequenceDiagram
     (+ **`&table=mine`** to target « Your PRs »; the th carries `data-sort-table`, forwarded by
     the client) = `toggleSort` (same column → reverse; other → default direction: date/updated
     `desc`, approvals `asc` — the least approved first —, author `asc`, diff `asc` — the
-    quick reviews first) + local recompute,
+    quick reviews first —, status `asc` — open first) + local recompute,
     **0 GitHub call**. Clickable headers rendered by `sortableTh` (html.js) **only if
     `opts.sort` (others) / `opts.sortMine` (mine) is provided** to `renderFragment` — without
     them, output strictly unchanged (compat). The active column is **discreetly highlighted**
