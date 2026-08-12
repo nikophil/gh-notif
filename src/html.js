@@ -210,16 +210,9 @@ function table(headers, rows) {
 const dateCell = (label, iso, now) =>
   titled(`${label} ${relativeDate(iso, now)}`, escapeHtml(relativeDate(iso, now)));
 
-function mineTable(rows, now, sort = null, ignoredChecks = {}) {
-  const headers = [
-    'Repository', 'PR', 'Title', 'Branch',
-    sortableTh('Opened', 'date', sort, 'mine'),
-    sortableTh('Updated', 'updated', sort, 'mine'),
-    sortableTh('Diff', 'diff', sort, 'mine'),
-    STATUS_TH, APPROVALS_TH, TRIGGERS_TH, 'CI',
-  ];
-  const trs = rows.map((r) =>
-    tableRow([
+function mineRow(r, now, hidden, ignoredChecks = {}) {
+  return tableRow(
+    [
       link(r.url, r.repo),
       link(r.url, `#${r.number}`),
       link(r.url, r.title),
@@ -231,12 +224,28 @@ function mineTable(rows, now, sort = null, ignoredChecks = {}) {
       approvalsCell(r.approvals, r.state === 'open' && isReady(r.approvals), r.changesRequested),
       triggersCell(r.triggers),
       ciCell(r, ignoredChecks),
-    ]),
+      actionButton(r, hidden),
+    ],
+    hidden ? 'hid' : '',
   );
+}
+
+function mineTable(rows, hiddenRows, now, showHidden, sort = null, ignoredChecks = {}) {
+  const headers = [
+    'Repository', 'PR', 'Title', 'Branch',
+    sortableTh('Opened', 'date', sort, 'mine'),
+    sortableTh('Updated', 'updated', sort, 'mine'),
+    sortableTh('Diff', 'diff', sort, 'mine'),
+    STATUS_TH, APPROVALS_TH, TRIGGERS_TH, 'CI', '',
+  ];
+  const trs = [
+    ...rows.map((r) => mineRow(r, now, false, ignoredChecks)),
+    ...(showHidden ? hiddenRows.map((r) => mineRow(r, now, true, ignoredChecks)) : []),
+  ];
   return table(headers, trs);
 }
 
-// Hide (✕) or restore (↩︎) button for an « others » row.
+// Hide (✕) or restore (↩︎) button for a row (mine and others alike).
 function actionButton(r, hidden) {
   const key = escapeHtml(`${r.repo}#${r.number}`);
   return hidden
@@ -302,16 +311,25 @@ export function renderFragment(data, opts = {}) {
   const sortMine = opts.sortMine ?? null;
   const ignoredChecks = opts.ignoredChecks ?? {};
   const mine = data?.mine ?? [];
+  const hiddenMine = data?.hiddenMine ?? [];
+  const hiddenMineCount = data?.hiddenMineCount ?? hiddenMine.length;
   const others = data?.others ?? [];
   const hiddenRows = data?.hidden ?? [];
   const hiddenCount = data?.hiddenCount ?? hiddenRows.length;
 
   const blocks = [];
-  if (mine.length > 0 || closedUrl) {
+  if (mine.length > 0 || closedUrl || (showHidden && hiddenMineCount > 0)) {
     const hist = closedUrl
       ? ` <a class="hist" href="${escapeHtml(closedUrl)}" target="_blank" rel="noopener">closed ↗</a>`
       : '';
-    blocks.push(`<section><h2>📥 Your open PRs (${mine.length})${hist}</h2>${mine.length > 0 ? mineTable(mine, now, sortMine, ignoredChecks) : ''}</section>`);
+    const count =
+      hiddenMineCount > 0
+        ? `(${mine.length}, ${hiddenMineCount} hidden)`
+        : `(${mine.length})`;
+    const rows = mine.length > 0 || (showHidden && hiddenMineCount > 0)
+      ? mineTable(mine, hiddenMine, now, showHidden, sortMine, ignoredChecks)
+      : '';
+    blocks.push(`<section><h2>📥 Your open PRs ${count}${hist}</h2>${rows}</section>`);
   }
   if (others.length > 0 || (showHidden && hiddenCount > 0)) {
     const count =

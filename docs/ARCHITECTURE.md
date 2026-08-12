@@ -34,7 +34,7 @@ error).
 | `src/notify.js` | Cross-platform desktop notifs (`notifyCommand`: `notify-send` Linux / `osascript` macOS). | yes via spawn stub |
 | `src/render.js` | **Presentation helpers shared with the web** (`ciIcon`, `stateIcon`, `relativeDate`, `checksByRepo`) + the tiny terminal `favoritesBar` for `fav list`. No table rendering. | yes |
 | `src/spinner.js` | Spinner during the server poll (stderr, no-op outside TTY). | yes via stream stub |
-| `src/hidden.js` | Hiding of others' PRs: persistence, event signatures, reconciliation, numbers. | yes |
+| `src/hidden.js` | Hiding of PRs (others' and mine): persistence, event signatures, reconciliation, numbers. | yes |
 | `src/html.js` | **Pure HTML** rendering of the web page (`escapeHtml`, `renderFragment`, `renderShell`, `renderDebug`/`renderDebugShell`). Reuses the helpers of `render.js`. | yes |
 | `src/serve.js` | Local HTTP server (`node:http`) + poll loop: `handleRequest` (pure) + `serve` (I/O). | `handleRequest` yes; `serve` no (I/O) |
 | `src/ratelimit.js` | Rate-limit detection (`isRateLimitError`) + backoff (`nextBackoffSeconds`). Pure. | yes |
@@ -324,18 +324,26 @@ sequenceDiagram
    use `'` (U+2019), not the ASCII `'`. Recurrent regression: check the bytes if you touch
    these strings. The tests lock this down.
 
-10. **Hiding « until the next trigger » (`hidden.js`).** Only the PRs of `others` are
-    hideable (never `mine` — explicit guard in `collectPRs`). We store a snapshot of the
+10. **Hiding « until the next trigger » (`hidden.js`).** The PRs of `others` AND of `mine`
+    are hideable (a single `hidden-v1.json` map, keys `repo#n` — a PR is one or the other, no
+    ambiguity). We store a snapshot of the
     **trigger event URLs** (`signatureOf`, `review_request` excluded because absent from
     `TRIGGER_FOR`) at the moment of hiding; `reconcile` un-hides as soon as a new URL appears and
-    prunes the keys absent from the current entries. Intended consequence: a review requested
+    prunes the keys absent from the current entries. ⚠️ `reconcile` receives **mine + others**:
+    pruning against `others` alone would erase the hiding of my PRs at the next poll. Intended
+    consequence: a review requested
     (empty signature) stays hidden until a real interaction (reply/mention/comment) — a
-    re-request of review produces no event URL, so does not make it reappear.
-    `collectPRs` reconciles and returns `{ others (visible), hidden (hidden rows), hiddenCount,
-    hiddenChanged }`. The interaction is **web-only**: a **✕** button on each « others » row
+    re-request of review produces no event URL, so does not make it reappear. Same spirit on my
+    PRs: an **approval does not un-hide** (it is not a notification item, cf. §4) — but it still
+    **notifies**, because `approvalEvents` (like `notifications`) is computed on the **raw** data,
+    before the visible/hidden split (§14 order).
+    `collectPRs` reconciles and returns `{ mine (visible), hiddenMine, hiddenMineCount,
+    others (visible), hidden (hidden rows), hiddenCount,
+    hiddenChanged }`. The interaction is **web-only**: a **✕** button on each row (both tables)
     → `POST /hide?key=repo#n` (`toggleHidden` + `saveHidden`, then a **local recompute** without a
     refetch, cf. §serve); the **🙈 hidden** toggle (`?hidden=1`) shows the hidden rows greyed out
-    with a restore button. State persisted in `~/.local/state/gh-notif/hidden-v1.json`. ⚠️
+    with a restore button, in their own table (« Your open PRs (n, m hidden) »). State persisted
+    in `~/.local/state/gh-notif/hidden-v1.json`. ⚠️
     `TRIGGER_FOR` lives in `filter.js` (not `collect.js`) to be shared with `hidden.js` without an
     import cycle.
 

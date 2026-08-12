@@ -31,6 +31,28 @@ test('renderFragment: section titles with counters', () => {
   assert.match(out, /👥 Activity on others' PRs \(2\)/);
 });
 
+test('renderFragment: ✕ hide button on my PRs too', () => {
+  const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW });
+  assert.match(out, /data-key="symfony\/web#120"[^>]*data-act="hide"/);
+});
+
+test('renderFragment: my hidden rows greyed with restore button in showHidden mode', () => {
+  const data = { mine: [myRow()], others: [], hiddenMine: [myRow({ number: 121, title: 'snoozed' })], hiddenMineCount: 1 };
+  const on = renderFragment(data, { now: NOW, showHidden: true });
+  assert.match(on, /📥 Your open PRs \(1, 1 hidden\)/);
+  assert.match(on, /data-key="symfony\/web#121"[^>]*data-act="show"/);
+  const off = renderFragment(data, { now: NOW });
+  assert.match(off, /📥 Your open PRs \(1, 1 hidden\)/); // counter always announced
+  assert.ok(!off.includes('#121'), 'hidden row absent without showHidden');
+});
+
+test('renderFragment: « Your open PRs » section rendered when only hidden rows in showHidden mode', () => {
+  const data = { mine: [], others: [otherRow()], hiddenMine: [myRow({ number: 121 })], hiddenMineCount: 1 };
+  const on = renderFragment(data, { now: NOW, showHidden: true });
+  assert.match(on, /📥 Your open PRs \(0, 1 hidden\)/);
+  assert.match(on, /data-key="symfony\/web#121"[^>]*data-act="show"/);
+});
+
 test('renderFragment: link to the PR', () => {
   const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW });
   assert.ok(out.includes('href="https://github.com/symfony/web/pull/120"'));
@@ -219,13 +241,12 @@ test('renderFragment: links in a new tab (_blank + noopener)', () => {
   assert.match(out, /rel="noopener"/);
 });
 
-test('renderFragment: hide button (✕) on « others » rows, not on mine', () => {
+test('renderFragment: hide button (✕) on « others » AND « mine » rows', () => {
   const out = renderFragment({ mine: [myRow()], others: [otherRow()] }, { now: NOW });
   // an action button targeting the others' PR
   assert.match(out, /class="act"[^>]*data-key="symfony\/api#55"[^>]*data-act="hide"/);
-  // the « mine » section (1st section) has no act button
-  const mineSection = out.split('👥')[0];
-  assert.ok(!mineSection.includes('class="act"'));
+  // and one targeting mine (same mechanism since « hide your own PRs »)
+  assert.match(out, /class="act"[^>]*data-key="symfony\/web#120"[^>]*data-act="hide"/);
 });
 
 test('renderFragment: showHidden shows hidden rows (greyed out + restore)', () => {

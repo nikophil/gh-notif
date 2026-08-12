@@ -3,8 +3,8 @@ import { join, dirname } from 'node:path';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { TRIGGER_FOR } from './filter.js';
 
-// Persistence + pure logic for hiding others' PRs. The keyboard interaction
-// (`h` key, number + Enter) lives in the entrypoint; here, everything is testable.
+// Persistence + pure logic for hiding PRs (others' AND mine, same map/mechanism).
+// The interaction (✕ button) lives in the web page; here, everything is testable.
 
 export function hiddenPath() {
   const base = process.env.XDG_STATE_HOME || join(homedir(), '.local', 'state');

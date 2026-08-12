@@ -518,15 +518,57 @@ test('collectPRs: a hidden « others » PR leaves others and moves into hidden',
   assert.equal(hiddenRows[0].number, 60);
 });
 
-test('collectPRs: we NEVER hide a PR of mine', async () => {
+test('collectPRs: a hidden PR of mine leaves mine and moves into hiddenMine', async () => {
   const gh = fakeGh({
     authored: [{ number: 81, title: 'My PR', html_url: 'https://github.com/o/x/pull/81', repository_url: 'https://api.github.com/repos/o/x' }],
     details: () => ({ number: 81, title: 'My PR', author: { login: ME }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, statusCheckRollupState: 'SUCCESS' }),
   });
-  const hidden = { 'o/x#81': { at: 'x', seen: [] } }; // even if present in the map
-  const { mine, hiddenCount } = await collectPRs(gh, ME, { hidden });
-  assert.equal(mine.length, 1);     // stays in mine
-  assert.equal(hiddenCount, 0);     // never counted as hidden
+  const hidden = { 'o/x#81': { at: 'x', seen: [] } };
+  const { mine, hiddenMine, hiddenMineCount, hiddenCount, hiddenChanged } = await collectPRs(gh, ME, { hidden });
+  assert.equal(mine.length, 0);           // no longer in the visible section
+  assert.equal(hiddenMineCount, 1);
+  assert.equal(hiddenMine[0].number, 81);
+  assert.equal(hiddenCount, 0);           // the « others » counter is unaffected
+  assert.equal(hiddenChanged, false);     // the key must NOT be pruned (PR still present)
+  assert.ok('o/x#81' in hidden);
+});
+
+test('collectPRs: un-hiding of one of MY PRs on a new trigger (reconcile)', async () => {
+  const thread = {
+    id: 't1', reason: 'author', updated_at: '2026-06-24T12:00:00Z',
+    subject: { title: 'My PR', url: 'https://api.github.com/repos/o/x/pulls/81', latest_comment_url: null, type: 'PullRequest' },
+    repository: { full_name: 'o/x' },
+  };
+  const gh = fakeGh({
+    notifications: [thread],
+    authored: [{ number: 81, title: 'My PR', html_url: 'https://github.com/o/x/pull/81', repository_url: 'https://api.github.com/repos/o/x' }],
+    reviewComments: [
+      { id: 1, user: { login: ME }, created_at: '2026-06-24T10:00:00Z', html_url: 'mine' },
+      { id: 2, in_reply_to_id: 1, user: { login: 'bob' }, created_at: '2026-06-24T11:00:00Z', html_url: 'https://github.com/o/x/pull/81#discussion_r2' },
+    ],
+    details: () => ({ number: 81, title: 'My PR', author: { login: ME }, createdAt: '2026-06-20T12:00:00Z', additions: 1, deletions: 1, statusCheckRollupState: 'SUCCESS' }),
+  });
+  // hidden with an empty snapshot → the #discussion_r2 event is « new »
+  const hidden = { 'o/x#81': { at: 'x', seen: [] } };
+  const { mine, hiddenMineCount, hiddenChanged } = await collectPRs(gh, ME, { hidden });
+  assert.equal(mine.length, 1);      // reappeared
+  assert.equal(hiddenMineCount, 0);
+  assert.equal(hiddenChanged, true); // reconcile modified the map
+  assert.equal('o/x#81' in hidden, false);
+});
+
+test('collectPRs: a hidden PR of mine still emits its approvalEvents', async () => {
+  const gh = fakeGh({
+    authored: [{ number: 81, title: 'My PR', html_url: 'https://github.com/o/x/pull/81', repository_url: 'https://api.github.com/repos/o/x' }],
+    details: () => ({ number: 81, title: 'My PR', author: { login: ME }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, state: 'OPEN', isDraft: false, statusCheckRollupState: 'SUCCESS', reviews: [
+      { author: { login: 'alice' }, state: 'APPROVED', submittedAt: '2026-06-20T10:00:00Z' },
+    ] }),
+  });
+  const hidden = { 'o/x#81': { at: 'x', seen: [] } };
+  const { hiddenMineCount, approvalEvents } = await collectPRs(gh, ME, { hidden });
+  assert.equal(hiddenMineCount, 1);
+  assert.equal(approvalEvents.length, 1); // desktop notifs keep seeing everything (cf. §14)
+  assert.equal(approvalEvents[0].actor, 'alice');
 });
 
 test('collectPRs: un-hiding on a new trigger (reconcile) + hiddenChanged', async () => {

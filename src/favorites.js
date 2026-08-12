@@ -131,9 +131,12 @@ export function filterDataByScope(data, scope) {
   if (!scope || !data) return data;
   const keep = (r) => scopeMatches(scope, r?.repo);
   const hidden = (data.hidden ?? []).filter(keep);
+  const hiddenMine = (data.hiddenMine ?? []).filter(keep);
   return {
     ...data,
     mine: (data.mine ?? []).filter(keep),
+    hiddenMine,
+    hiddenMineCount: hiddenMine.length,
     others: (data.others ?? []).filter(keep),
     hidden,
     hiddenCount: hidden.length,

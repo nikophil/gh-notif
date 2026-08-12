@@ -229,7 +229,7 @@ export function ciOf(detail, ignoredList = []) {
 // (POST /ignore-check): toggling a job → the CI icons update without a refetch.
 export function recomputeCi(data, ignoredChecks = {}) {
   const forRepo = (repo) => (Array.isArray(ignoredChecks[repo]) ? ignoredChecks[repo] : []);
-  for (const key of ['mine', 'others', 'hidden']) {
+  for (const key of ['mine', 'hiddenMine', 'others', 'hidden']) {
     for (const row of data?.[key] ?? []) row.ci = ciOf(row, forRepo(row.repo));
   }
   return data;
@@ -284,7 +284,7 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
   const entries = [...byKey.values()];
   const details = await gh.getPullDetailsBatch(entries.map((e) => ({ repo: e.repo, number: e.number })));
 
-  const mine = [];
+  const mineAll = [];   // my PRs (drafts kept), before hide filtering
   const othersAll = []; // others' PRs (excluding drafts), before hide filtering
   const approvalEvents = []; // one entry per approval on MY open PRs
   entries.forEach((e, i) => {
@@ -315,7 +315,7 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
       changesRequested: changesRequestedOf(d?.reviews).length, // reviewers whose latest review requests changes
     };
     if (d && d.author?.login === me) {
-      mine.push(row); // my PRs: never hidden, we keep my drafts
+      mineAll.push(row); // my PRs: we keep my drafts
       // Approval events: only on my OPEN PRs (not draft/merged/
       // closed). « ready to merge » makes no sense otherwise (and avoids noise).
       if (row.state === 'open') {
@@ -332,14 +332,19 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
     }
   });
 
-  // Un-hide on a new trigger + prune stale keys (mutates `hidden`),
-  // then split others' PRs into visible / hidden.
-  const hiddenChanged = reconcile(hidden, othersAll, items);
+  // Un-hide on a new trigger + prune stale keys (mutates `hidden`), then split
+  // each section into visible / hidden. reconcile sees mine AND others: pruning
+  // on others alone would erase the hiding of my PRs at the next poll. The
+  // approvalEvents above are computed BEFORE the split: a hidden PR of mine
+  // keeps notifying its approvals (raw data feeds the notifs, cf. §14).
+  const hiddenChanged = reconcile(hidden, [...mineAll, ...othersAll], items);
+  const mine = mineAll.filter((r) => !isHidden(hidden, keyOf(r)));
+  const hiddenMine = mineAll.filter((r) => isHidden(hidden, keyOf(r)));
   const others = othersAll.filter((r) => !isHidden(hidden, keyOf(r)));
   const hiddenRows = othersAll.filter((r) => isHidden(hidden, keyOf(r)));
 
   // `notifications` = already-classified notification items (with event url),
   // exposed so that the poll loop detects new things without redoing the work.
   // `debug` = pipeline verdict per thread (debug mode).
-  return { mine, others, hidden: hiddenRows, hiddenCount: hiddenRows.length, hiddenChanged, notifications: items, approvalEvents, debug };
+  return { mine, hiddenMine, hiddenMineCount: hiddenMine.length, others, hidden: hiddenRows, hiddenCount: hiddenRows.length, hiddenChanged, notifications: items, approvalEvents, debug };
 }

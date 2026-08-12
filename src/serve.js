@@ -46,13 +46,16 @@ export function shouldRefresh(updatedAt, now, minAgeMs = REFRESH_MIN_AGE_MS) {
   return updatedAt == null || now - updatedAt >= minAgeMs;
 }
 
-// Re-filters others/hidden from the in-memory data after a toggle, without
-// refetching GitHub (same logic as the terminal entrypoint).
+// Re-splits mine/hiddenMine and others/hidden from the in-memory data after a
+// toggle, without refetching GitHub.
 function recompute(data, hidden) {
-  const all = [...(data.others ?? []), ...(data.hidden ?? [])];
-  const others = all.filter((r) => !isHidden(hidden, keyOf(r)));
-  const hiddenRows = all.filter((r) => isHidden(hidden, keyOf(r)));
-  return { ...data, others, hidden: hiddenRows, hiddenCount: hiddenRows.length };
+  const split = (visible, hid) => {
+    const all = [...(visible ?? []), ...(hid ?? [])];
+    return [all.filter((r) => !isHidden(hidden, keyOf(r))), all.filter((r) => isHidden(hidden, keyOf(r)))];
+  };
+  const [mine, hiddenMine] = split(data.mine, data.hiddenMine);
+  const [others, hiddenRows] = split(data.others, data.hidden);
+  return { ...data, mine, hiddenMine, hiddenMineCount: hiddenMine.length, others, hidden: hiddenRows, hiddenCount: hiddenRows.length };
 }
 
 // HTML body of the fragment according to the snapshot state: error → escaped banner;
@@ -67,7 +70,7 @@ function fragmentBody(snapshot, { now, showHidden, viewScope = null, closedUrl =
   // ?hidden=1 mode) and of « Your PRs » (independent state, its own key set).
   // `sort`/`sortMine` absent → collection order unchanged (compat).
   if (sort) data = { ...data, others: sortRows(data.others, sort), hidden: sortRows(data.hidden, sort) };
-  if (sortMine) data = { ...data, mine: sortRows(data.mine, sortMine, MINE_SORT_KEYS) };
+  if (sortMine) data = { ...data, mine: sortRows(data.mine, sortMine, MINE_SORT_KEYS), hiddenMine: sortRows(data.hiddenMine, sortMine, MINE_SORT_KEYS) };
   // `ignoredChecks` only affects the popover display (struck checks) — the CI
   // verdict itself was already recomputed at collection (§16).
   return renderFragment(data, { now, showHidden, closedUrl, sort, sortMine, ignoredChecks });
@@ -86,8 +89,8 @@ function debugBody(snapshot, { now, viewScope = null, ignoredChecks = {} } = {})
   if (snapshot.error) return `<p class="empty offline">⚠️ Error: ${escapeHtml(snapshot.error)}</p>`;
   if (!snapshot.updatedAt) return renderLoading(viewScope?.value ?? '');
   const data = filterDataByScope(snapshot.data ?? {}, viewScope);
-  // rows = mine + others + hidden → « Checks by PR » section (job names for the blocklist).
-  const rows = [...(data.mine ?? []), ...(data.others ?? []), ...(data.hidden ?? [])];
+  // rows = mine + others (hidden included) → « Checks by PR » section (job names for the blocklist).
+  const rows = [...(data.mine ?? []), ...(data.hiddenMine ?? []), ...(data.others ?? []), ...(data.hidden ?? [])];
   return renderDebug(data?.debug ?? [], { now, rows, ignoredChecks });
 }
 
@@ -218,7 +221,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
     }
     // PRs still open/pending (visible, hidden or mine): avoids
     // notifying a review request on an already closed/merged PR (cf. #7004).
-    const openKeys = new Set([...data.mine, ...data.others, ...(data.hidden ?? [])].map((r) => `${r.repo}#${r.number}`));
+    const openKeys = new Set([...data.mine, ...(data.hiddenMine ?? []), ...data.others, ...(data.hidden ?? [])].map((r) => `${r.repo}#${r.number}`));
     const fresh = items.filter((i) => isNew(state, i));
     for (const item of fresh) {
       markSeen(state, item); // always marked seen, even notifs off (no burst on re-enabling)

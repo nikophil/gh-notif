@@ -134,6 +134,13 @@ test('filterDataByScope: precise repo scope', () => {
   assert.equal(out.hiddenCount, 1);
 });
 
+test('filterDataByScope: filters hiddenMine and recomputes hiddenMineCount', () => {
+  const d = { ...data(), hiddenMine: [{ repo: 'symfony/api', number: 6 }, { repo: 'zenstruck/foundry', number: 7 }], hiddenMineCount: 2 };
+  const out = filterDataByScope(d, { type: 'org', value: 'symfony' });
+  assert.deepEqual(out.hiddenMine.map((r) => r.number), [6]);
+  assert.equal(out.hiddenMineCount, 1);
+});
+
 test('filterDataByScope: null scope → data unchanged (same references)', () => {
   const d = data();
   assert.equal(filterDataByScope(d, null), d);

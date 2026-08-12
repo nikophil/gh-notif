@@ -123,6 +123,14 @@ test('GET /fragment?hidden (showHidden) renders the hidden rows', () => {
   assert.match(res.body, /data-key="o\/x#9"[^>]*data-act="show"/);
 });
 
+test('GET /fragment?hidden (showHidden) also renders MY hidden rows', () => {
+  const snap = okSnapshot();
+  snap.data.hiddenMine = [{ repo: 'o/x', number: 12, url: 'u', title: 'my hidden', triggers: [], ci: 'none', createdAt: NOW, additions: 0, deletions: 0, state: 'open', approvals: 0 }];
+  snap.data.hiddenMineCount = 1;
+  const res = handleRequest('/fragment', snap, { ...OPTS, showHidden: true });
+  assert.match(res.body, /data-key="o\/x#12"[^>]*data-act="show"/);
+});
+
 // ── parseScope / scopeLabel ────────────────────────────────────────────────
 test('parseScope : empty → null, org, owner/repo', () => {
   assert.equal(parseScope(''), null);
@@ -176,6 +184,48 @@ test('POST /hide hides one of the others\' PRs then restores it', async () => {
     assert.match(frag3, /symfony\/web#42/, 'reappears in « show hidden » mode');
   } finally {
     server.close();
+  }
+});
+
+// ── integration: POST /hide also works on MY PRs ────────────────────────────
+test('POST /hide hides one of MY PRs then shows it in hidden mode', async () => {
+  // gh stub: an authored PR (author = me) → a « mine » row.
+  const gh = {
+    getCurrentUser: async () => 'me',
+    listNotifications: async () => [],
+    searchReviewRequested: async () => [],
+    searchAuthored: async () => [
+      { repository_url: 'https://api.github.com/repos/symfony/web', number: 43, title: 't', html_url: 'u', updated_at: '2026-06-24T00:00:00Z' },
+    ],
+    getPullDetailsBatch: async (prs) => prs.map((p) => ({
+      number: p.number, title: 't', author: { login: 'me' }, createdAt: '2026-06-24T00:00:00Z',
+      additions: 1, deletions: 0, isDraft: false, state: 'OPEN', reviews: [], statusCheckRollupState: 'SUCCESS',
+    })),
+    getComment: async () => null,
+    getReviewComments: async () => [],
+  };
+  const tmp = `/tmp/gh-notif-test-hide-mine-${process.pid}`;
+  rmSync(tmp, { recursive: true, force: true });
+  process.env.XDG_STATE_HOME = tmp;
+
+  const PORT = 7799;
+  const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false });
+  try {
+    await new Promise((r) => setTimeout(r, 250)); // 1st poll
+    const frag1 = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
+    assert.match(frag1, /symfony\/web#43/, 'my PR is visible at first');
+
+    // hides MY PR (same endpoint as the others)
+    await fetch(`http://localhost:${PORT}/hide?key=${encodeURIComponent('symfony/web#43')}`, { method: 'POST' });
+    const frag2 = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
+    assert.ok(!frag2.includes('symfony/web#43'), 'my PR is hidden (absent)');
+
+    // visible again in showHidden mode, with a restore button
+    const frag3 = await (await fetch(`http://localhost:${PORT}/fragment?hidden=1`)).text();
+    assert.match(frag3, /data-key="symfony\/web#43"[^>]*data-act="show"/, 'reappears greyed in « show hidden » mode');
+  } finally {
+    server.close();
+    rmSync(tmp, { recursive: true, force: true });
   }
 });
 
