@@ -149,6 +149,18 @@ export function makeGh(runner = defaultRunner) {
         return null;
       }
     },
+    // Watches a repo (GitHub « Watch » → subscribed threads in /notifications),
+    // used when enabling a favorite's « all » mode. Best-effort like scopeExists:
+    // true on success, null on failure (network, rights…) — NEVER throws, the
+    // caller fails open with a warning instead of blocking the toggle.
+    async setRepoSubscription(repoFullName) {
+      try {
+        await runner(['api', '-X', 'PUT', `repos/${repoFullName}/subscription`, '-F', 'subscribed=true']);
+        return true;
+      } catch {
+        return null;
+      }
+    },
     // Does a favorite scope exist on GitHub? repo → GET /repos/owner/name ;
     // org/user → GET /users/{value} (200 for an org **as well as** for a user).
     // Tri-state: true (exists), false (404 → not found), null (undetermined:

@@ -753,3 +753,58 @@ test('« Your PRs »: no colgroup without sortMine; with it, aligned on the acti
 test('renderShell: col.sorted style present (discreet veil on the sorted column)', () => {
   assert.match(renderShell({}), /col\.sorted/);
 });
+
+// ── « All » mode (watched favorites): issues section, 🆕/👀 triggers, chip button ──
+
+const issueRow = (over = {}) => ({
+  repo: 'zenstruck/foundry', number: 900, url: 'https://github.com/zenstruck/foundry/issues/900',
+  title: 'Bug report', actor: 'alice', createdAt: '2026-06-23T12:00:00Z', updatedAt: '2026-06-24T10:00:00Z',
+  triggers: ['new'],
+  ...over,
+});
+
+test('renderFragment: issues section rendered only when there are rows', () => {
+  const html = renderFragment({ mine: [], others: [], issues: [issueRow()] }, { now: NOW });
+  assert.match(html, /Issues \(1\)/);
+  assert.match(html, /https:\/\/github\.com\/zenstruck\/foundry\/issues\/900/);
+  assert.match(html, /#900/);
+  assert.match(html, /Bug report/);
+  assert.match(html, /@alice/);
+  assert.match(html, /🆕/);
+  // without issues: nothing new (compat)
+  assert.doesNotMatch(renderFragment({ mine: [], others: [] }, { now: NOW }), /Issues \(/);
+  assert.doesNotMatch(renderFragment({ mine: [], others: [], issues: [] }, { now: NOW }), /Issues \(/);
+});
+
+test('renderFragment: issue actor absent → « ? », activity trigger → 👀', () => {
+  const html = renderFragment({ mine: [], others: [], issues: [issueRow({ actor: null, triggers: ['activity'] })] }, { now: NOW });
+  assert.match(html, /👀/);
+  assert.doesNotMatch(html, /🆕/);
+});
+
+test('renderFragment: 🆕/👀 triggers shown on an « others » PR row', () => {
+  const html = renderFragment({ mine: [], others: [otherRow({ triggers: ['new', 'activity'] })] }, { now: NOW });
+  assert.match(html, /🆕/);
+  assert.match(html, /👀/);
+});
+
+test('renderFavorites: mode button per chip (data-fav-mode raw), « all » state marked', () => {
+  const html = renderFavorites(['symfony', 'zenstruck/foundry'], null, { favModes: { 'zenstruck/foundry': 'all' } });
+  assert.match(html, /data-fav-mode="symfony"/);
+  assert.match(html, /data-fav-mode="zenstruck\/foundry"/);
+  // the « all » chip carries the .all class on its mode button, the normal one doesn't
+  assert.match(html, /class="chip-mode all" data-fav-mode="zenstruck\/foundry"/);
+  assert.match(html, /class="chip-mode" data-fav-mode="symfony"/);
+});
+
+test('renderFavorites: without favModes → mode buttons in normal state (compat)', () => {
+  const html = renderFavorites(['symfony'], null);
+  assert.match(html, /class="chip-mode" data-fav-mode="symfony"/);
+  assert.doesNotMatch(html, /chip-mode all/);
+});
+
+test('renderShell: forwards favModes to the chips and wires POST /fav/mode', () => {
+  const html = renderShell({ favorites: ['zenstruck/foundry'], favModes: { 'zenstruck/foundry': 'all' } });
+  assert.match(html, /class="chip-mode all" data-fav-mode="zenstruck\/foundry"/);
+  assert.match(html, /\/fav\/mode/);
+});

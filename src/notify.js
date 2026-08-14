@@ -10,6 +10,10 @@ export function notifyMessage(item) {
     case CATEGORY.ON_MY_PR:       title = item.actor ? `@${item.actor} commented on your PR` : 'New activity on your PR'; break;
     case CATEGORY.THREAD_REPLY:   title = item.actor ? `@${item.actor} replied to you` : 'New reply to your comment'; break;
     case CATEGORY.APPROVAL:       title = `${item.actor ? `@${item.actor}` : 'Someone'} approved your PR${isReady(item.count) ? ' 🎉 ready to merge' : ''}`; break;
+    // « All » mode (watched favorite): events that do not concern me directly.
+    case CATEGORY.NEW_PR:         title = item.actor ? `@${item.actor} opened a PR` : 'New PR'; break;
+    case CATEGORY.NEW_ISSUE:      title = item.actor ? `@${item.actor} opened an issue` : 'New issue'; break;
+    case CATEGORY.ACTIVITY:       title = item.actor ? `@${item.actor} commented` : 'New activity'; break;
     default:                      title = 'Notification';
   }
   const body = `${item.repo} #${item.number} — ${item.title}\n${item.url}`;

@@ -91,9 +91,12 @@ export async function inspectThread(gh, thread, me, cacheEntry = null) {
   const number = Number(thread.subject.url.split('/').pop());
   const url = thread.subject?.latest_comment_url;
   const since = cacheEntry?.since ?? null;
+  // An Issue thread (« all » mode) has no review-comments — fetching
+  // pulls/N/comments would 404 and the catch would drop the whole inspection.
+  const isIssue = thread.subject?.type === 'Issue';
   const [latestComment, fresh] = await Promise.all([
     url ? gh.getComment(url) : Promise.resolve(null),
-    gh.getReviewComments(thread.repository.full_name, number, { since }),
+    isIssue ? Promise.resolve([]) : gh.getReviewComments(thread.repository.full_name, number, { since }),
   ]);
   const reviewComments = since
     ? mergeReviewComments(cacheEntry?.inspection?.reviewComments ?? [], fresh)
@@ -101,11 +104,15 @@ export async function inspectThread(gh, thread, me, cacheEntry = null) {
   return { latestComment, reviewComments };
 }
 
-export async function collectNotifications(gh, me, { all = false, scope = null, cache = null, debug = null } = {}) {
+export async function collectNotifications(gh, me, { all = false, scope = null, cache = null, debug = null, watchAll = null } = {}) {
   const threads = await gh.listNotifications({ all });
-  // Keep only the PRs in scope before any request (filtering = free).
+  // Keep only the PRs in scope before any request (filtering = free). A repo
+  // covered by an « all »-mode favorite (`watchAll` predicate) ALSO keeps its
+  // Issue threads (cf. ARCHITECTURE §18); everything else is unchanged.
+  const inAllMode = (t) => !!watchAll?.(t.repository?.full_name);
   const prThreads = threads.filter(
-    (t) => t.subject?.type === 'PullRequest' && matchesAnyScope(scope, t.repository?.full_name),
+    (t) => (t.subject?.type === 'PullRequest' || (t.subject?.type === 'Issue' && inAllMode(t)))
+      && matchesAnyScope(scope, t.repository?.full_name),
   );
   // Inspection in parallel (instead of a sequential await per thread): that's the
   // big time gain. `mapLimit` preserves order; a failed thread → null.
@@ -132,7 +139,7 @@ export async function collectNotifications(gh, me, { all = false, scope = null, 
   const items = [];
   prThreads.forEach((thread, i) => {
     const inspection = inspections[i];
-    const { item, reason } = classifyVerdict(thread, me, inspection);
+    const { item, reason } = classifyVerdict(thread, me, inspection, { watchAll: inAllMode(thread) });
     if (item) items.push(item);
     // Debug sink (optional): compact verdict per thread, without the comment
     // body (cost + privacy). Produced for free (data already fetched).
@@ -253,10 +260,10 @@ export function prState(d) {
 // Groups notifications + pending reviews by PR, aggregates the triggers,
 // fetches the details of each PR (author / date / diff / CI) in parallel,
 // then splits according to whether the PR is mine or someone else's.
-export async function collectPRs(gh, me, { all = false, scope = null, hidden = {}, cache = null, ignoredChecks = {} } = {}) {
+export async function collectPRs(gh, me, { all = false, scope = null, hidden = {}, cache = null, ignoredChecks = {}, watchAll = null } = {}) {
   const debug = []; // compact verdict per thread (always produced: zero cost)
   const [items, pending, authored] = await Promise.all([
-    collectNotifications(gh, me, { all, scope, cache, debug }),
+    collectNotifications(gh, me, { all, scope, cache, debug, watchAll }),
     collectPending(gh, scope),
     collectAuthored(gh, scope),
   ]);
@@ -269,7 +276,19 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
     }
     return byKey.get(key);
   };
+  // Watched issues (« all » mode): their own rows, OUTSIDE the PR pipeline
+  // (no GraphQL details, no hiding). One item per thread per poll → one row.
+  const issues = [];
   for (const it of items) {
+    if (it.subjectType !== 'issue') continue;
+    issues.push({
+      repo: it.repo, number: it.number, title: it.title, url: it.url,
+      actor: it.actor ?? null, createdAt: it.createdAt ?? null, updatedAt: it.updatedAt ?? null,
+      triggers: [TRIGGER_FOR[it.category]].filter(Boolean),
+    });
+  }
+  for (const it of items) {
+    if (it.subjectType === 'issue') continue; // issue rows built above
     const trig = TRIGGER_FOR[it.category];
     if (!trig) continue; // review_request: ignored here (cf. TRIGGER_FOR / collectPending)
     const row = ensure(it.repo, it.number, it.title);
@@ -346,5 +365,5 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
   // `notifications` = already-classified notification items (with event url),
   // exposed so that the poll loop detects new things without redoing the work.
   // `debug` = pipeline verdict per thread (debug mode).
-  return { mine, hiddenMine, hiddenMineCount: hiddenMine.length, others, hidden: hiddenRows, hiddenCount: hiddenRows.length, hiddenChanged, notifications: items, approvalEvents, debug };
+  return { mine, hiddenMine, hiddenMineCount: hiddenMine.length, others, hidden: hiddenRows, hiddenCount: hiddenRows.length, hiddenChanged, issues, notifications: items, approvalEvents, debug };
 }

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   MAX_QUALIFIER_LENGTH, parseScope, normalizeFavorites, addFavorite, removeFavorite,
   favoriteScopes, activeFavoriteOf, cycleFavorite, filterDataByScope, favoriteLabel, favoriteCounts,
-  closedPRsUrl,
+  closedPRsUrl, repoInAllMode,
 } from '../src/favorites.js';
 import { scopesQualifier } from '../src/collect.js';
 
@@ -139,6 +139,31 @@ test('filterDataByScope: filters hiddenMine and recomputes hiddenMineCount', () 
   const out = filterDataByScope(d, { type: 'org', value: 'symfony' });
   assert.deepEqual(out.hiddenMine.map((r) => r.number), [6]);
   assert.equal(out.hiddenMineCount, 1);
+});
+
+test('filterDataByScope: filters the issues rows too', () => {
+  const d = { ...data(), issues: [{ repo: 'symfony/api', number: 8 }, { repo: 'zenstruck/foundry', number: 9 }] };
+  const out = filterDataByScope(d, { type: 'org', value: 'symfony' });
+  assert.deepEqual(out.issues.map((r) => r.number), [8]);
+});
+
+test('repoInAllMode: repo covered by at least one « all » favorite (union)', () => {
+  const favorites = ['symfony', 'zenstruck/foundry'];
+  const modes = { 'zenstruck/foundry': 'all' };
+  assert.equal(repoInAllMode(favorites, modes, 'zenstruck/foundry'), true);
+  assert.equal(repoInAllMode(favorites, modes, 'zenstruck/browser'), false); // repo favorite ≠ other repo
+  assert.equal(repoInAllMode(favorites, modes, 'symfony/console'), false);   // favorite in normal mode
+  // org favorite in « all » mode covers all its repos
+  assert.equal(repoInAllMode(favorites, { symfony: 'all' }, 'symfony/console'), true);
+  assert.equal(repoInAllMode(favorites, { symfony: 'all' }, 'zenstruck/foundry'), false);
+});
+
+test('repoInAllMode: stale key (removed favorite) or malformed modes → false', () => {
+  // « all » mode on a favorite no longer in the list: ignored
+  assert.equal(repoInAllMode(['symfony'], { 'zenstruck/foundry': 'all' }, 'zenstruck/foundry'), false);
+  assert.equal(repoInAllMode(['symfony'], null, 'symfony/console'), false);
+  assert.equal(repoInAllMode(['symfony'], 'nope', 'symfony/console'), false);
+  assert.equal(repoInAllMode([], { symfony: 'all' }, 'symfony/console'), false);
 });
 
 test('filterDataByScope: null scope → data unchanged (same references)', () => {

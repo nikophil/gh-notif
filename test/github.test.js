@@ -178,3 +178,15 @@ test('scopeExists: 404 → false, other failure (network…) → null (undetermi
   assert.equal(await ghDown.scopeExists({ type: 'org', value: 'symfony' }), null);
   assert.equal(await ghDown.scopeExists(null), null); // invalid scope: undetermined
 });
+
+test('setRepoSubscription watches the repo (PUT subscription), best-effort', async () => {
+  const runner = fakeRunner([['repos/zenstruck/foundry/subscription', '']]);
+  const gh = makeGh(runner);
+  assert.equal(await gh.setRepoSubscription('zenstruck/foundry'), true);
+  const call = runner.calls[0];
+  assert.ok(call.includes('PUT'));
+  assert.ok(call.join(' ').includes('repos/zenstruck/foundry/subscription'));
+  assert.ok(call.join(' ').includes('subscribed=true'));
+  // failure (network, 404…) → null, never throws
+  assert.equal(await makeGh(fakeRunner([])).setRepoSubscription('o/r'), null);
+});

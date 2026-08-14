@@ -718,3 +718,91 @@ test('collectPRs: data.debug exposes the verdict (kept/dropped + reason) per thr
   assert.equal(b.ghReason, 'author');
   assert.equal(b.repo, 'o/x');
 });
+
+// ── « All » mode (watched favorites): issues + third-party PRs ────────────
+
+const watchedIssueThread = {
+  id: 'w1', reason: 'subscribed', updated_at: '2026-08-01T12:00:00Z', last_read_at: null,
+  subject: {
+    title: 'Bug report',
+    url: 'https://api.github.com/repos/zenstruck/foundry/issues/900',
+    latest_comment_url: 'https://api.github.com/repos/zenstruck/foundry/issues/900',
+    type: 'Issue',
+  },
+  repository: { full_name: 'zenstruck/foundry' },
+};
+
+const watchedPrThread = {
+  id: 'w2', reason: 'subscribed', updated_at: '2026-08-01T13:00:00Z', last_read_at: null,
+  subject: {
+    title: 'A new PR',
+    url: 'https://api.github.com/repos/zenstruck/foundry/pulls/901',
+    latest_comment_url: 'https://api.github.com/repos/zenstruck/foundry/pulls/901',
+    type: 'PullRequest',
+  },
+  repository: { full_name: 'zenstruck/foundry' },
+};
+
+const inFoundry = (repo) => repo === 'zenstruck/foundry';
+
+test('collectNotifications: Issue thread kept only for a watchAll repo', async () => {
+  const gh = fakeGh({
+    notifications: [watchedIssueThread],
+    comment: { user: { login: 'alice' }, created_at: '2026-08-01T12:00:00Z', html_url: 'https://github.com/zenstruck/foundry/issues/900' },
+  });
+  const kept = await collectNotifications(gh, ME, { watchAll: inFoundry });
+  assert.equal(kept.length, 1);
+  assert.equal(kept[0].category, 'new_issue');
+  // without watchAll: dropped as before (compat)
+  assert.equal((await collectNotifications(gh, ME, {})).length, 0);
+});
+
+test('collectNotifications: an Issue thread does not fetch review-comments (pulls/N/comments would 404)', async () => {
+  let reviewCalls = 0;
+  const gh = fakeGh({
+    notifications: [watchedIssueThread],
+    comment: { user: { login: 'alice' }, created_at: '2026-08-01T12:00:00Z', html_url: 'i900' },
+  });
+  gh.getReviewComments = async () => { reviewCalls += 1; return []; };
+  await collectNotifications(gh, ME, { watchAll: inFoundry });
+  assert.equal(reviewCalls, 0);
+});
+
+test('collectPRs: watched issue → data.issues row, absent from the PR tables', async () => {
+  const gh = fakeGh({
+    notifications: [watchedIssueThread],
+    comment: { user: { login: 'alice' }, created_at: '2026-08-01T12:00:00Z', html_url: 'https://github.com/zenstruck/foundry/issues/900' },
+  });
+  const { issues, others, mine, notifications } = await collectPRs(gh, ME, { watchAll: inFoundry });
+  assert.deepEqual(issues, [{
+    repo: 'zenstruck/foundry', number: 900, title: 'Bug report',
+    url: 'https://github.com/zenstruck/foundry/issues/900',
+    actor: 'alice', createdAt: '2026-08-01T12:00:00Z', updatedAt: '2026-08-01T12:00:00Z',
+    triggers: ['new'],
+  }]);
+  assert.equal(others.length, 0);
+  assert.equal(mine.length, 0);
+  // the poll loop sees the issue item (desktop notif)
+  assert.equal(notifications.filter((i) => i.category === 'new_issue').length, 1);
+});
+
+test('collectPRs: watched third-party PR → « others » row with the new trigger', async () => {
+  const gh = fakeGh({
+    notifications: [watchedPrThread],
+    comment: { user: { login: 'alice' }, created_at: '2026-08-01T13:00:00Z', html_url: 'https://github.com/zenstruck/foundry/pull/901' },
+    details: (repo, number) => (number === 901 ? { author: { login: 'alice' }, title: 'A new PR', state: 'OPEN' } : null),
+  });
+  const { issues, others } = await collectPRs(gh, ME, { watchAll: inFoundry });
+  assert.equal(issues.length, 0);
+  assert.equal(others.length, 1);
+  assert.deepEqual(others[0].triggers, ['new']);
+  assert.equal(others[0].author, 'alice');
+});
+
+test('collectPRs: without watchAll, issues stays empty and nothing changes (compat)', async () => {
+  const gh = fakeGh({ notifications: [watchedIssueThread, watchedPrThread] });
+  const { issues, others, notifications } = await collectPRs(gh, ME, {});
+  assert.deepEqual(issues, []);
+  assert.equal(others.length, 0);
+  assert.equal(notifications.length, 0);
+});

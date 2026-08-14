@@ -116,6 +116,19 @@ export function favoriteCounts(favorites, others) {
   return { total: rows.length, byFav };
 }
 
+// « All » mode (watch everything): true if the repo is covered by AT LEAST ONE
+// favorite whose mode is 'all' (`favModes`, cf. prefs.js) — union, like the
+// collection. A stale key (favorite removed from the list) is ignored: we only
+// iterate the current favorites. Robust against a malformed `favModes`.
+export function repoInAllMode(favorites, favModes, repo) {
+  const modes = favModes && typeof favModes === 'object' && !Array.isArray(favModes) ? favModes : {};
+  for (const f of normalizeFavorites(favorites)) {
+    if (modes[f] !== 'all') continue;
+    if (scopeMatches(parseScope(f), repo)) return true;
+  }
+  return false;
+}
+
 // External link to MY closed PRs (merged + closed) on GitHub, contextualized
 // on the displayed scope(s) — null, a single scope, or the union (array). No
 // collection nor pagination on the gh-notif side: GitHub handles the display.
@@ -140,6 +153,7 @@ export function filterDataByScope(data, scope) {
     others: (data.others ?? []).filter(keep),
     hidden,
     hiddenCount: hidden.length,
+    issues: (data.issues ?? []).filter(keep),
     notifications: (data.notifications ?? []).filter(keep),
     debug: (data.debug ?? []).filter(keep),
   };

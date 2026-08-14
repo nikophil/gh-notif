@@ -28,8 +28,8 @@ error).
 | `src/filter.js` | **Core**: `classify()` (filtering rules), `findReplyToMe()`, helpers. Pure functions. | yes |
 | `src/collect.js` | Orchestration: aggregates notifications + PR searches, fetches details, scope. | yes via gh stub |
 | `src/state.js` | Persistence + deduplication of the poll-loop notifications. | yes |
-| `src/prefs.js` | Persisted UI preferences (`notify`, `theme`, `favorites`, `activeFav`, `sort`, `sortMine`, `ignoredChecks`, with defaults/validation `isNotifyEnabled`/`themeOf`/`ignoredChecksOf`/`ignoredChecksFor`). Pure + JSON I/O, modeled on `state.js`. | yes |
-| `src/favorites.js` | Scope favorites: normalization/add/remove, `parseScope`, `f` key cycle, **`filterDataByScope`** (display filter), `favoriteLabel` (`org/*`) and `favoriteCounts` (badges). Pure. | yes |
+| `src/prefs.js` | Persisted UI preferences (`notify`, `theme`, `favorites`, `activeFav`, `sort`, `sortMine`, `ignoredChecks`, `favModes`, with defaults/validation `isNotifyEnabled`/`themeOf`/`ignoredChecksOf`/`ignoredChecksFor`/`favModesOf`/`toggleFavMode`). Pure + JSON I/O, modeled on `state.js`. | yes |
+| `src/favorites.js` | Scope favorites: normalization/add/remove, `parseScope`, `f` key cycle, **`filterDataByScope`** (display filter), `favoriteLabel` (`org/*`), `favoriteCounts` (badges) and `repoInAllMode` (« all » mode, §18). Pure. | yes |
 | `src/approvals.js` | Approvals on my PRs: `approvalsOf`, « ready to merge » threshold (`isReady`), event diff/seed (`diffApprovals`). Pure. | yes |
 | `src/notify.js` | Cross-platform desktop notifs (`notifyCommand`: `notify-send` Linux / `osascript` macOS). | yes via spawn stub |
 | `src/render.js` | **Presentation helpers shared with the web** (`ciIcon`, `stateIcon`, `relativeDate`, `checksByRepo`) + the tiny terminal `favoritesBar` for `fav list`. No table rendering. | yes |
@@ -221,7 +221,8 @@ sequenceDiagram
 ## Data shapes
 
 - **Thread** (`/notifications`): `{ id, reason, updated_at, subject:{title,url,latest_comment_url,type}, repository:{full_name} }`
-- **Item** (output of `classify`): `{ category, actor, url, repo, number, title, threadId, updatedAt }`
+- **Item** (output of `classify`): `{ category, actor, url, repo, number, title, threadId, updatedAt }` — the watch items (« all » mode, §18) also carry `subjectType` (`'issue' | 'pull'`) and `createdAt` (creation date, null for an activity)
+- **Issue row** (`data.issues`, « all » mode only, §18): `{ repo, number, title, url, actor, createdAt, updatedAt, triggers:[…] }` — no CI/diff/approvals (meaningless for an issue), no hiding in v1
 - **Row** (output of `collectPRs`): `{ repo, number, url, title, triggers:[…], author, branch, branchRepo, createdAt, updatedAt, additions, deletions, ci, checks:[{name,state}], statusCheckRollupState, state, approvals, changesRequested }` — `branch` = the PR's `headRefName` and `branchRepo` = `headRepository.nameWithOwner` (same GraphQL batch, zero extra cost; null if missing), shown in the web « Branch » column as a small GitHub-like ref chip linking to the branch tree on the head repo (the fork for external PRs; fallback on `repo` if the fork is gone) with a copy button — `state` ∈ {draft,open,merged,closed} (via `prState`), `approvals` = number of **approvals** (via `countApprovals`: distinct users whose last review is APPROVED — not `reviews.length`), `changesRequested` = number of distinct users whose **last review is CHANGES_REQUESTED** (via `changesRequestedOf`, mirror of `approvalsOf`; zero cost, same GraphQL `reviews`). In the ✅ column, a non-zero `changesRequested` appends the GitHub `file-diff` octicon in red (`--danger`) — shown **even at 0 approvals** (a request-changes with no approval is exactly the signal to surface), tooltip « N change(s) requested ». `checks` = individual CI jobs normalized (`{name, state, url}`, `state` ∈ {pass,fail,pending}, `url` = run page — CheckRun `detailsUrl` / StatusContext `targetUrl`, null if absent), consumed by the debug view, the CI recompute (cf. §16) and the CI checks popover (cf. §17). `ci` = aggregated verdict (`ciOf`: `ciFromState` by default; `ciFromChecks` if the repo has a blocklist). `statusCheckRollupState` = raw rollup, kept for the **local recompute** (`recomputeCi`) after a web toggle — allows falling back on `ciFromState` if the repo's blocklist becomes empty again.
 - **scope**: `null` (everything) | `{ type:'org', value }` | `{ type:'repo', value:'owner/name' }` | **array** of these objects (union of favorites, cf. §14)
 
@@ -541,6 +542,45 @@ sequenceDiagram
     checks (§16) are struck/greyed in their group (display only, via `opts.ignoredChecks` of
     `renderFragment`, forwarded by `fragmentBody`): they explain why the aggregated verdict can
     differ from the raw rollup. All check names/URLs are escaped (anti-injection, as everywhere).
+
+18. **« All » mode per favorite (watch everything: issues, third-party PRs).** By default gh-notif
+    only surfaces what concerns *me* (mention, reply, review request…) on **PRs**. A favorite can
+    be switched to **« all » mode** (eye button on its chip → `POST /fav/mode`, persisted in
+    `prefs-v1.json` under `favModes: { "<raw favorite>": "all" }`, absent key = normal → an older
+    file stays valid). For the repos covered by at least one « all » favorite (**union**, computed by
+    `repoInAllMode` — a repo favorite covers itself, an org favorite its whole org), the collection:
+    - **keeps the Issue threads** (elsewhere still PR-only), and `inspectThread` **skips the
+      review-comments** for them (`pulls/N/comments` would 404 and the catch would drop the whole
+      inspection);
+    - turns the previously-dropped `subscribed`/noise exits of `classifyVerdict` into watch items,
+      via `watchVerdict`: **creation** (the `latest_comment_url` is absent or points at the subject
+      itself) → `NEW_PR`/`NEW_ISSUE`; later **third-party comment** → `ACTIVITY`. The precise
+      signals keep **priority** (a reply to my thread stays `THREAD_REPLY`, a real mention stays
+      `MENTION` — only the noise exits are converted). My own activity and anything at or before
+      `last_read_at` stay silent (an already-read thread re-bumped by a non-comment event — close,
+      label, merge — must not resurface a stale « new » line; same hardening as the sticky mention §1).
+
+    **Routing.** Watch **PR** items enter the normal pipeline (`ensure` → GraphQL details → CI/
+    diff/hide/counters) with two new ⚡ triggers (`new` 🆕, `activity` 👀 — added to `TRIGGER_FOR`,
+    so a new event un-hides like the others §10). Watch **issue** items (`subjectType: 'issue'`)
+    are routed to **`data.issues`** instead: their own web section (« 📋 Issues », rendered only
+    when non-empty → page strictly unchanged for whoever uses no « all » mode), minimal columns, no
+    hiding/sort in v1. An issue row **disappears once the thread is read on GitHub** (like the
+    reply rows: `/notifications` only returns unread). Desktop notifs go through the same
+    `data.notifications` flow (dedup by event URL §3); labels in `notify.js` (`@x opened a PR /
+    opened an issue / commented`).
+
+    **Watch prerequisite + anti-burst.** GitHub only emits `subscribed` threads for **watched**
+    repos: enabling « all » on a **repo** favorite auto-watches it (`gh.setRepoSubscription`, PUT
+    `/repos/o/n/subscription`, best-effort/fail-open like `scopeExists` — never blocks the toggle).
+    An **org** favorite has no org-level watch: its « all » mode covers the repos of the org already
+    watched by hand. ⚠️ Enabling a mode sets **`muteWatch`** for the very next refresh: the unread
+    subscribed backlog is **seeded silently** (markSeen without notifying — same philosophy as the
+    1st-run seed §4 and the 🔔 checkbox), then the flag drops; only what arrives *afterwards*
+    notifies. `POST /fav/mode` responds **before** the re-poll (instant chip, client probes /view),
+    like `/fav/add`. `/fav/rm` **deletes the favorite's mode key** (re-pinning must not silently
+    resurrect the « all » mode). ⚠️ `serve()` accepts an injectable `notifier`
+    (default `sendNotification`) — the test seam used to assert the silent seed.
 
 ## Test conventions
 

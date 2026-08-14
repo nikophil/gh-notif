@@ -11,10 +11,10 @@ import { collectPRs, recomputeCi } from './collect.js';
 import { CATEGORY } from './filter.js';
 import { hiddenPath, loadHidden, saveHidden, toggleHidden, isHidden, keyOf } from './hidden.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './state.js';
-import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, toggleIgnoredCheck } from './prefs.js';
+import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, toggleIgnoredCheck, favModesOf, toggleFavMode } from './prefs.js';
 import {
   parseScope, normalizeFavorites, addFavorite, removeFavorite,
-  favoriteScopes, activeFavoriteOf, filterDataByScope, favoriteCounts, closedPRsUrl,
+  favoriteScopes, activeFavoriteOf, filterDataByScope, favoriteCounts, closedPRsUrl, repoInAllMode,
 } from './favorites.js';
 import { diffApprovals } from './approvals.js';
 import { normalizeSort, toggleSort, sortRows, SORT_KEYS, MINE_SORT_KEYS } from './sort.js';
@@ -99,6 +99,7 @@ export function handleRequest(pathname, snapshot, opts = {}) {
   const {
     now, intervalMs, showHidden, scope, notifyEnabled = true, theme = 'auto',
     favorites = [], activeFav = null, adhoc = false, sort = null, sortMine = null, ignoredChecks = {},
+    favModes = null,
   } = opts;
   // Display filter: the active favorite, except in ad-hoc mode (the entered scope
   // already drives the collection, re-filtering would be redundant).
@@ -108,7 +109,7 @@ export function handleRequest(pathname, snapshot, opts = {}) {
   // Chip counters = others' activity per scope, on the raw UNION.
   const counts = favoriteCounts(favorites, snapshot.data?.others);
   if (pathname === '/') {
-    return { status: 200, type: 'text/html; charset=utf-8', body: renderShell({ intervalMs, scopeLabel: scopeLabel(scope), notifyEnabled, theme, favorites, activeFav, adhoc, counts }) };
+    return { status: 200, type: 'text/html; charset=utf-8', body: renderShell({ intervalMs, scopeLabel: scopeLabel(scope), notifyEnabled, theme, favorites, activeFav, adhoc, counts, favModes }) };
   }
   if (pathname === '/fragment') {
     return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, sort, sortMine, ignoredChecks }) };
@@ -117,7 +118,7 @@ export function handleRequest(pathname, snapshot, opts = {}) {
   // + updatedAt (the client probes until it changes after an add/remove).
   if (pathname === '/view') {
     return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify({
-      chips: renderFavorites(favorites, activeFav, { adhoc, counts }),
+      chips: renderFavorites(favorites, activeFav, { adhoc, counts, favModes }),
       fragment: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, sort, sortMine, ignoredChecks }),
       updatedAt: snapshot.updatedAt,
     }) };
@@ -156,7 +157,7 @@ function openBrowser(url) {
 // Two notions not to be confused (cf. ARCHITECTURE.md §14):
 //  - `scope` (ad-hoc mode) or the union of favorites = what we COLLECT;
 //  - `activeFav` = a simple DISPLAY filter, changed without any request.
-export function serve({ gh, me, scope: initialScope = null, all = false, port = 7777, intervalSeconds = POLL_SECONDS, open = true } = {}) {
+export function serve({ gh, me, scope: initialScope = null, all = false, port = 7777, intervalSeconds = POLL_SECONDS, open = true, notifier = sendNotification } = {}) {
   // `scope` non-null ⇒ ad-hoc mode: an entered scope (--org/--repo or web field)
   // takes precedence over the favorites, which become purely decorative (greyed chips).
   let scope = initialScope;
@@ -191,6 +192,15 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   let favorites = normalizeFavorites(prefs.favorites);
   let activeFav = activeFavoriteOf(prefs, favorites);
   const collectScope = () => (scope ? scope : favoriteScopes(favorites));
+  // « All » mode per favorite (watch everything: issues, third-party PRs).
+  // `watchAllRepo` is consulted at collection; `muteWatch` silences the watch
+  // categories for ONE refresh (the one right after enabling a mode): the
+  // unread subscribed backlog is marked seen without notifying — same
+  // philosophy as the 1st-run silent seed.
+  let favModes = favModesOf(prefs); // mutable: POST /fav/mode toggles it
+  const watchAllRepo = (repo) => repoInAllMode(favorites, favModes, repo);
+  let muteWatch = false;
+  const WATCH_CATEGORIES = new Set([CATEGORY.NEW_PR, CATEGORY.NEW_ISSUE, CATEGORY.ACTIVITY]);
   // CI blocklist per repo (manual edit of the prefs file): loaded once at
   // startup. Recomputes the CI verdict without the ignored jobs. ⚠️ Editing the file
   // while a --serve is running would be overwritten at the next POST (prefs object rewritten
@@ -210,7 +220,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
     // re-enabling.
     const freshApprovals = diffApprovals({ events: data.approvalEvents ?? [], seen: seenApprovals, primed: primedApprovals });
     primedApprovals = true;
-    if (notifyEnabled) for (const e of freshApprovals) sendNotification({ ...e, category: CATEGORY.APPROVAL });
+    if (notifyEnabled) for (const e of freshApprovals) notifier({ ...e, category: CATEGORY.APPROVAL });
 
     const items = data.notifications ?? [];
     if (!primed) {
@@ -225,9 +235,13 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
     const fresh = items.filter((i) => isNew(state, i));
     for (const item of fresh) {
       markSeen(state, item); // always marked seen, even notifs off (no burst on re-enabling)
+      // Silent seed of the watch categories right after enabling an « all »
+      // mode: the pre-existing subscribed backlog must not burst (marked seen
+      // above, notification skipped for this refresh only).
+      if (muteWatch && WATCH_CATEGORIES.has(item.category)) continue;
       if (!notifyEnabled) continue;
       if (item.category === CATEGORY.REVIEW_REQUEST && !openKeys.has(`${item.repo}#${item.number}`)) continue;
-      sendNotification(item);
+      notifier(item);
     }
     if (fresh.length > 0) saveState(sPath, state);
   };
@@ -238,7 +252,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       // Collection over the UNION of favorites (or the ad-hoc scope). notifyNew receives
       // this raw data: this is what makes the desktop notifs of the
       // favorites we are not looking at arrive. The filtering is done at render (fragmentBody).
-      const data = await collectPRs(gh, me, { all, scope: collectScope(), hidden, cache: inspectCache, ignoredChecks });
+      const data = await collectPRs(gh, me, { all, scope: collectScope(), hidden, cache: inspectCache, ignoredChecks, watchAll: watchAllRepo });
       if (data.hiddenChanged) saveHidden(hiddenFile, hidden);
       notifyNew(data);
       snapshot.data = data;
@@ -273,7 +287,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   const currentView = (showHidden) => {
     const counts = favoriteCounts(favorites, snapshot.data?.others);
     return JSON.stringify({
-      chips: renderFavorites(favorites, activeFav, { adhoc: !!scope, counts }),
+      chips: renderFavorites(favorites, activeFav, { adhoc: !!scope, counts, favModes }),
       fragment: fragmentBody(snapshot, {
         now: Date.now(), showHidden,
         viewScope: scope ? null : parseScope(activeFav),
@@ -347,6 +361,12 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         } catch (err) {
           return send(400, 'text/plain; charset=utf-8', err.message);
         }
+        // Removing a favorite cleans its mode key up (otherwise re-pinning it
+        // later would silently resurrect the « all » mode).
+        if (pathname === '/fav/rm' && prefs.favModes) {
+          delete prefs.favModes[value.trim()];
+          favModes = favModesOf(prefs);
+        }
         // add → select the just-pinned favorite; rm → fall back to « all » if the active one was removed
         activeFav = pathname === '/fav/add'
           ? activeFavoriteOf({ activeFav: value }, favorites)
@@ -359,6 +379,36 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         // appears without waiting for the poll); the client probes /view until
         // updatedAt changes to see counters and tables update.
         refresh().catch(() => {});
+        return send(200, json, currentView(showHidden));
+      }
+      if (pathname === '/fav/mode') {
+        // Eye button of a chip: toggles the favorite's Normal / « all » mode
+        // (watch everything: issues, third-party PRs — cf. ARCHITECTURE §18).
+        const value = (url.searchParams.get('value') || '').trim();
+        if (!favorites.includes(value)) {
+          return send(400, 'text/plain; charset=utf-8', `unknown favorite: ${value}`);
+        }
+        toggleFavMode(prefs, value); // ⚠️ mutates prefs.favModes (rewritten IN FULL)
+        savePrefs(prefsFile, prefs);
+        favModes = favModesOf(prefs);
+        if (favModes[value] === 'all') {
+          // GitHub only emits subscribed threads for WATCHED repos → auto-watch
+          // a repo favorite (best-effort/fail-open: a failure must not block the
+          // toggle). An org favorite has no org-level watch: it covers the
+          // repos of the org already watched by hand.
+          const s = parseScope(value);
+          if (s?.type === 'repo' && typeof gh.setRepoSubscription === 'function') {
+            Promise.resolve(gh.setRepoSubscription(s.value)).catch(() => {});
+          }
+          // Anti-burst: the refresh below absorbs the unread subscribed backlog
+          // silently (muteWatch → markSeen without notifying), then the flag drops.
+          muteWatch = true;
+          refresh().catch(() => {}).finally(() => { muteWatch = false; });
+        } else {
+          refresh().catch(() => {}); // clears the watched rows of this favorite
+        }
+        // Respond BEFORE the re-poll (instant chip), like /fav/add: the client
+        // probes /view until updatedAt changes.
         return send(200, json, currentView(showHidden));
       }
       if (pathname === '/sort') {
@@ -429,6 +479,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       sort,
       sortMine,
       ignoredChecks,
+      favModes,
     });
     send(status, type, body);
   });

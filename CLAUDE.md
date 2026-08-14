@@ -20,6 +20,8 @@ error.
 - Before wrapping up a change: `npm test` green **and**
   `for f in gh-notif src/*.js test/*.js; do node --check "$f"; done`, plus a smoke test if you
   touched the entrypoint or the web rendering (launch, curl `/`, then stop the process).
+- **Once the work is done**: `systemctl --user restart gh-notif` — the app runs as a user
+  systemd service on :7777 (`Restart=always`) and keeps serving the OLD code until restarted.
 - **Every smoke test of the server MUST pass `--no-open`** (otherwise each launch opens a tab
   in the user's browser).
 - The web page reuses the presentation helpers of `render.js` (`ciIcon`, `stateIcon`,

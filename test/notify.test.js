@@ -90,3 +90,12 @@ test('mention notif without resolved author → generic title without @null', ()
   assert.equal(m.title, 'You were mentioned');
   assert.ok(!m.title.includes('@null'));
 });
+
+test('titles of the watch categories (all mode): new PR / new issue / activity', () => {
+  assert.equal(notifyMessage({ ...base, category: CATEGORY.NEW_PR, actor: 'alice' }).title, '@alice opened a PR');
+  assert.equal(notifyMessage({ ...base, category: CATEGORY.NEW_PR, actor: null }).title, 'New PR');
+  assert.equal(notifyMessage({ ...base, category: CATEGORY.NEW_ISSUE, actor: 'alice' }).title, '@alice opened an issue');
+  assert.equal(notifyMessage({ ...base, category: CATEGORY.NEW_ISSUE, actor: null }).title, 'New issue');
+  assert.equal(notifyMessage({ ...base, category: CATEGORY.ACTIVITY, actor: 'bob' }).title, '@bob commented');
+  assert.equal(notifyMessage({ ...base, category: CATEGORY.ACTIVITY, actor: null }).title, 'New activity');
+});

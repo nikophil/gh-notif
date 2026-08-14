@@ -4,6 +4,12 @@ export const CATEGORY = {
   ON_MY_PR: 'on_my_pr',
   THREAD_REPLY: 'thread_reply',
   APPROVAL: 'approval', // approval received on MY PR (outside notif threads, cf. approvals.js)
+  // « All » mode (watched favorite, cf. ARCHITECTURE §18): events that do not
+  // concern me directly, surfaced only for repos covered by a favorite in
+  // « all » mode (subscribed threads of a GitHub-watched repo).
+  NEW_PR: 'new_pr',       // PR opened by someone else
+  NEW_ISSUE: 'new_issue', // issue opened
+  ACTIVITY: 'activity',   // third-party comment on a watched PR/issue
 };
 
 // Triggers derived from notifications (deliberately WITHOUT review_request: the
@@ -14,6 +20,9 @@ export const TRIGGER_FOR = {
   [CATEGORY.MENTION]: 'mention',
   [CATEGORY.THREAD_REPLY]: 'reply',
   [CATEGORY.ON_MY_PR]: 'comment',
+  [CATEGORY.NEW_PR]: 'new',
+  [CATEGORY.NEW_ISSUE]: 'new',
+  [CATEGORY.ACTIVITY]: 'activity',
 };
 
 const ALLOWED_REASONS = new Set([
@@ -40,10 +49,54 @@ function baseItem(thread, extra) {
   };
 }
 
+// Verdict of a watched thread (« all » mode): a creation (no comment yet —
+// the latest_comment_url is absent or points at the subject itself) becomes
+// NEW_PR/NEW_ISSUE; a later third-party comment becomes ACTIVITY. My own
+// actions and anything at or before `last_read_at` stay silent: an already-read
+// thread re-bumped by a NON-comment event (close, label, merge) must not
+// resurface a stale « new » line (same hardening as the sticky mention).
+function watchVerdict(thread, me, inspection, subjectType) {
+  const c = inspection?.latestComment;
+  const subjUrl = subjectType === 'issue'
+    ? `https://github.com/${thread.repository.full_name}/issues/${prNumber(thread)}`
+    : prHtmlUrl(thread);
+  const latestUrl = thread.subject?.latest_comment_url;
+  const isCreation = !latestUrl || latestUrl === thread.subject?.url;
+  const actor = c?.user?.login ?? null;
+  if (actor === me) return { item: null, reason: 'watched thread: your own activity' };
+  if (isCreation) {
+    if (thread.last_read_at) {
+      return { item: null, reason: 'watched thread already read, re-bumped without a comment → noise' };
+    }
+    const category = subjectType === 'issue' ? CATEGORY.NEW_ISSUE : CATEGORY.NEW_PR;
+    return {
+      item: baseItem(thread, {
+        category, actor, url: c?.html_url ?? subjUrl, subjectType,
+        createdAt: c?.created_at ?? null,
+      }),
+      reason: subjectType === 'issue' ? 'new issue on a watched repo' : 'new PR on a watched repo',
+    };
+  }
+  if (!c) return { item: null, reason: 'watched thread: no readable comment' };
+  if (thread.last_read_at && c.created_at && c.created_at <= thread.last_read_at) {
+    return { item: null, reason: 'watched activity already read' };
+  }
+  return {
+    item: baseItem(thread, { category: CATEGORY.ACTIVITY, actor, url: c.html_url ?? subjUrl, subjectType, createdAt: null }),
+    reason: `activity from @${actor} on a watched ${subjectType === 'issue' ? 'issue' : 'PR'}`,
+  };
+}
+
 // Pipeline verdict for a thread: { item, reason }. `item` is the classified
 // element (or null if discarded), `reason` explains the decision (kept /
 // why dropped) — used by debug mode. `classify` keeps only `item`.
-export function classifyVerdict(thread, me, inspection) {
+// `opts.watchAll` (« all » mode of a favorite covering this repo) additionally
+// accepts Issue threads and turns the subscribed/noise exits into watch items.
+export function classifyVerdict(thread, me, inspection, opts = {}) {
+  const watchAll = !!opts.watchAll;
+  if (thread.subject?.type === 'Issue' && watchAll) {
+    return watchVerdict(thread, me, inspection, 'issue');
+  }
   if (thread.subject?.type !== 'PullRequest') {
     return { item: null, reason: 'not a Pull Request' };
   }
@@ -98,6 +151,8 @@ export function classifyVerdict(thread, me, inspection) {
         reason: `mention from @${hit.user.login}`,
       };
     }
+    // « all » mode: this re-bump is precisely the watched activity we want.
+    if (watchAll) return watchVerdict(thread, me, inspection, 'pull');
     return { item: null, reason: 'mention already read, re-bumped without a new @me (merge / third-party comment) → noise' };
   }
 
@@ -123,12 +178,14 @@ export function classifyVerdict(thread, me, inspection) {
     return { item: null, reason: 'your own action / PR update (no activity from anyone else)' };
   }
 
-  // comment / subscribed / manual without a reply to me → noise
+  // comment / subscribed / manual without a reply to me: noise… except in
+  // « all » mode, where the watched repo surfaces creations and activity.
+  if (watchAll) return watchVerdict(thread, me, inspection, 'pull');
   return { item: null, reason: 'no reply to your thread → noise' };
 }
 
-export function classify(thread, me, inspection) {
-  return classifyVerdict(thread, me, inspection).item;
+export function classify(thread, me, inspection, opts = {}) {
+  return classifyVerdict(thread, me, inspection, opts).item;
 }
 
 // True if `body` explicitly mentions `@me` (word boundary so as not to

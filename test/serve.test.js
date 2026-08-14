@@ -751,3 +751,76 @@ test('GET /fragment : opts.sortMine sorts « Your PRs » (independent of opts.so
   assert.ok(bare.body.indexOf('>stale<') < bare.body.indexOf('>fresh<'));
   assert.ok(!bare.body.includes('data-sort-table'), 'compat: mine not sortable without opts.sortMine');
 });
+
+// ── integration: « all » mode per favorite (POST /fav/mode) ─────────────────
+test('POST /fav/mode: toggles « all » mode, auto-watches, silent seed (no burst)', async () => {
+  const issueThread = {
+    id: 'w1', reason: 'subscribed', updated_at: '2026-08-01T12:00:00Z', last_read_at: null,
+    subject: {
+      title: 'Bug report', url: 'https://api.github.com/repos/zenstruck/foundry/issues/900',
+      latest_comment_url: 'https://api.github.com/repos/zenstruck/foundry/issues/900', type: 'Issue',
+    },
+    repository: { full_name: 'zenstruck/foundry' },
+  };
+  const watched = [];
+  const notified = [];
+  const gh = {
+    getCurrentUser: async () => 'me',
+    listNotifications: async () => [issueThread],
+    searchReviewRequested: async () => [],
+    searchAuthored: async () => [],
+    getPullDetailsBatch: async (prs) => prs.map(() => null),
+    getComment: async () => ({ user: { login: 'alice' }, created_at: '2026-08-01T12:00:00Z', html_url: 'https://github.com/zenstruck/foundry/issues/900' }),
+    getReviewComments: async () => [],
+    scopeExists: async () => true,
+    setRepoSubscription: async (repo) => { watched.push(repo); return true; },
+  };
+  const tmp = `/tmp/gh-notif-test-favmode-${process.pid}`;
+  rmSync(tmp, { recursive: true, force: true });
+  process.env.XDG_STATE_HOME = tmp;
+
+  const PORT = 7801;
+  const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false, notifier: (i) => notified.push(i) });
+  const post = (p) => fetch(`http://localhost:${PORT}${p}`, { method: 'POST' });
+  const view = async () => (await fetch(`http://localhost:${PORT}/view`)).json();
+  const fav = encodeURIComponent('zenstruck/foundry');
+  try {
+    await new Promise((r) => setTimeout(r, 150)); // 1st poll (silent seed of the state)
+    await post(`/fav/add?value=${fav}`);
+    await new Promise((r) => setTimeout(r, 200)); // background refresh, normal mode
+    assert.doesNotMatch((await view()).fragment, /Issues \(/, 'normal mode: the issue stays dropped');
+
+    // Enable « all » mode: chip marked, persisted, repo auto-watched.
+    const on = await (await post(`/fav/mode?value=${fav}`)).json();
+    assert.match(on.chips, /chip-mode all/);
+    assert.equal(loadPrefs(prefsPath()).favModes['zenstruck/foundry'], 'all');
+    assert.deepEqual(watched, ['zenstruck/foundry']);
+    await new Promise((r) => setTimeout(r, 250)); // background refresh, all mode
+    const v2 = await view();
+    assert.match(v2.fragment, /Issues \(1\)/);
+    assert.match(v2.fragment, /🆕/);
+    // Anti-burst: the pre-existing backlog was seeded silently.
+    assert.deepEqual(notified.filter((n) => n.category === 'new_issue'), []);
+
+    // Back to normal: key deleted, watched rows gone at the next refresh,
+    // and NO second auto-watch call.
+    const off = await (await post(`/fav/mode?value=${fav}`)).json();
+    assert.doesNotMatch(off.chips, /chip-mode all/);
+    assert.deepEqual(loadPrefs(prefsPath()).favModes, {});
+    await new Promise((r) => setTimeout(r, 250));
+    assert.doesNotMatch((await view()).fragment, /Issues \(/);
+    assert.deepEqual(watched, ['zenstruck/foundry']);
+
+    // Unknown favorite → clean 400.
+    assert.equal((await post('/fav/mode?value=nope')).status, 400);
+
+    // Removing a favorite cleans its mode key up.
+    await post(`/fav/mode?value=${fav}`); // re-enable
+    assert.equal(loadPrefs(prefsPath()).favModes['zenstruck/foundry'], 'all');
+    await post(`/fav/rm?value=${fav}`);
+    assert.deepEqual(loadPrefs(prefsPath()).favModes, {});
+  } finally {
+    server.close();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});

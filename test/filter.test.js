@@ -314,3 +314,139 @@ test('classify stays equivalent to classifyVerdict(...).item', () => {
   const t = prThread({ reason: 'author' });
   assert.deepEqual(classify(t, ME, insp), classifyVerdict(t, ME, insp).item);
 });
+
+// ── « All » mode (watched favorites): subscribed threads + issues ─────────
+
+import { TRIGGER_FOR } from '../src/filter.js';
+
+const issueThread = (over = {}) => ({
+  id: 'i1',
+  reason: 'subscribed',
+  updated_at: '2026-08-01T12:00:00Z',
+  last_read_at: null,
+  subject: {
+    title: 'Bug report',
+    url: 'https://api.github.com/repos/zenstruck/foundry/issues/900',
+    latest_comment_url: 'https://api.github.com/repos/zenstruck/foundry/issues/900',
+    type: 'Issue',
+  },
+  repository: { full_name: 'zenstruck/foundry' },
+  ...over,
+});
+
+const issueSelf = (over = {}) => ({
+  user: { login: 'alice' },
+  created_at: '2026-08-01T12:00:00Z',
+  html_url: 'https://github.com/zenstruck/foundry/issues/900',
+  ...over,
+});
+
+test('watchAll: new issue → NEW_ISSUE (opener as actor, issue html url, createdAt)', () => {
+  const insp = { latestComment: issueSelf(), reviewComments: [] };
+  const { item, reason } = classifyVerdict(issueThread(), ME, insp, { watchAll: true });
+  assert.equal(item.category, CATEGORY.NEW_ISSUE);
+  assert.equal(item.actor, 'alice');
+  assert.equal(item.url, 'https://github.com/zenstruck/foundry/issues/900');
+  assert.equal(item.subjectType, 'issue');
+  assert.equal(item.createdAt, '2026-08-01T12:00:00Z');
+  assert.match(reason, /new issue/);
+});
+
+test('watchAll: third-party comment on a watched issue → ACTIVITY', () => {
+  const t = issueThread({
+    subject: { ...issueThread().subject, latest_comment_url: 'https://api.github.com/repos/zenstruck/foundry/issues/comments/1' },
+  });
+  const insp = { latestComment: { user: { login: 'bob' }, created_at: '2026-08-02T09:00:00Z', html_url: 'c1' }, reviewComments: [] };
+  const { item } = classifyVerdict(t, ME, insp, { watchAll: true });
+  assert.equal(item.category, CATEGORY.ACTIVITY);
+  assert.equal(item.actor, 'bob');
+  assert.equal(item.url, 'c1');
+  assert.equal(item.subjectType, 'issue');
+});
+
+test('without watchAll an Issue thread stays dropped (compat)', () => {
+  const v = classifyVerdict(issueThread(), ME, { latestComment: issueSelf(), reviewComments: [] });
+  assert.equal(v.item, null);
+  assert.match(v.reason, /not a Pull Request/);
+});
+
+test('watchAll: subscribed PR without comments → NEW_PR', () => {
+  const t = prThread({
+    reason: 'subscribed',
+    subject: { title: 'A PR', url: 'https://api.github.com/repos/o/r/pulls/42', latest_comment_url: 'https://api.github.com/repos/o/r/pulls/42', type: 'PullRequest' },
+  });
+  const insp = { latestComment: { user: { login: 'alice' }, created_at: '2026-08-01T10:00:00Z', html_url: 'https://github.com/o/r/pull/42' }, reviewComments: [] };
+  const { item, reason } = classifyVerdict(t, ME, insp, { watchAll: true });
+  assert.equal(item.category, CATEGORY.NEW_PR);
+  assert.equal(item.actor, 'alice');
+  assert.equal(item.subjectType, 'pull');
+  assert.match(reason, /new PR/);
+});
+
+test('watchAll: third-party comment on a subscribed PR → ACTIVITY (subjectType pull)', () => {
+  const t = prThread({
+    reason: 'subscribed',
+    subject: { title: 'A PR', url: 'https://api.github.com/repos/o/r/pulls/42', latest_comment_url: 'https://api.github.com/repos/o/r/issues/comments/9', type: 'PullRequest' },
+  });
+  const insp = { latestComment: { user: { login: 'bob' }, created_at: '2026-08-02T10:00:00Z', html_url: 'c9' }, reviewComments: [] };
+  const { item } = classifyVerdict(t, ME, insp, { watchAll: true });
+  assert.equal(item.category, CATEGORY.ACTIVITY);
+  assert.equal(item.subjectType, 'pull');
+  assert.equal(item.url, 'c9');
+});
+
+test('watchAll: subscribed PR without watchAll → still noise (compat)', () => {
+  const t = prThread({ reason: 'subscribed' });
+  const v = classifyVerdict(t, ME, { latestComment: { user: { login: 'bob' }, html_url: 'x' }, reviewComments: [] });
+  assert.equal(v.item, null);
+});
+
+test('watchAll: my own comment on a watched thread → null (no self-notification)', () => {
+  const t = issueThread({
+    subject: { ...issueThread().subject, latest_comment_url: 'https://api.github.com/repos/zenstruck/foundry/issues/comments/2' },
+  });
+  const insp = { latestComment: { user: { login: ME }, created_at: '2026-08-02T09:00:00Z', html_url: 'c2' }, reviewComments: [] };
+  assert.equal(classifyVerdict(t, ME, insp, { watchAll: true }).item, null);
+});
+
+test('watchAll: already-read creation re-bumped without a comment (close/label) → null', () => {
+  const t = issueThread({ last_read_at: '2026-08-01T13:00:00Z' });
+  const insp = { latestComment: issueSelf(), reviewComments: [] };
+  assert.equal(classifyVerdict(t, ME, insp, { watchAll: true }).item, null);
+});
+
+test('watchAll: already-read comment (created_at ≤ last_read_at) → null', () => {
+  const t = issueThread({
+    last_read_at: '2026-08-02T10:00:00Z',
+    subject: { ...issueThread().subject, latest_comment_url: 'https://api.github.com/repos/zenstruck/foundry/issues/comments/3' },
+  });
+  const insp = { latestComment: { user: { login: 'bob' }, created_at: '2026-08-02T09:00:00Z', html_url: 'c3' }, reviewComments: [] };
+  assert.equal(classifyVerdict(t, ME, insp, { watchAll: true }).item, null);
+});
+
+test('watchAll: a reply to my thread keeps priority over ACTIVITY', () => {
+  const t = prThread({ reason: 'subscribed', subject: { ...prThread().subject, latest_comment_url: 'https://api.github.com/repos/o/r/issues/comments/8' } });
+  const insp = { latestComment: { user: { login: 'alice' }, created_at: '2026-08-02T11:00:00Z', html_url: 'c8' }, reviewComments: [
+    { id: 1, user: { login: ME }, created_at: '2026-08-02T10:00:00Z', html_url: 'mine' },
+    { id: 2, in_reply_to_id: 1, user: { login: 'alice' }, created_at: '2026-08-02T11:00:00Z', html_url: 'u2' },
+  ] };
+  assert.equal(classifyVerdict(t, ME, insp, { watchAll: true }).item.category, CATEGORY.THREAD_REPLY);
+});
+
+test('watchAll: sticky mention re-bumped by a third-party comment without @me → ACTIVITY', () => {
+  const t = prThread({
+    reason: 'mention',
+    last_read_at: '2026-08-01T00:00:00Z',
+    subject: { ...prThread().subject, latest_comment_url: 'https://api.github.com/repos/o/r/issues/comments/7' },
+  });
+  const insp = { latestComment: { user: { login: 'bob' }, created_at: '2026-08-02T10:00:00Z', html_url: 'c7', body: 'no ping here' }, reviewComments: [] };
+  // without watchAll: noise (real #6431); with: watched activity
+  assert.equal(classifyVerdict(t, ME, insp).item, null);
+  assert.equal(classifyVerdict(t, ME, insp, { watchAll: true }).item.category, CATEGORY.ACTIVITY);
+});
+
+test('TRIGGER_FOR maps the watch categories (new / activity)', () => {
+  assert.equal(TRIGGER_FOR[CATEGORY.NEW_PR], 'new');
+  assert.equal(TRIGGER_FOR[CATEGORY.NEW_ISSUE], 'new');
+  assert.equal(TRIGGER_FOR[CATEGORY.ACTIVITY], 'activity');
+});

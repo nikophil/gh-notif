@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync, mkdtempSync } from 'node:fs';
-import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, ignoredChecksFor, toggleIgnoredCheck } from '../src/prefs.js';
+import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, ignoredChecksFor, toggleIgnoredCheck, favModesOf, toggleFavMode } from '../src/prefs.js';
 
 test('prefsPath respects XDG_STATE_HOME', () => {
   const prev = process.env.XDG_STATE_HOME;
@@ -13,7 +13,7 @@ test('prefsPath respects XDG_STATE_HOME', () => {
 });
 
 test('loadPrefs: missing file → defaults (notify: true, theme: auto)', () => {
-  assert.deepEqual(loadPrefs('/nope/nope/prefs.json'), { notify: true, theme: 'auto', favorites: [], activeFav: null, sort: null, sortMine: null, ignoredChecks: {} });
+  assert.deepEqual(loadPrefs('/nope/nope/prefs.json'), { notify: true, theme: 'auto', favorites: [], activeFav: null, sort: null, sortMine: null, ignoredChecks: {}, favModes: {} });
 });
 
 test('loadPrefs: corrupted file → defaults', () => {
@@ -22,7 +22,7 @@ test('loadPrefs: corrupted file → defaults', () => {
   savePrefs(p, {}); // writes a valid object…
   rmSync(p, { force: true });
   // …then we re-read a nonexistent path: default applied
-  assert.deepEqual(loadPrefs(p), { notify: true, theme: 'auto', favorites: [], activeFav: null, sort: null, sortMine: null, ignoredChecks: {} });
+  assert.deepEqual(loadPrefs(p), { notify: true, theme: 'auto', favorites: [], activeFav: null, sort: null, sortMine: null, ignoredChecks: {}, favModes: {} });
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -30,7 +30,7 @@ test('save then load round-trip (notify: false persisted)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ghnotif-'));
   const p = join(dir, 'sub', 'prefs.json');
   savePrefs(p, { notify: false });
-  assert.deepEqual(loadPrefs(p), { notify: false, theme: 'auto', favorites: [], activeFav: null, sort: null, sortMine: null, ignoredChecks: {} });
+  assert.deepEqual(loadPrefs(p), { notify: false, theme: 'auto', favorites: [], activeFav: null, sort: null, sortMine: null, ignoredChecks: {}, favModes: {} });
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -78,7 +78,7 @@ test('writing favorites loses neither notify nor theme (overwritten-key pitfall)
   prefs.favorites = ['symfony'];
   prefs.activeFav = 'symfony';
   savePrefs(p, prefs);
-  assert.deepEqual(loadPrefs(p), { notify: false, theme: 'dark', favorites: ['symfony'], activeFav: 'symfony', sort: null, sortMine: null, ignoredChecks: {} });
+  assert.deepEqual(loadPrefs(p), { notify: false, theme: 'dark', favorites: ['symfony'], activeFav: 'symfony', sort: null, sortMine: null, ignoredChecks: {}, favModes: {} });
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -92,7 +92,7 @@ test('loadPrefs: persisted theme kept, notify filled by default', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ghnotif-'));
   const p = join(dir, 'prefs.json');
   savePrefs(p, { theme: 'dark' });
-  assert.deepEqual(loadPrefs(p), { notify: true, theme: 'dark', favorites: [], activeFav: null, sort: null, sortMine: null, ignoredChecks: {} });
+  assert.deepEqual(loadPrefs(p), { notify: true, theme: 'dark', favorites: [], activeFav: null, sort: null, sortMine: null, ignoredChecks: {}, favModes: {} });
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -108,7 +108,7 @@ test('loadPrefs: sort null by default, persisted as-is without losing the other 
   savePrefs(p, prefs);
   assert.deepEqual(loadPrefs(p), {
     notify: false, theme: 'auto', favorites: [], activeFav: null,
-    sort: { key: 'author', dir: 'asc' }, sortMine: null, ignoredChecks: {},
+    sort: { key: 'author', dir: 'asc' }, sortMine: null, ignoredChecks: {}, favModes: {},
   });
   rmSync(dir, { recursive: true, force: true });
 });
@@ -156,6 +156,53 @@ test('toggleIgnoredCheck: adds, removes, creates the repo, deletes the key if em
   // remove the last one → the repo key disappears (clean map)
   toggleIgnoredCheck(prefs, 'symfony/ticketing', 'phpstan');
   assert.deepEqual(prefs.ignoredChecks, {});
+});
+
+test('favModesOf: empty map by default, tolerates absent/malformed', () => {
+  assert.deepEqual(favModesOf(undefined), {});
+  assert.deepEqual(favModesOf({}), {});
+  assert.deepEqual(favModesOf({ favModes: null }), {});
+  assert.deepEqual(favModesOf({ favModes: 'nope' }), {}); // invalid type → {}
+  assert.deepEqual(favModesOf({ favModes: ['all'] }), {}); // array → {}
+  const m = { 'zenstruck/foundry': 'all' };
+  assert.deepEqual(favModesOf({ favModes: m }), m);
+});
+
+test('toggleFavMode: enables « all » mode, disabling deletes the key (clean map)', () => {
+  const prefs = { favModes: {} };
+  toggleFavMode(prefs, 'zenstruck/foundry');
+  assert.deepEqual(prefs.favModes, { 'zenstruck/foundry': 'all' });
+  toggleFavMode(prefs, 'symfony');
+  assert.deepEqual(prefs.favModes, { 'zenstruck/foundry': 'all', symfony: 'all' });
+  toggleFavMode(prefs, 'zenstruck/foundry'); // back to normal → key removed
+  assert.deepEqual(prefs.favModes, { symfony: 'all' });
+});
+
+test('toggleFavMode: tolerates absent/malformed favModes', () => {
+  const prefs = {};
+  toggleFavMode(prefs, 'symfony');
+  assert.deepEqual(prefs.favModes, { symfony: 'all' }); // created
+  const broken = { favModes: 'oops' };
+  toggleFavMode(broken, 'symfony');
+  assert.deepEqual(broken.favModes, { symfony: 'all' }); // replaced by a real map
+});
+
+test('favModes: round-trip without losing the other keys, fresh instance', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ghnotif-'));
+  const p = join(dir, 'prefs.json');
+  savePrefs(p, { notify: false, theme: 'dark' });
+  const prefs = loadPrefs(p);
+  toggleFavMode(prefs, 'zenstruck/foundry');
+  savePrefs(p, prefs); // mutate + rewrite IN FULL (usual pitfall)
+  const back = loadPrefs(p);
+  assert.deepEqual(back.favModes, { 'zenstruck/foundry': 'all' });
+  assert.equal(back.notify, false);
+  assert.equal(back.theme, 'dark');
+  // two loadPrefs of a missing file don't share the same map
+  const a = loadPrefs('/nope/x');
+  a.favModes.symfony = 'all';
+  assert.deepEqual(loadPrefs('/nope/x').favModes, {});
+  rmSync(dir, { recursive: true, force: true });
 });
 
 test('toggleIgnoredCheck: tolerates absent ignoredChecks and trims the name', () => {

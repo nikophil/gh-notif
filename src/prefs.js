@@ -15,7 +15,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 // (`prefs.favorites = …; savePrefs(path, prefs)`). Never
 // `savePrefs(path, { favorites })`: that would erase notify/theme.
 
-const DEFAULTS = { notify: true, theme: 'auto', favorites: [], activeFav: null, sort: null, sortMine: null, ignoredChecks: {} };
+const DEFAULTS = { notify: true, theme: 'auto', favorites: [], activeFav: null, sort: null, sortMine: null, ignoredChecks: {}, favModes: {} };
 const THEMES = ['light', 'dark', 'auto'];
 
 export function prefsPath() {
@@ -26,7 +26,7 @@ export function prefsPath() {
 // ⚠️ `favorites` is an array: a plain `{ ...DEFAULTS }` would share its
 // reference across all calls (a mutation would pollute DEFAULTS). So we always
 // copy a fresh instance of it.
-const defaults = () => ({ ...DEFAULTS, favorites: [...DEFAULTS.favorites], ignoredChecks: {} });
+const defaults = () => ({ ...DEFAULTS, favorites: [...DEFAULTS.favorites], ignoredChecks: {}, favModes: {} });
 
 export function loadPrefs(path) {
   try {
@@ -66,6 +66,28 @@ export function ignoredChecksOf(prefs) {
 export function ignoredChecksFor(prefs, repo) {
   const v = ignoredChecksOf(prefs)[repo];
   return Array.isArray(v) ? v : [];
+}
+
+// Notification mode per favorite: { "<raw favorite>": "all" }. « all » = the
+// favorite also surfaces new issues / third-party PRs / watched activity
+// (Tout mode); an absent key = normal behavior. Default {}: an older file
+// stays valid. Robust against a tampered file (non-object → {}).
+export function favModesOf(prefs) {
+  const m = prefs?.favModes;
+  return m && typeof m === 'object' && !Array.isArray(m) ? m : {};
+}
+
+// Toggles a favorite between normal and « all » mode. Back to normal → the key
+// is DELETED (clean map, same spirit as toggleIgnoredCheck). Mutates
+// `prefs.favModes` IN PLACE (created if absent) — cf. pitfall §14: the caller
+// then re-writes `prefs` IN FULL via savePrefs.
+export function toggleFavMode(prefs, fav) {
+  if (!prefs.favModes || typeof prefs.favModes !== 'object' || Array.isArray(prefs.favModes)) {
+    prefs.favModes = {};
+  }
+  if (prefs.favModes[fav] === 'all') delete prefs.favModes[fav];
+  else prefs.favModes[fav] = 'all';
+  return prefs;
 }
 
 // Toggles a check in a repo's blocklist (toggle, trimmed name): present → we

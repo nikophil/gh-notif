@@ -14,6 +14,8 @@ const TRIGGER_META = [
   ['mention', '💬', 'Mention'],
   ['reply', '↩️', 'Reply to your thread'],
   ['comment', '🗨️', 'Comment on your PR'],
+  ['new', '🆕', 'Newly opened (watched repo)'],
+  ['activity', '👀', 'Third-party activity (watched repo)'],
 ];
 // Icon-only column headers (cryptic emoji → full label on hover). Keeps the
 // narrow columns (approvals/status/triggers) from being widened by their title.
@@ -161,6 +163,13 @@ const approvalsCell = (n, ready = false, changesRequested = 0) => {
   return cr ? `${count}${badge} ${cr}` : `${count}${badge}`;
 };
 
+// GitHub « eye » octicon (the Watch icon), inline SVG — the per-favorite
+// Normal / « all » mode toggle on the chips (zero external asset).
+const EYE_ICON =
+  '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" style="fill:currentColor;display:block">' +
+  '<path d="M8 2c1.981 0 3.671.992 4.933 2.078 1.27 1.091 2.187 2.345 2.637 3.023a1.62 1.62 0 0 1 0 1.798c-.45.678-1.367 1.932-2.637 3.023C11.67 13.008 9.981 14 8 14c-1.981 0-3.671-.992-4.933-2.078C1.797 10.83.88 9.576.43 8.898a1.62 1.62 0 0 1 0-1.798c.45-.677 1.367-1.931 2.637-3.022C4.33 2.992 6.019 2 8 2ZM1.679 7.932a.12.12 0 0 0 0 .136c.411.622 1.241 1.75 2.366 2.717C5.176 11.758 6.527 12.5 8 12.5c1.473 0 2.825-.742 3.955-1.715 1.124-.967 1.954-2.096 2.366-2.717a.12.12 0 0 0 0-.136c-.412-.621-1.242-1.75-2.366-2.717C10.824 4.242 9.473 3.5 8 3.5c-1.473 0-2.825.742-3.955 1.715-1.124.967-1.954 2.096-2.366 2.717ZM8 10a2 2 0 1 1-.001-3.999A2 2 0 0 1 8 10Z"></path>' +
+  '</svg>';
+
 // GitHub « copy » octicon, inline SVG (zero external asset, like the favicon).
 const COPY_ICON =
   '<svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true" style="fill:currentColor;vertical-align:middle">' +
@@ -293,6 +302,26 @@ function othersTable(others, hiddenRows, now, showHidden, sort = null, ignoredCh
   return table(headers, trs);
 }
 
+// Watched-issue row (« all » mode): minimal columns — no CI/diff/approvals
+// (meaningless for an issue), no hide button in v1. `actor` = who triggered
+// the line (opener for 🆕, commenter for 👀).
+function issueTableRow(r, now) {
+  return tableRow([
+    link(r.url, r.repo),
+    link(r.url, `#${r.number}`),
+    link(r.url, r.title),
+    r.actor ? `@${escapeHtml(r.actor)}` : '?',
+    dateCell('Opened', r.createdAt, now),
+    dateCell('Updated', r.updatedAt, now),
+    triggersCell(r.triggers),
+  ]);
+}
+
+function issuesTable(rows, now) {
+  const headers = ['Repository', 'Issue', 'Title', 'Author', 'Opened', 'Updated', TRIGGERS_TH];
+  return table(headers, rows.map((r) => issueTableRow(r, now)));
+}
+
 // HTML of the two tables (the « fragment » re-fetched in a loop by the page).
 // `now` is injectable for deterministic tests (like render.js).
 // `showHidden` adds the hidden rows (greyed out, restore button).
@@ -341,6 +370,12 @@ export function renderFragment(data, opts = {}) {
       `<section><h2>👥 Activity on others' PRs ${count}</h2>${othersTable(others, hiddenRows, now, showHidden, sort, ignoredChecks)}</section>`,
     );
   }
+  // Watched issues (« all » mode): their own section, rendered only when it has
+  // rows — no favorite in « all » mode ⇒ page strictly unchanged (compat).
+  const issues = data?.issues ?? [];
+  if (issues.length > 0) {
+    blocks.push(`<section><h2>📋 Issues (${issues.length})</h2>${issuesTable(issues, now)}</section>`);
+  }
   if (blocks.length === 0) return '<p class="empty">Nothing to report ✨</p>';
   return blocks.join('\n');
 }
@@ -368,12 +403,19 @@ export function renderLoading(scopeLabel = '') {
 // are therefore out of play → greyed-out bar, without an active chip.
 // ⚠️ The values come from user input: escapeHtml everywhere (text AND
 // attribute, `data-fav` stays the RAW value), and encodeURIComponent client-side.
-export function renderFavorites(favorites = [], active = null, { adhoc = false, counts = null } = {}) {
+export function renderFavorites(favorites = [], active = null, { adhoc = false, counts = null, favModes = null } = {}) {
   if (!favorites || favorites.length === 0) return '';
   const badge = (n) => (counts ? ` <span class="fav-n">(${Number(n) || 0})</span>` : '');
   const chips = favorites.map((f) => {
     const on = !adhoc && f === active ? ' class="on"' : '';
+    // Eye button = Normal / « all » mode toggle (watch everything: issues,
+    // third-party PRs). `data-fav-mode` stays the RAW value, like `data-fav`.
+    const all = favModes?.[f] === 'all';
+    const modeTitle = all
+      ? 'All mode: issues & third-party PRs notify — click to go back to normal'
+      : 'Normal mode: only what concerns you — click to watch everything (issues, PRs)';
     return `<span class="chip"><button data-fav="${escapeHtml(f)}"${on}>${escapeHtml(favoriteLabel(f))}${badge(counts?.byFav?.[f])}</button>`
+      + `<button class="chip-mode${all ? ' all' : ''}" data-fav-mode="${escapeHtml(f)}" title="${modeTitle}">${EYE_ICON}</button>`
       + `<button class="chip-x" data-fav-rm="${escapeHtml(f)}" title="Remove from favorites">×</button></span>`;
   }).join('');
   const allOn = !adhoc && !active ? ' class="on"' : '';
@@ -384,7 +426,7 @@ export function renderFavorites(favorites = [], active = null, { adhoc = false, 
 
 // hidden » mode, the hide-by-button, and the org/repo filter. `scopeLabel` pre-fills
 // the scope field. The client rhythm is decoupled from the GitHub poll server-side.
-export function renderShell({ intervalMs = 10000, scopeLabel = '', notifyEnabled = true, theme = 'auto', favorites = [], activeFav = null, adhoc = false, counts = null } = {}) {
+export function renderShell({ intervalMs = 10000, scopeLabel = '', notifyEnabled = true, theme = 'auto', favorites = [], activeFav = null, adhoc = false, counts = null, favModes = null } = {}) {
   return `<!doctype html>
 <html lang="en" data-theme="${theme}">
 <head>
@@ -459,6 +501,14 @@ ${FAVICON}
   .chip > .chip-x { border-radius: 0 6px 6px 0; margin-left: -1px; padding: .3rem .45rem;
                     color: var(--fg-muted); }
   .chip > .chip-x:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
+  /* Eye = Normal / « all » mode toggle: discreet (muted, revealed on hover),
+     tinted accent when the favorite watches everything. */
+  .chip > .chip-mode { border-radius: 0; margin-left: -1px; padding: .3rem .4rem;
+                       color: var(--fg-muted); opacity: .55;
+                       display: inline-flex; align-items: center; }
+  .chip:hover > .chip-mode, .chip > .chip-mode.all { opacity: 1; }
+  .chip > .chip-mode.all { color: var(--accent); }
+  .chip > .chip-mode:hover { color: var(--accent); background: var(--btn-hover); }
   .chip > button.on { position: relative; z-index: 1; }
   /* « (n) » badge = others' activity under this favorite. Readable on the accent
      background when the chip is active. */
@@ -570,7 +620,7 @@ ${FAVICON}
     <a id="debug-link" href="/debug" title="Debug: pipeline verdict">🐛</a>
   </div>
   <div id="fav-err" class="fav-err"></div>
-  <div id="favs">${renderFavorites(favorites, activeFav, { adhoc, counts })}</div>
+  <div id="favs">${renderFavorites(favorites, activeFav, { adhoc, counts, favModes })}</div>
 </header>
 <main id="content"></main>
 <script>
@@ -716,6 +766,10 @@ ${FAVICON}
   favs.addEventListener('click', function (e) {
     var rm = e.target.closest('[data-fav-rm]');
     if (rm) { act('/fav/rm', 'value=' + encodeURIComponent(rm.getAttribute('data-fav-rm'))).then(function (d) { if (d) chaseFresh(d.updatedAt, 8); }); return; }
+    // Eye button: toggles the favorite's Normal / « all » mode; the server
+    // refreshes in the background (like /fav/add) → probe until the data lands.
+    var md = e.target.closest('[data-fav-mode]');
+    if (md) { act('/fav/mode', 'value=' + encodeURIComponent(md.getAttribute('data-fav-mode'))).then(function (d) { if (d) chaseFresh(d.updatedAt, 8); }); return; }
     var sel = e.target.closest('[data-fav]');
     // Selecting a favorite leaves ad-hoc mode: clear the manual scope field too.
     if (sel) { scopeInput.value = ''; act('/fav', 'value=' + encodeURIComponent(sel.getAttribute('data-fav'))); }
