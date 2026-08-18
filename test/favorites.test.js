@@ -192,20 +192,32 @@ test('favoriteLabel: org → « org/* », repo unchanged (display only)', () => 
   assert.equal(favoriteLabel(null), '');
 });
 
-test('favoriteCounts: others’ activity per favorite + total, on the raw union', () => {
-  const others = [
-    { repo: 'symfony/api' }, { repo: 'symfony/front' },
-    { repo: 'noctud/collection' }, { repo: 'zenstruck/foundry' },
-  ];
-  const { total, byFav } = favoriteCounts(['symfony', 'noctud/collection', 'zenstruck'], others);
-  assert.equal(total, 4);
-  assert.deepEqual(byFav, { symfony: 2, 'noctud/collection': 1, zenstruck: 1 });
+test('favoriteCounts: one counter per panel (mine/others/issues) per favorite + total, on the raw union', () => {
+  const data = {
+    mine: [{ repo: 'symfony/api' }],
+    others: [
+      { repo: 'symfony/api' }, { repo: 'symfony/front' },
+      { repo: 'noctud/collection' }, { repo: 'zenstruck/foundry' },
+    ],
+    issues: [{ repo: 'zenstruck/foundry' }],
+  };
+  const { total, byFav } = favoriteCounts(['symfony', 'noctud/collection', 'zenstruck'], data);
+  assert.deepEqual(total, { mine: 1, others: 4, issues: 1 });
+  assert.deepEqual(byFav, {
+    symfony: { mine: 1, others: 2, issues: 0 },
+    'noctud/collection': { mine: 0, others: 1, issues: 0 },
+    zenstruck: { mine: 0, others: 1, issues: 1 },
+  });
 });
 
 test('favoriteCounts: empty/invalid list or data → zeros, no crash', () => {
-  assert.deepEqual(favoriteCounts([], []), { total: 0, byFav: {} });
-  assert.deepEqual(favoriteCounts(['symfony'], null), { total: 0, byFav: { symfony: 0 } });
-  assert.deepEqual(favoriteCounts(null, [{ repo: 'a/b' }]), { total: 1, byFav: {} });
+  const zero = { mine: 0, others: 0, issues: 0 };
+  assert.deepEqual(favoriteCounts([], {}), { total: zero, byFav: {} });
+  assert.deepEqual(favoriteCounts(['symfony'], null), { total: zero, byFav: { symfony: zero } });
+  assert.deepEqual(
+    favoriteCounts(null, { others: [{ repo: 'a/b' }] }),
+    { total: { mine: 0, others: 1, issues: 0 }, byFav: {} },
+  );
 });
 
 test('closedPRsUrl: without scope → GitHub search author:@me is:closed', () => {

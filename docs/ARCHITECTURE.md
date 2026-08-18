@@ -462,9 +462,12 @@ sequenceDiagram
     is rendered even empty (`(0)`, without a table) to keep the access to the history; without it
     (compat), behavior unchanged. Web (`--serve`) only.
 
-    **Favorites UI.** (a) **`(n)` counter** per chip = rows of « activity on others'
-    PRs » (`data.others`, excluding hidden) under that scope — **not** `mine`, not the triggers —
-    computed by `favoriteCounts` on the **raw union**: an inactive favorite keeps its counter.
+    **Favorites UI.** (a) **One counter per web panel** on each chip (`favoriteCounts` returns a
+    `{ mine, others, issues }` triplet per favorite + `total` for « ⭐ all »), each with the
+    panel's own icon: 📥 « Your open PRs » (visible), 👥 « activity on others' PRs » (excluding
+    hidden), 📋 issues — this last badge **only when non-zero** (the Issues section itself only
+    renders when non-empty, cf. §18). Computed on the **raw union**: an inactive favorite keeps
+    its counters.
     (b) **Label**: an org displays `symfony/*`, a repo `owner/name` (`favoriteLabel`);
     purely cosmetic, `data-fav`/stored value/URL argument stay the **raw** string.
     (c) **Existence verified on add** (`gh.scopeExists`, CLI and web): repo → `GET /repos/o/n`,

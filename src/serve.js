@@ -107,7 +107,7 @@ export function handleRequest(pathname, snapshot, opts = {}) {
   // « closed ↗ » link contextualized on what the view displays.
   const closedUrl = closedPRsUrl(linkScopes({ scope, activeFav, favorites }));
   // Chip counters = others' activity per scope, on the raw UNION.
-  const counts = favoriteCounts(favorites, snapshot.data?.others);
+  const counts = favoriteCounts(favorites, snapshot.data);
   if (pathname === '/') {
     return { status: 200, type: 'text/html; charset=utf-8', body: renderShell({ intervalMs, scopeLabel: scopeLabel(scope), notifyEnabled, theme, favorites, activeFav, adhoc, counts, favModes }) };
   }
@@ -285,7 +285,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   // pieces and the client injects them separately — the counters stay up to date.
   // (Unlike /notify & /theme, whose widget has nothing to re-render → 204.)
   const currentView = (showHidden) => {
-    const counts = favoriteCounts(favorites, snapshot.data?.others);
+    const counts = favoriteCounts(favorites, snapshot.data);
     return JSON.stringify({
       chips: renderFavorites(favorites, activeFav, { adhoc: !!scope, counts, favModes }),
       fragment: fragmentBody(snapshot, {

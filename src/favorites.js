@@ -102,18 +102,25 @@ export function favoriteLabel(value) {
   return v.includes('/') ? v : `${v}/*`;
 }
 
-// Badge per favorite = number of PRs in « activity on others' PRs »
-// (`data.others`, already excluding hidden ones) that fall under this scope; `total` = all.
+// Badges per favorite = ONE counter per web panel, `{ mine, others, issues }`:
+// `mine` = « Your open PRs » (visible), `others` = « activity on others' PRs »
+// (already excluding hidden ones), `issues` = « 📋 Issues » (« all » mode).
+// `total` = the same triplet on everything (« ⭐ all » chip).
 // ⚠️ Computed on the raw UNION (not the filtered view) so that each favorite displays
-// **its own** count, including those we're not looking at.
-export function favoriteCounts(favorites, others) {
-  const rows = Array.isArray(others) ? others : [];
+// **its own** counts, including those we're not looking at.
+export function favoriteCounts(favorites, data) {
+  const rows = (list) => (Array.isArray(list) ? list : []);
+  const mine = rows(data?.mine);
+  const others = rows(data?.others);
+  const issues = rows(data?.issues);
+  const tally = (s) => ({
+    mine: mine.filter((r) => scopeMatches(s, r?.repo)).length,
+    others: others.filter((r) => scopeMatches(s, r?.repo)).length,
+    issues: issues.filter((r) => scopeMatches(s, r?.repo)).length,
+  });
   const byFav = {};
-  for (const f of normalizeFavorites(favorites)) {
-    const s = parseScope(f);
-    byFav[f] = rows.filter((r) => scopeMatches(s, r?.repo)).length;
-  }
-  return { total: rows.length, byFav };
+  for (const f of normalizeFavorites(favorites)) byFav[f] = tally(parseScope(f));
+  return { total: { mine: mine.length, others: others.length, issues: issues.length }, byFav };
 }
 
 // « All » mode (watch everything): true if the repo is covered by AT LEAST ONE

@@ -396,16 +396,30 @@ export function renderLoading(scopeLabel = '') {
 // (with a countdown), handles the « refresh » button, the « see the
 // Favorites bar: « ⭐ all » then one chip per pinned scope, the active one in .on.
 // An org shows as `symfony/*`, a repo as `owner/name` (`favoriteLabel`). Each
-// chip carries a cross that removes it. With `counts` ({ total, byFav }), a badge
-// `(n)` = activity on others' PRs for that scope. Empty list → empty string
-// (no visual change for whoever doesn't use favorites).
+// chip carries a cross that removes it. With `counts` ({ total, byFav }, one
+// `{ mine, others, issues }` triplet per entry — cf. favoriteCounts), a badge
+// shows ONE counter per web panel, each with the panel's own icon: 📥 my PRs,
+// 👥 activity on others' PRs, 📋 issues (this last one only when non-zero —
+// the Issues section itself only renders when non-empty). Empty list → empty
+// string (no visual change for whoever doesn't use favorites).
 // `adhoc` = a scope has been typed by hand: it drives collection, the favorites
 // are therefore out of play → greyed-out bar, without an active chip.
 // ⚠️ The values come from user input: escapeHtml everywhere (text AND
 // attribute, `data-fav` stays the RAW value), and encodeURIComponent client-side.
 export function renderFavorites(favorites = [], active = null, { adhoc = false, counts = null, favModes = null } = {}) {
   if (!favorites || favorites.length === 0) return '';
-  const badge = (n) => (counts ? ` <span class="fav-n">(${Number(n) || 0})</span>` : '');
+  const badge = (c) => {
+    if (!counts) return '';
+    const n = (v) => Number(v) || 0;
+    // U+2009 (thin space) between icon and digit; the inter-counter gap is
+    // completed in CSS (.fav-n span + span).
+    const parts = [
+      `<span title="Your open PRs">📥\u2009${n(c?.mine)}</span>`,
+      `<span title="Activity on others' PRs">👥\u2009${n(c?.others)}</span>`,
+    ];
+    if (n(c?.issues) > 0) parts.push(`<span title="Issues">📋\u2009${n(c?.issues)}</span>`);
+    return ` <span class="fav-n">(${parts.join(' ')})</span>`;
+  };
   const chips = favorites.map((f) => {
     const on = !adhoc && f === active ? ' class="on"' : '';
     // Eye button = Normal / « all » mode toggle (watch everything: issues,
@@ -512,7 +526,8 @@ ${FAVICON}
   .chip > button.on { position: relative; z-index: 1; }
   /* « (n) » badge = others' activity under this favorite. Readable on the accent
      background when the chip is active. */
-  .fav-n { color: var(--fg-muted); font-weight: 400; }
+  .fav-n { color: var(--fg-muted); font-weight: 400; white-space: nowrap; }
+  .fav-n span + span { margin-left: .45em; }
   button.on .fav-n { color: #fff; opacity: .85; }
   /* Error message (favorite not found, etc.): full width under the
      controls, hidden when empty. */

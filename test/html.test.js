@@ -570,17 +570,22 @@ test('renderFavorites: an org shows as « org/* », a repo as-is — data-fav st
   assert.match(html, /data-fav="noctud\/collection"[^>]*>noctud\/collection</); // repo unchanged
 });
 
-test('renderFavorites: counters (others’ activity) per chip and on « all »', () => {
-  const counts = { total: 8, byFav: { symfony: 5, zenstruck: 3 } };
+test('renderFavorites: one counter per panel (📥/👥/📋) per chip and on « all »', () => {
+  const counts = {
+    total: { mine: 2, others: 8, issues: 3 },
+    byFav: { symfony: { mine: 1, others: 5, issues: 0 }, zenstruck: { mine: 1, others: 3, issues: 3 } },
+  };
   const html = renderFavorites(['symfony', 'zenstruck'], null, { counts });
-  assert.match(html, /⭐ all <span class="fav-n">\(8\)<\/span>/);
-  assert.match(html, /symfony\/\* <span class="fav-n">\(5\)<\/span>/);
-  assert.match(html, /zenstruck\/\* <span class="fav-n">\(3\)<\/span>/);
+  // the triplet is parenthesized, icon and digit separated by U+2009 (thin space)
+  assert.match(html, /⭐ all <span class="fav-n">\(<span title="Your open PRs">📥\u20092<\/span> <span title="Activity on others' PRs">👥\u20098<\/span> <span title="Issues">📋\u20093<\/span>\)<\/span>/);
+  // issues at 0 → no 📋 badge (the Issues panel itself only renders when non-empty)
+  assert.match(html, /symfony\/\* <span class="fav-n">\(<span title="Your open PRs">📥\u20091<\/span> <span title="Activity on others' PRs">👥\u20095<\/span>\)<\/span>/);
+  assert.match(html, /zenstruck\/\* <span class="fav-n">\(<span title="Your open PRs">📥\u20091<\/span> <span title="Activity on others' PRs">👥\u20093<\/span> <span title="Issues">📋\u20093<\/span>\)<\/span>/);
 });
 
-test('renderFavorites: favorite absent from counters → (0); without counts → no badge', () => {
-  const html = renderFavorites(['symfony'], null, { counts: { total: 0, byFav: {} } });
-  assert.match(html, /symfony\/\* <span class="fav-n">\(0\)<\/span>/);
+test('renderFavorites: favorite absent from counters → zeros; without counts → no badge', () => {
+  const html = renderFavorites(['symfony'], null, { counts: { total: { mine: 0, others: 0, issues: 0 }, byFav: {} } });
+  assert.match(html, /symfony\/\* <span class="fav-n">\(<span title="Your open PRs">📥\u20090<\/span> <span title="Activity on others' PRs">👥\u20090<\/span>\)<\/span>/);
   assert.doesNotMatch(renderFavorites(['symfony'], null), /fav-n/);
 });
 

@@ -461,11 +461,11 @@ test('POST /fav* : pins, filters, removes — and loses neither notify nor theme
     await new Promise((r) => setTimeout(r, 200));
     assert.equal(searches.at(-1), ' org:symfony org:zenstruck');
 
-    // /view (client poll): chips with counters (others' activity) + updatedAt.
+    // /view (client poll): chips with per-panel counters + updatedAt.
     const view = await (await fetch(`http://localhost:${PORT}/view`)).json();
-    assert.match(view.chips, /⭐ all <span class="fav-n">\(2\)<\/span>/);
-    assert.match(view.chips, /symfony\/\* <span class="fav-n">\(1\)<\/span>/);
-    assert.match(view.chips, /zenstruck\/\* <span class="fav-n">\(1\)<\/span>/);
+    assert.match(view.chips, /⭐ all <span class="fav-n">\(<span[^>]*>📥\u20090<\/span> <span[^>]*>👥\u20092<\/span>\)<\/span>/);
+    assert.match(view.chips, /symfony\/\* <span class="fav-n">\(<span[^>]*>📥\u20090<\/span> <span[^>]*>👥\u20091<\/span>\)<\/span>/);
+    assert.match(view.chips, /zenstruck\/\* <span class="fav-n">\(<span[^>]*>📥\u20090<\/span> <span[^>]*>👥\u20091<\/span>\)<\/span>/);
     assert.ok(view.updatedAt > 0, 'updatedAt exposed for the client probe');
 
     // Selects a favorite: display filter, WITHOUT a new search.
@@ -476,7 +476,7 @@ test('POST /fav* : pins, filters, removes — and loses neither notify nor theme
     assert.doesNotMatch(selected.fragment, /at zenstruck/);
     assert.match(selected.chips, /data-fav="symfony" class="on"/);
     // The counter of the other favorite stays visible even when we are not looking at it.
-    assert.match(selected.chips, /zenstruck\/\* <span class="fav-n">\(1\)<\/span>/);
+    assert.match(selected.chips, /zenstruck\/\* <span class="fav-n">\(<span[^>]*>📥\u20090<\/span> <span[^>]*>👥\u20091<\/span>\)<\/span>/);
 
     // Persisted, without overwriting notify/theme (lost-key trap).
     let prefs = loadPrefs(prefsPath());
@@ -600,10 +600,10 @@ test('GET /view : JSON {chips, fragment, updatedAt}, counters from the snapshot'
   assert.equal(res.type, 'application/json; charset=utf-8');
   const d = JSON.parse(res.body);
   assert.equal(d.updatedAt, NOW);
-  // Counters = others' activity, computed on the UNION (symfony counts even
+  // Counters = one per panel, computed on the UNION (symfony counts even
   // if the active favorite is zenstruck).
-  assert.match(d.chips, /symfony\/\* <span class="fav-n">\(1\)<\/span>/);
-  assert.match(d.chips, /zenstruck\/\* <span class="fav-n">\(0\)<\/span>/);
+  assert.match(d.chips, /symfony\/\* <span class="fav-n">\(<span[^>]*>📥\u20091<\/span> <span[^>]*>👥\u20091<\/span>\)<\/span>/);
+  assert.match(d.chips, /zenstruck\/\* <span class="fav-n">\(<span[^>]*>📥\u20091<\/span> <span[^>]*>👥\u20090<\/span>\)<\/span>/);
   assert.match(d.chips, /data-fav="zenstruck" class="on"/);
   // The fragment, itself, is filtered on the active favorite.
   assert.match(d.fragment, /at zenstruck/);
