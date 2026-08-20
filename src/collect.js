@@ -351,12 +351,15 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
     }
   });
 
-  // Un-hide on a new trigger + prune stale keys (mutates `hidden`), then split
-  // each section into visible / hidden. reconcile sees mine AND others: pruning
-  // on others alone would erase the hiding of my PRs at the next poll. The
-  // approvalEvents above are computed BEFORE the split: a hidden PR of mine
+  // Un-hide on a new trigger + date the absences (mutates `hidden`), then split
+  // each section into visible / hidden. ⚠️ reconcile receives **`entries`** (all
+  // the PRs seen this poll), not `mineAll + othersAll`: the latter drop others'
+  // drafts, so a hidden PR turned draft counted as absent and started its purge
+  // countdown for a reason that has nothing to do with being dead. What
+  // reconcile needs is « was this PR seen this poll? », not « is it displayable? ».
+  // The approvalEvents above are computed BEFORE the split: a hidden PR of mine
   // keeps notifying its approvals (raw data feeds the notifs, cf. §14).
-  const hiddenChanged = reconcile(hidden, [...mineAll, ...othersAll], items);
+  const hiddenChanged = reconcile(hidden, entries, items);
   const mine = mineAll.filter((r) => !isHidden(hidden, keyOf(r)));
   const hiddenMine = mineAll.filter((r) => isHidden(hidden, keyOf(r)));
   const others = othersAll.filter((r) => !isHidden(hidden, keyOf(r)));

@@ -95,6 +95,27 @@ export function makeGh(runner = defaultRunner) {
     return chunk.map((_, i) => normalizePull(data[`p${i}`]?.pullRequest));
   }
 
+  // `search/issues` returns **30 results per page by default**: without an
+  // explicit loop, any perimeter with more than 30 open PRs silently loses the
+  // surplus at every poll. That is not cosmetic — a PR absent from `entries`
+  // sees its key pruned from `hidden-v1.json` by `reconcile`, and reappears
+  // visible at the next poll that does return it (cf. ARCHITECTURE §10).
+  // ⚠️ `gh api --paginate` is NOT usable here: a search response is an *object*,
+  // so --paginate emits one concatenated JSON object per page and `parseJson`
+  // throws. Hence per_page=100 + page=N, stopping on the first non-full page.
+  // The search API caps at 1000 results anyway → 10 pages max.
+  async function searchIssues(q) {
+    const PER_PAGE = 100;
+    const all = [];
+    for (let page = 1; page <= 10; page++) {
+      const out = parseJson(await runner(['api', '-X', 'GET', 'search/issues', '-f', `q=${q}`, '-f', `per_page=${PER_PAGE}`, '-f', `page=${page}`]));
+      const items = out?.items ?? [];
+      all.push(...items);
+      if (items.length < PER_PAGE) break;
+    }
+    return all;
+  }
+
   return {
     graphqlPullChunk,
     async getCurrentUser() {
@@ -135,12 +156,10 @@ export function makeGh(runner = defaultRunner) {
       return results.flat();
     },
     async searchReviewRequested(qualifier = '') {
-      const out = parseJson(await runner(['api', '-X', 'GET', 'search/issues', '-f', `q=is:open is:pr review-requested:@me${qualifier}`]));
-      return out?.items ?? [];
+      return searchIssues(`is:open is:pr review-requested:@me${qualifier}`);
     },
     async searchAuthored(qualifier = '') {
-      const out = parseJson(await runner(['api', '-X', 'GET', 'search/issues', '-f', `q=is:open is:pr author:@me${qualifier}`]));
-      return out?.items ?? [];
+      return searchIssues(`is:open is:pr author:@me${qualifier}`);
     },
     async currentRepo() {
       try {

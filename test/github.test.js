@@ -61,6 +61,51 @@ test('searchAuthored queries author:@me and accepts a qualifier', async () => {
   const q = runner.calls[0].join(' ');
   assert.ok(q.includes('author:@me'));
   assert.ok(q.includes('org:symfony'));
+  assert.ok(q.includes('per_page=100'), 'never relies on the default page size (30)');
+});
+
+// Regression (issue #1): a perimeter of more than 30 open PRs was silently
+// truncated at every poll → the missing PRs got pruned from hidden-v1.json by
+// `reconcile` and reappeared visible.
+function pagedRunner(pages) {
+  const calls = [];
+  const run = async (args) => {
+    calls.push(args);
+    const page = Number(args.join(' ').match(/ page=(\d+)/)[1]);
+    return JSON.stringify({ total_count: 999, items: pages[page - 1] ?? [] });
+  };
+  run.calls = calls;
+  return run;
+}
+
+test('search: paginates per_page=100 until a non-full page', async () => {
+  const full = Array.from({ length: 100 }, (_, i) => ({ number: i + 1 }));
+  const rest = [{ number: 101 }, { number: 102 }];
+  const runner = pagedRunner([full, rest]);
+  const out = await makeGh(runner).searchReviewRequested(' org:acme');
+
+  assert.equal(out.length, 102, 'collects the surplus beyond the first page');
+  assert.equal(out[101].number, 102);
+  assert.equal(runner.calls.length, 2, 'stops as soon as a page is not full');
+  assert.ok(runner.calls[0].join(' ').includes('page=1'));
+  assert.ok(runner.calls[1].join(' ').includes('page=2'));
+  assert.ok(runner.calls[0].join(' ').includes('review-requested:@me org:acme'));
+});
+
+test('search: stops at 10 pages (search API caps at 1000 results)', async () => {
+  const full = Array.from({ length: 100 }, (_, i) => ({ number: i + 1 }));
+  const runner = pagedRunner(Array.from({ length: 20 }, () => full));
+  const out = await makeGh(runner).searchAuthored();
+
+  assert.equal(runner.calls.length, 10);
+  assert.equal(out.length, 1000);
+});
+
+test('search: an empty first page returns [] without a second call', async () => {
+  const runner = pagedRunner([[]]);
+  const out = await makeGh(runner).searchAuthored();
+  assert.deepEqual(out, []);
+  assert.equal(runner.calls.length, 1);
 });
 
 test('currentRepo returns nameWithOwner, null if outside a repo', async () => {

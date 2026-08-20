@@ -71,8 +71,8 @@ flowchart LR
   subgraph GH["GitHub calls (gh api)"]
     direction TB
     E1["GET /notifications<br/>×1"]
-    E2["GET /search/issues<br/>is:open is:pr review-requested:@me · ×1"]
-    E3["GET /search/issues<br/>is:open is:pr author:@me · ×1"]
+    E2["GET /search/issues<br/>is:open is:pr review-requested:@me · 1 per page of 100"]
+    E3["GET /search/issues<br/>is:open is:pr author:@me · 1 per page of 100"]
     E4["POST graphql<br/>PR details · 1 per batch of 30"]
     E5["GET latest_comment_url<br/>1 per modified thread"]
     E6["GET /repos/.../pulls/N/comments<br/>per_page=100 (+since) · 1 per modified thread"]
@@ -347,6 +347,26 @@ sequenceDiagram
     in `~/.local/state/gh-notif/hidden-v1.json`. ⚠️
     `TRIGGER_FOR` lives in `filter.js` (not `collect.js`) to be shared with `hidden.js` without an
     import cycle.
+
+    ⚠️ **A poll is a partial sample, not an inventory** (real: issue #1). An absence from `entries`
+    is **never** proof that a PR is dead, so `reconcile` **dates** an absence (`missingSince`)
+    instead of deleting on the spot, and only purges after **30 days of uninterrupted absence**; any
+    reappearance clears the countdown. Deleting on a single absence loses the signature for good and
+    the PR **comes back visible** at the next poll that does return it. Two real triggers, both fixed:
+    - **the searches were not paginated.** `search/issues` returns **30 results per page by
+      default**; a perimeter of more than 30 open PRs silently lost the surplus at every poll —
+      intermittently, since the search is ordered by relevance. `github.js` now loops
+      (`searchIssues`: `per_page=100` + `page=N` until a non-full page, 10 pages max = the API's
+      1000-result cap). ⚠️ `gh api --paginate` is **unusable** here: a search response is an
+      *object*, so --paginate emits one concatenated JSON object per page and `parseJson` throws
+      (`/notifications` paginates fine because it is an *array*).
+    - **`reconcile` received the displayable rows.** `mineAll + othersAll` drops others' drafts, so
+      a hidden PR turned draft counted as absent. It now receives **`entries`** (everything seen
+      this poll): the question is « was it seen? », not « is it displayable? ».
+
+    Remaining causes of a transient absence, now harmless: search eventual consistency, rate-limit,
+    a degraded GraphQL chunk, a favorite removed then re-added. ⚠️ Any future change that can
+    shrink `entries` is safe **as long as it does not delete on absence** — keep that invariant.
 
 11. **Poll cost & rate-limit (long loops).** A colleague was rate-limited: a « naive » poll
     emits ~50–70 requests, dominated at ~90% by the per-thread inspection (`getComment` +

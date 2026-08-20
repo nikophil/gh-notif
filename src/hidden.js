@@ -48,14 +48,33 @@ export function toggleHidden(map, key, items, nowIso = new Date().toISOString())
   return true;
 }
 
-// Un-hides a PR as soon as a new event (URL absent from the snapshot)
-// appears, and prunes keys absent from the current entries. Mutates `map`;
-// returns true if it changed.
-export function reconcile(map, entries, items) {
+// A poll is a **partial sample**, not an inventory: a PR can be absent while
+// being perfectly alive (search truncation or eventual consistency, rate-limit,
+// a degraded GraphQL chunk, a favorite temporarily removed…). Deleting a key on
+// a single absence loses its signature FOR GOOD, and the PR comes back visible
+// at the next poll that does return it — that was issue #1. So an absence is
+// only ever *dated*, never trusted: we purge after MISSING_TTL_DAYS of
+// **uninterrupted** absence, and any reappearance resets the countdown. Long
+// enough for any collection artifact to have resolved, short enough that merged
+// PRs don't pile up — and a key weighs ~100 bytes anyway.
+const MISSING_TTL_DAYS = 30;
+
+// Un-hides a PR as soon as a new event (URL absent from the snapshot) appears,
+// and purges the keys absent for longer than the TTL. Mutates `map`; returns
+// true if it changed.
+export function reconcile(map, entries, items, nowIso = new Date().toISOString()) {
   const present = new Set((entries || []).map(keyOf));
+  const now = Date.parse(nowIso);
   let changed = false;
   for (const key of Object.keys(map)) {
-    if (!present.has(key)) { delete map[key]; changed = true; continue; }
+    if (!present.has(key)) {
+      const since = map[key].missingSince;
+      if (!since) { map[key].missingSince = nowIso; changed = true; continue; }
+      if (now - Date.parse(since) > MISSING_TTL_DAYS * 86400000) { delete map[key]; changed = true; }
+      continue;
+    }
+    // Back in the poll: the absence was an artifact, the countdown restarts from zero.
+    if (map[key].missingSince) { delete map[key].missingSince; changed = true; }
     const seen = new Set(map[key].seen || []);
     const hasNew = signatureOf(key, items).some((u) => !seen.has(u));
     if (hasNew) { delete map[key]; changed = true; }

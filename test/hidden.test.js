@@ -50,9 +50,39 @@ test('reconcile: empty signature stays hidden (pending review without interactio
   assert.equal(isHidden(map, 'o/r#60'), true);
 });
 
-test('reconcile: prunes a key absent from the current entries', () => {
+// Regression (issue #1): a poll is a partial sample. An absence dates the key,
+// it never deletes it on the spot — otherwise the signature is lost for good
+// and the PR comes back visible.
+const OTHER = [{ repo: 'o/r', number: 1 }];
+
+test('reconcile: an absence dates the key but keeps it hidden', () => {
   const map = { 'o/r#99': { at: 'x', seen: [] } };
-  assert.equal(reconcile(map, [{ repo: 'o/r', number: 1 }], []), true);
+  assert.equal(reconcile(map, OTHER, [], '2026-08-20T00:00:00.000Z'), true);
+  assert.equal(isHidden(map, 'o/r#99'), true, 'still hidden');
+  assert.equal(map['o/r#99'].missingSince, '2026-08-20T00:00:00.000Z');
+  assert.deepEqual(map['o/r#99'].seen, [], 'signature preserved');
+});
+
+test('reconcile: a repeated absence does not re-date (no write churn)', () => {
+  const map = { 'o/r#99': { at: 'x', seen: [], missingSince: '2026-08-20T00:00:00.000Z' } };
+  assert.equal(reconcile(map, OTHER, [], '2026-08-21T00:00:00.000Z'), false, 'nothing changed');
+  assert.equal(map['o/r#99'].missingSince, '2026-08-20T00:00:00.000Z');
+});
+
+test('reconcile: reappearing resets the countdown', () => {
+  const map = { 'o/r#99': { at: 'x', seen: [], missingSince: '2026-08-20T00:00:00.000Z' } };
+  assert.equal(reconcile(map, [{ repo: 'o/r', number: 99 }], [], '2026-08-21T00:00:00.000Z'), true);
+  assert.equal(isHidden(map, 'o/r#99'), true);
+  assert.equal(map['o/r#99'].missingSince, undefined, 'countdown cleared');
+});
+
+test('reconcile: purges after 30 days of uninterrupted absence', () => {
+  const map = { 'o/r#99': { at: 'x', seen: [], missingSince: '2026-06-01T00:00:00.000Z' } };
+  // 29 days: kept
+  assert.equal(reconcile(map, OTHER, [], '2026-06-30T00:00:00.000Z'), false);
+  assert.equal(isHidden(map, 'o/r#99'), true);
+  // 31 days: purged
+  assert.equal(reconcile(map, OTHER, [], '2026-07-02T00:00:00.000Z'), true);
   assert.equal(isHidden(map, 'o/r#99'), false);
 });
 

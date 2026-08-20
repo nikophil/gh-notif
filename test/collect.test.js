@@ -594,6 +594,42 @@ test('collectPRs: un-hiding on a new trigger (reconcile) + hiddenChanged', async
   assert.equal('o/r#50' in hidden, false);
 });
 
+// Regression (issue #1, second trigger): others' drafts are excluded from the
+// displayed rows, but they ARE collected. reconcile must receive `entries`, not
+// the displayable rows — otherwise a hidden PR turned draft counts as absent and
+// starts its purge countdown for a reason that has nothing to do with being dead.
+test('collectPRs: a hidden PR of others turned draft is neither un-hidden nor dated absent', async () => {
+  const gh = fakeGh({
+    // still in review-requested:@me (the « review » trigger carries no signature)
+    search: [{
+      number: 51, title: 'PR D',
+      html_url: 'https://github.com/o/r/pull/51',
+      repository_url: 'https://api.github.com/repos/o/r',
+      updated_at: '2026-06-24T12:00:00Z',
+    }],
+    details: () => ({ number: 51, title: 'PR D', author: { login: 'bob' }, isDraft: true, createdAt: '2026-06-20T12:00:00Z', additions: 1, deletions: 1 }),
+  });
+  const hidden = { 'o/r#51': { at: 'x', seen: [] } };
+  const { others, hiddenCount, hiddenChanged } = await collectPRs(gh, ME, { hidden });
+
+  assert.equal(others.length, 0);   // draft: not displayed, as before
+  assert.equal(hiddenCount, 0);     // and not in the hidden table either
+  assert.equal(hiddenChanged, false, 'the key is untouched: the PR WAS seen this poll');
+  assert.equal('o/r#51' in hidden, true, 'still hidden');
+  assert.equal(hidden['o/r#51'].missingSince, undefined, 'no purge countdown started');
+});
+
+// A PR genuinely gone from the poll is dated, not deleted: the signature survives.
+test('collectPRs: a hidden PR absent from the poll keeps its signature (dated only)', async () => {
+  const hidden = { 'o/r#77': { at: 'x', seen: [] } };
+  const { hiddenChanged } = await collectPRs(fakeGh(), ME, { hidden });
+
+  assert.equal(hiddenChanged, true, 'the absence was recorded');
+  assert.equal('o/r#77' in hidden, true, 'NOT deleted');
+  assert.ok(hidden['o/r#77'].missingSince, 'countdown started');
+  assert.deepEqual(hidden['o/r#77'].seen, [], 'signature intact');
+});
+
 // ── inspection cache + incremental comments ─────────────────────────────────
 test('mergeReviewComments: merge by id (fresh wins), created_at order', () => {
   const merged = mergeReviewComments(
