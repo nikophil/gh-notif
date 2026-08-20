@@ -585,6 +585,16 @@ sequenceDiagram
     resurrect the « all » mode). ⚠️ `serve()` accepts an injectable `notifier`
     (default `sendNotification`) — the test seam used to assert the silent seed.
 
+19. **Last-clicked row stays marked (web).** Clicking any row link (PR, title, branch)
+    marks its `<tr>` with `.clicked` (subtle accent veil) so coming back from the opened
+    tab shows where you left off. ⚠️ Client-only state: `#content` is re-injected
+    (`innerHTML`) at every poll/action, which wipes classes AND focus — a pure CSS
+    `:focus` cannot work. The client therefore keeps the clicked link's `href` (unique
+    per row; also in `sessionStorage`, survives Ctrl+R) and `setContent` re-applies the
+    class after each injection (`markLastClicked`). Nothing persisted server-side.
+    ⚠️ Middle-click (open in a background tab) fires **`auxclick`**, not `click` → both
+    events are listened to (`rememberClick`).
+
 ## Test conventions
 
 - Pure logic (`filter`, `render` helpers, `state`, `collect`, `ciRollup`, `scope`): fixtures, no

@@ -555,6 +555,10 @@ ${FAVICON}
      (width:100% + max-width:0 + ellipsis trick on an auto-layout table). */
   td:nth-child(3) { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
   tbody tr:hover { background: var(--canvas-subtle); }
+  /* Last-clicked row: subtle accent veil so coming back from the PR tab shows
+     where you left off. Re-applied by the client after each fragment
+     re-injection (innerHTML wipes classes and focus alike). */
+  tbody tr.clicked { background: color-mix(in srgb, var(--accent) 8%, transparent); }
   tr.hid td { opacity: .5; }
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
@@ -671,9 +675,25 @@ ${FAVICON}
     stamp.classList.remove('offline');
     stamp.innerHTML = '<span class="spinner"></span> updating…';
   }
+  // Last-clicked row: kept across fragment re-injections (innerHTML wipes it)
+  // and page reloads (sessionStorage) so the row stays marked when coming back
+  // from the PR tab. Keyed by the link href (unique per row).
+  var lastClicked = sessionStorage.getItem('ghn-last-clicked');
+  function markLastClicked() {
+    if (!lastClicked) return;
+    var prev = content.querySelector('tr.clicked');
+    if (prev) prev.classList.remove('clicked');
+    var links = content.getElementsByTagName('a');
+    for (var i = 0; i < links.length; i++) {
+      if (links[i].getAttribute('href') !== lastClicked) continue;
+      var tr = links[i].closest('tbody tr');
+      if (tr) { tr.classList.add('clicked'); return; }
+    }
+  }
   function setContent(html, updatedAt) {
     closeCiPop();
     content.innerHTML = html;
+    markLastClicked();
     // « upd » = the time of the REAL GitHub poll (updatedAt of the server
     // snapshot), not the display time — otherwise a ctrl+R claims an update it
     // didn't make. The counter is aligned on the estimated next server poll
@@ -798,7 +818,20 @@ ${FAVICON}
     try { document.execCommand('copy'); } finally { document.body.removeChild(ta); }
     return Promise.resolve();
   }
+  // Any row link (PR, title, branch…): remember it and mark its row — no
+  // return, the link opens normally in its new tab.
+  function rememberClick(e) {
+    var lk = e.target.closest('a[href]');
+    if (lk && lk.closest('tbody tr')) {
+      lastClicked = lk.getAttribute('href');
+      sessionStorage.setItem('ghn-last-clicked', lastClicked);
+      markLastClicked();
+    }
+  }
+  // Middle-click (open in a background tab) fires auxclick, not click.
+  content.addEventListener('auxclick', function (e) { if (e.button === 1) rememberClick(e); });
   content.addEventListener('click', function (e) {
+    rememberClick(e);
     // Copy button (branch name / PR number): ✓ feedback for a second. The
     // fragment may be re-injected meanwhile — the stale button just vanishes.
     var cp = e.target.closest('button.copy');
