@@ -330,6 +330,9 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
       checks: d?.checks ?? [], // raw list (debug view + local recompute; zero cost)
       statusCheckRollupState: d?.statusCheckRollupState ?? null, // basis of ciFromState for recomputeCi
       state: prState(d),
+      // Merge conflict with the base branch. Only an explicit CONFLICTING counts:
+      // UNKNOWN means « GitHub has not computed it yet » (cf. github.js), not « fine ».
+      conflicting: d?.mergeable === 'CONFLICTING',
       approvals: approvers.length,
       changesRequested: changesRequestedOf(d?.reviews).length, // reviewers whose latest review requests changes
     };

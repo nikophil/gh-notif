@@ -119,7 +119,7 @@ test('getPullDetailsBatch: one GraphQL request, alias per PR, normalized shape',
   const gqlResponse = JSON.stringify({ data: {
     p0: { pullRequest: {
       number: 42, title: 'A', author: { login: 'alice' }, createdAt: 'd1', additions: 10, deletions: 2,
-      isDraft: false, state: 'OPEN', headRefName: 'feat/login', headRepository: { nameWithOwner: 'fork/r' },
+      isDraft: false, state: 'OPEN', mergeable: 'CONFLICTING', headRefName: 'feat/login', headRepository: { nameWithOwner: 'fork/r' },
       latestOpinionatedReviews: { nodes: [{ author: { login: 'bob' }, state: 'APPROVED', submittedAt: 's1' }] },
       commits: { nodes: [{ commit: { statusCheckRollup: { state: 'SUCCESS' } } }] },
     } },
@@ -136,6 +136,7 @@ test('getPullDetailsBatch: one GraphQL request, alias per PR, normalized shape',
   assert.equal(out[0].branch, 'feat/login');
   assert.equal(out[0].branchRepo, 'fork/r');
   assert.equal(out[0].statusCheckRollupState, 'SUCCESS');
+  assert.equal(out[0].mergeable, 'CONFLICTING');
   assert.deepEqual(out[0].reviews, [{ author: { login: 'bob' }, state: 'APPROVED', submittedAt: 's1' }]);
   assert.equal(out[1], null);
 
@@ -147,6 +148,16 @@ test('getPullDetailsBatch: one GraphQL request, alias per PR, normalized shape',
   assert.ok(q.includes('pullRequest(number: 99)'));
   assert.ok(q.includes('headRefName'));
   assert.ok(q.includes('headRepository'));
+  assert.ok(q.includes('mergeable'));
+});
+
+test('getPullDetailsBatch: mergeable absent from the response → null (never CONFLICTING by default)', async () => {
+  const gqlResponse = JSON.stringify({ data: { p0: { pullRequest: {
+    number: 42, title: 'A', author: { login: 'alice' }, createdAt: 'd1', additions: 1, deletions: 0,
+    isDraft: false, state: 'OPEN', latestOpinionatedReviews: { nodes: [] },
+  } } } });
+  const out = await makeGh(fakeRunner([['api graphql', gqlResponse]])).getPullDetailsBatch([{ repo: 'o/r', number: 42 }]);
+  assert.equal(out[0].mergeable, null);
 });
 
 test('getPullDetailsBatch: normalizes the checks (CheckRun + StatusContext) to {name,state}', async () => {

@@ -16,7 +16,7 @@ function parseJson(stdout) {
 
 // PR fields fetched all at once via GraphQL (cf. getPullDetailsBatch).
 const PR_FRAGMENT = `fragment pr on PullRequest {
-  number title author { login } createdAt updatedAt additions deletions isDraft state headRefName
+  number title author { login } createdAt updatedAt additions deletions isDraft state mergeable headRefName
   headRepository { nameWithOwner }
   latestOpinionatedReviews(first: 100) { nodes { author { login } state submittedAt } }
   commits(last: 1) { nodes { commit { statusCheckRollup {
@@ -64,6 +64,13 @@ function normalizePull(pr) {
     deletions: pr.deletions,
     isDraft: pr.isDraft,
     state: pr.state,
+    // MERGEABLE | CONFLICTING | UNKNOWN. ⚠️ GitHub computes the merge commit
+    // LAZILY: right after a push (or on a PR nobody has opened in a while) the
+    // first read is UNKNOWN, and the query itself triggers the background
+    // computation — the next poll returns the real verdict. Hence only
+    // CONFLICTING is treated as a conflict downstream, never « not MERGEABLE »
+    // (that would flash a false conflict on every fresh push).
+    mergeable: pr.mergeable ?? null,
     branch: pr.headRefName ?? null,
     // repo hosting the head branch (a fork for external PRs; null if deleted).
     branchRepo: pr.headRepository?.nameWithOwner ?? null,

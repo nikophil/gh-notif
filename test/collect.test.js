@@ -461,6 +461,28 @@ test('collectPRs: an unseen pending review adds an « others » PR with a review
   assert.equal(others[0].changesRequested, 1); // frank requested changes
 });
 
+test('collectPRs: mergeable CONFLICTING → row.conflicting true (anything else → false)', async () => {
+  const gh = fakeGh({
+    search: [{ number: 98, title: 'Conflicted', html_url: 'https://github.com/o/r/pull/98', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
+    authored: [{ number: 81, title: 'Mine', html_url: 'https://github.com/o/x/pull/81', repository_url: 'https://api.github.com/repos/o/x' }],
+    details: (repo, number) => (number === 98
+      ? { number: 98, title: 'Conflicted', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, state: 'OPEN', isDraft: false, mergeable: 'CONFLICTING', statusCheckRollupState: 'SUCCESS' }
+      : { number: 81, title: 'Mine', author: { login: ME }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, state: 'OPEN', isDraft: false, mergeable: 'MERGEABLE', statusCheckRollupState: 'SUCCESS' }),
+  });
+  const { mine, others } = await collectPRs(gh, ME, {});
+  assert.equal(others[0].conflicting, true);
+  assert.equal(mine[0].conflicting, false);
+});
+
+test('collectPRs: mergeable UNKNOWN (not yet computed by GitHub) → conflicting false', async () => {
+  const gh = fakeGh({
+    authored: [{ number: 81, title: 'Mine', html_url: 'https://github.com/o/x/pull/81', repository_url: 'https://api.github.com/repos/o/x' }],
+    details: () => ({ number: 81, title: 'Mine', author: { login: ME }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, state: 'OPEN', isDraft: false, mergeable: 'UNKNOWN', statusCheckRollupState: 'SUCCESS' }),
+  });
+  const { mine } = await collectPRs(gh, ME, {});
+  assert.equal(mine[0].conflicting, false);
+});
+
 // ── approvals (data.approvalEvents) ───────────────────────────────────────────
 test('collectPRs: data.approvalEvents — one event per approval on MY open PRs', async () => {
   const gh = fakeGh({

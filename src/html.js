@@ -84,7 +84,18 @@ const diffCell = (additions, deletions) =>
 
 // « icon » cells with an explanatory title="" on hover.
 const titled = (title, content) => `<span title="${escapeHtml(title)}">${content}</span>`;
-const stateCell = (state) => titled(STATE_LABEL[state] || state || '', stateIcon(state));
+// GitHub « alert » octicon, inline SVG tinted --danger (zero external asset):
+// the PR conflicts with its base branch. It rides along in the Status cell
+// rather than taking a column of its own — that cell already answers « can this
+// PR move? », and an extra column would widen both tables for a rare case.
+const CONFLICT_ICON =
+  '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" style="fill:var(--danger);vertical-align:text-bottom">' +
+  '<path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path>' +
+  '</svg>';
+
+const stateCell = (state, conflicting = false) =>
+  titled(STATE_LABEL[state] || state || '', stateIcon(state))
+  + (conflicting ? ` ${titled('Merge conflicts', CONFLICT_ICON)}` : '');
 // GitHub check-state octicons (x / dot-fill / check), inline SVG tinted with the
 // Primer state colors — the row icons of GitHub's own checks dropdown.
 const ciSvg = (path, color) =>
@@ -229,7 +240,7 @@ function mineRow(r, now, hidden, ignoredChecks = {}) {
       dateCell('Opened', r.createdAt, now),
       dateCell('Updated', r.updatedAt, now),
       diffCell(r.additions, r.deletions),
-      stateCell(r.state),
+      stateCell(r.state, r.conflicting),
       approvalsCell(r.approvals, r.state === 'open' && isReady(r.approvals), r.changesRequested),
       triggersCell(r.triggers),
       ciCell(r, ignoredChecks),
@@ -274,7 +285,7 @@ function otherRow(r, now, hidden, ignoredChecks = {}) {
       dateCell('Opened', r.createdAt, now),
       dateCell('Updated', r.updatedAt, now),
       diffCell(r.additions, r.deletions),
-      stateCell(r.state),
+      stateCell(r.state, r.conflicting),
       approvalsCell(r.approvals, false, r.changesRequested),
       triggersCell(r.triggers),
       ciCell(r, ignoredChecks),

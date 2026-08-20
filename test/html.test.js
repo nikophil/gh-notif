@@ -73,6 +73,22 @@ test('renderFragment: state / CI / triggers emojis', () => {
   assert.ok(out.includes('↩️'));        // trigger reply
 });
 
+test('renderFragment: a conflicting PR shows the ⚠ merge-conflict icon next to its state', () => {
+  const out = renderFragment({ mine: [myRow({ conflicting: true })], others: [otherRow()] }, { now: NOW });
+  assert.match(out, /title="Merge conflicts"/);
+  assert.equal(out.match(/title="Merge conflicts"/g).length, 1, 'only the conflicting row carries it');
+});
+
+test('renderFragment: no merge-conflict icon without conflicting', () => {
+  const out = renderFragment({ mine: [myRow()], others: [otherRow()] }, { now: NOW });
+  assert.ok(!out.includes('Merge conflicts'));
+});
+
+test('renderFragment: the conflict icon also appears on others\' PRs', () => {
+  const out = renderFragment({ mine: [], others: [otherRow({ conflicting: true })] }, { now: NOW });
+  assert.match(out, /title="Merge conflicts"/);
+});
+
 test('renderFragment: tooltips (title) on the icons', () => {
   const out = renderFragment(
     { mine: [myRow({ state: 'merged', ci: 'pass', triggers: ['review', 'comment'], approvals: 2 })], others: [] },
