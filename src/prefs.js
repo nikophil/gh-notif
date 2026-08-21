@@ -47,6 +47,12 @@ export function isNotifyEnabled(prefs) {
   return prefs?.notify !== false;
 }
 
+// Stacked-PRs grouping enabled? False by default (opt-in toggle): only an
+// explicit `stacks: true` groups — robust against a tampered file.
+export function stacksOf(prefs) {
+  return prefs?.stacks === true;
+}
+
 // Chosen CSS theme: 'light' | 'dark' | 'auto'. Any unknown/absent value falls
 // back to 'auto' (follows the system) — robust against a tampered file.
 export function themeOf(prefs) {

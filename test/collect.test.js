@@ -258,7 +258,7 @@ test('collectPRs: aggregates the triggers of the same PR and splits mine/others'
     // search (reliable source), not from the sticky review_requested notif.
     search: [{ number: 42, title: 'PR A', html_url: 'https://github.com/o/r/pull/42', updated_at: '2026-06-24T12:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
     details: (repo, number) => {
-      if (repo === 'o/r' && number === 42) return { number: 42, title: 'PR A', author: { login: 'alice' }, createdAt: '2026-06-21T12:00:00Z', additions: 10, deletions: 2, branch: 'feat/a', branchRepo: 'o/r', statusCheckRollupState: 'SUCCESS' };
+      if (repo === 'o/r' && number === 42) return { number: 42, title: 'PR A', author: { login: 'alice' }, createdAt: '2026-06-21T12:00:00Z', additions: 10, deletions: 2, branch: 'feat/a', branchRepo: 'o/r', base: 'feat/parent', defaultBranch: 'main', statusCheckRollupState: 'SUCCESS' };
       if (repo === 'o/x' && number === 7) return { number: 7, title: 'My PR', author: { login: ME }, createdAt: '2026-06-23T12:00:00Z', additions: 1, deletions: 0, statusCheckRollupState: null };
       return null;
     },
@@ -277,12 +277,16 @@ test('collectPRs: aggregates the triggers of the same PR and splits mine/others'
   assert.equal(others[0].additions, 10);
   assert.equal(others[0].branch, 'feat/a');
   assert.equal(others[0].branchRepo, 'o/r');
+  assert.equal(others[0].base, 'feat/parent');
+  assert.equal(others[0].defaultBranch, 'main');
 
   assert.equal(mine.length, 1);
   assert.equal(mine[0].repo, 'o/x');
   assert.deepEqual(mine[0].triggers, ['comment']);
   assert.equal(mine[0].ci, 'none');
   assert.equal(mine[0].branch, null); // detail without headRefName → null (compat)
+  assert.equal(mine[0].base, null); // detail without baseRefName → null (compat)
+  assert.equal(mine[0].defaultBranch, null);
   assert.equal(mine[0].url, 'h'); // « comment on my PR » → link to the comment
 });
 

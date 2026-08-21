@@ -56,6 +56,92 @@ function valueOf(row, key) {
   return row.createdAt ?? null;
 }
 
+// Stacked PRs: a render pass applied AFTER sortRows (the sort stays intact for
+// the roots; a child is pulled right under its parent). A child is a row whose
+// `base` is the head branch of another row of the SAME repo — a fork-hosted
+// head cannot be a base ref, so forks are excluded from the parent map. Rows
+// are never mutated: children are re-emitted as copies carrying `stackDepth`,
+// and a stacked row whose parent is NOT in the table gets `orphanBase` (only
+// when the default branch is known, to avoid a badge on every base:main PR).
+function stackLinks(list) {
+  const byBranch = new Map();
+  for (const r of list) {
+    if (r.branch && (r.branchRepo == null || r.branchRepo === r.repo)) byBranch.set(`${r.repo}#${r.branch}`, r);
+  }
+  const parentOf = new Map();
+  const childrenOf = new Map();
+  for (const r of list) {
+    const p = r.base ? byBranch.get(`${r.repo}#${r.base}`) : null;
+    if (!p || p === r) continue;
+    parentOf.set(r, p);
+    if (!childrenOf.has(p)) childrenOf.set(p, []);
+    childrenOf.get(p).push(r);
+  }
+  return { parentOf, childrenOf };
+}
+
+// At least one parent/child link among these rows? Gates the « ⤷ stacks »
+// toggle in the section titles (an orphan alone doesn't count: nothing to group).
+export function hasStacks(rows) {
+  return stackLinks(rows ?? []).parentOf.size > 0;
+}
+
+export function groupStacks(rows) {
+  const list = rows ?? [];
+  const { parentOf, childrenOf } = stackLinks(list);
+  // Canonical stacked view — NO sort semantics (the sorts are dropped while
+  // stacks mode is on, cf. §20): the stacks come FIRST, one block under the
+  // other (block order = first appearance in the incoming list), each block
+  // root-first then its children depth-first (siblings keep the incoming
+  // order); the non-stacked rows follow below, in their incoming order.
+  const inStack = new Set();
+  for (const [child, parent] of parentOf) { inStack.add(child); inStack.add(parent); }
+  const out = [];
+  const solos = [];
+  const visited = new Set();
+  let nextBlock = 0;
+  // A block is « branched » when one of its members has 2+ children: the DFS
+  // order alone no longer tells the tree, so its children get a PER-DEPTH
+  // indent (`stackBranched`) — a linear chain keeps the single fixed indent.
+  const isBranched = (root) => {
+    const stack = [root];
+    const seen = new Set();
+    while (stack.length) {
+      const n = stack.pop();
+      if (seen.has(n)) continue;
+      seen.add(n);
+      const kids = childrenOf.get(n) ?? [];
+      if (kids.length > 1) return true;
+      stack.push(...kids);
+    }
+    return false;
+  };
+  // `inStack` flags every row of a block and `stackIndex` numbers it →
+  // alternating block backgrounds (two adjacent stacks must read as two units).
+  const emit = (r, depth, block, branched) => {
+    if (visited.has(r)) return;
+    visited.add(r);
+    const orphan = depth === 0 && r.base && r.defaultBranch && r.base !== r.defaultBranch;
+    out.push({
+      ...r, inStack: true, stackIndex: block,
+      ...(depth > 0 ? { stackDepth: depth } : {}),
+      ...(depth > 0 && branched ? { stackBranched: true } : {}),
+      ...(orphan ? { orphanBase: r.base } : {}),
+    });
+    for (const c of childrenOf.get(r) ?? []) emit(c, depth + 1, block, branched);
+  };
+  for (const r of list) {
+    if (!inStack.has(r)) {
+      // solo row; `orphanBase` if it is stacked on something not in the table.
+      const orphan = r.base && r.defaultBranch && r.base !== r.defaultBranch;
+      solos.push(orphan ? { ...r, orphanBase: r.base } : r);
+    } else if (!parentOf.has(r)) emit(r, 0, nextBlock++, isBranched(r));
+  }
+  // base cycle (defensive): a component without a root, emit it as its own block
+  for (const r of list) if (inStack.has(r) && !visited.has(r)) emit(r, 0, nextBlock++, false);
+  return [...out, ...solos];
+}
+
 // Sorted copy (does not mutate the input). Missing always at the end whatever
 // the direction; equality → arrival order preserved (the native sort is stable).
 export function sortRows(rows, sort, keys = SORT_KEYS) {

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SORT_KEYS, MINE_SORT_KEYS, DEFAULT_SORT, normalizeSort, toggleSort, sortRows } from '../src/sort.js';
+import { SORT_KEYS, MINE_SORT_KEYS, DEFAULT_SORT, normalizeSort, toggleSort, sortRows, groupStacks, hasStacks } from '../src/sort.js';
 
 // Fixtures: 3 PRs with all-distinct values (author deliberately with mixed case
 // to test case-insensitivity; updatedAt deliberately in an order ≠ createdAt).
@@ -171,4 +171,176 @@ test('sortRows with MINE_SORT_KEYS: an out-of-set key falls back to the default'
   // 'author' is valid for others but not for mine → updated desc.
   assert.deepEqual(order(sortRows(rows(), { key: 'author', dir: 'asc' }, MINE_SORT_KEYS)), [1, 3, 2]);
   assert.deepEqual(order(sortRows(rows(), { key: 'date', dir: 'asc' }, MINE_SORT_KEYS)), [1, 3, 2]);
+});
+
+// ---- groupStacks (stacked PRs) ----
+// Fixture: a repo with main as default branch. #10 is a root (base = main),
+// #11 is stacked on #10 (base = #10's head), #12 is independent.
+const stackRows = () => [
+  { repo: 'o/a', number: 12, branch: 'feat/solo', base: 'main', defaultBranch: 'main' },
+  { repo: 'o/a', number: 11, branch: 'feat/child', base: 'feat/parent', defaultBranch: 'main' },
+  { repo: 'o/a', number: 10, branch: 'feat/parent', base: 'main', defaultBranch: 'main' },
+];
+
+test('groupStacks: no stack → order unchanged, no annotation', () => {
+  const input = [
+    { repo: 'o/a', number: 1, branch: 'f1', base: 'main', defaultBranch: 'main' },
+    { repo: 'o/b', number: 2, branch: 'f2', base: 'main', defaultBranch: 'main' },
+  ];
+  const out = groupStacks(input);
+  assert.deepEqual(order(out), [1, 2]);
+  assert.ok(out.every((r) => r.stackDepth === undefined && r.orphanBase === undefined));
+});
+
+test('groupStacks: stacks come FIRST (root on top), the non-stacked rows below', () => {
+  // canonical stacked view, no sort semantics: each block root-first, then
+  // the solo rows in their incoming order.
+  const out = groupStacks(stackRows());
+  assert.deepEqual(order(out), [10, 11, 12]);
+  assert.equal(out[0].stackDepth, undefined); // root
+  assert.equal(out[1].stackDepth, 1);         // child, under its root
+  assert.equal(out[2].stackDepth, undefined); // solo, below the stacks
+});
+
+test('groupStacks: does not mutate the input rows', () => {
+  const input = stackRows();
+  groupStacks(input);
+  assert.ok(input.every((r) => r.stackDepth === undefined && r.orphanBase === undefined));
+});
+
+test('groupStacks: 3-level stack → chain order root → leaf, whatever the incoming order', () => {
+  const out = groupStacks([
+    { repo: 'o/a', number: 20, branch: 'l0', base: 'main', defaultBranch: 'main' },
+    { repo: 'o/a', number: 22, branch: 'l2', base: 'l1', defaultBranch: 'main' },
+    { repo: 'o/a', number: 21, branch: 'l1', base: 'l0', defaultBranch: 'main' },
+  ]);
+  assert.deepEqual(order(out), [20, 21, 22]);
+  const byNum = Object.fromEntries(out.map((r) => [r.number, r]));
+  assert.equal(byNum[20].stackDepth, undefined);
+  assert.equal(byNum[21].stackDepth, 1);
+  assert.equal(byNum[22].stackDepth, 2);
+});
+
+test('groupStacks: two siblings keep their incoming order under their root', () => {
+  const out = groupStacks([
+    { repo: 'o/a', number: 31, branch: 'c1', base: 'p', defaultBranch: 'main' },
+    { repo: 'o/a', number: 30, branch: 'p', base: 'main', defaultBranch: 'main' },
+    { repo: 'o/a', number: 32, branch: 'c2', base: 'p', defaultBranch: 'main' },
+  ]);
+  assert.deepEqual(order(out), [30, 31, 32]);
+});
+
+test('groupStacks: parent absent from the table → orphan badge, no reordering', () => {
+  const out = groupStacks([
+    { repo: 'o/a', number: 40, branch: 'f', base: 'feat/gone', defaultBranch: 'main' },
+    { repo: 'o/a', number: 41, branch: 'g', base: 'main', defaultBranch: 'main' },
+  ]);
+  assert.deepEqual(order(out), [40, 41]);
+  assert.equal(out[0].orphanBase, 'feat/gone');
+  assert.equal(out[1].orphanBase, undefined);
+});
+
+test('groupStacks: unknown default branch (old data) → never an orphan badge', () => {
+  const out = groupStacks([
+    { repo: 'o/a', number: 50, branch: 'f', base: 'feat/x', defaultBranch: null },
+  ]);
+  assert.equal(out[0].orphanBase, undefined);
+});
+
+test('groupStacks: same branch name in another repo does not match', () => {
+  const out = groupStacks([
+    { repo: 'o/b', number: 60, branch: 'feat/parent', base: 'main', defaultBranch: 'main' },
+    { repo: 'o/a', number: 61, branch: 'x', base: 'feat/parent', defaultBranch: 'main' },
+  ]);
+  assert.deepEqual(order(out), [60, 61]);
+  assert.equal(out[1].stackDepth, undefined);
+  assert.equal(out[1].orphanBase, 'feat/parent');
+});
+
+test('groupStacks: a fork-hosted head branch is not a stack parent', () => {
+  // #70's head lives on a fork: a base ref « feat/parent » in o/a cannot be it.
+  const out = groupStacks([
+    { repo: 'o/a', number: 70, branch: 'feat/parent', branchRepo: 'fork/a', base: 'main', defaultBranch: 'main' },
+    { repo: 'o/a', number: 71, branch: 'x', base: 'feat/parent', defaultBranch: 'main' },
+  ]);
+  assert.deepEqual(order(out), [70, 71]);
+  assert.equal(out[1].stackDepth, undefined);
+});
+
+test('groupStacks: defensive on a base cycle — every row emitted once, no hang', () => {
+  const out = groupStacks([
+    { repo: 'o/a', number: 80, branch: 'a', base: 'b', defaultBranch: 'main' },
+    { repo: 'o/a', number: 81, branch: 'b', base: 'a', defaultBranch: 'main' },
+  ]);
+  assert.deepEqual(order(out).sort(), [80, 81]);
+});
+
+test('hasStacks: true only if a parent/child link exists in the rows', () => {
+  assert.equal(hasStacks(stackRows()), true);
+  assert.equal(hasStacks([
+    { repo: 'o/a', number: 1, branch: 'f1', base: 'main', defaultBranch: 'main' },
+    { repo: 'o/b', number: 2, branch: 'f2', base: 'main', defaultBranch: 'main' },
+  ]), false);
+  assert.equal(hasStacks([]), false);
+  assert.equal(hasStacks(null), false);
+});
+
+test('hasStacks: an orphan (parent absent) is not enough to show the toggle', () => {
+  assert.equal(hasStacks([
+    { repo: 'o/a', number: 40, branch: 'f', base: 'feat/gone', defaultBranch: 'main' },
+  ]), false);
+});
+
+test('groupStacks: every row of a stack (parent included) is flagged for the block background', () => {
+  const out = groupStacks(stackRows());
+  const byNum = Object.fromEntries(out.map((r) => [r.number, r]));
+  assert.equal(byNum[10].inStack, true, 'parent flagged');
+  assert.equal(byNum[11].stackDepth, 1, 'child carries its depth');
+  assert.equal(byNum[12].inStack, undefined, 'solo row untouched');
+});
+
+test('groupStacks: each block gets its own stackIndex (parent and children alike)', () => {
+  const out = groupStacks([
+    { repo: 'o/a', number: 30, branch: 'p1', base: 'main', defaultBranch: 'main' },
+    { repo: 'o/a', number: 31, branch: 'c1', base: 'p1', defaultBranch: 'main' },
+    { repo: 'o/a', number: 40, branch: 'p2', base: 'main', defaultBranch: 'main' },
+    { repo: 'o/a', number: 41, branch: 'c2', base: 'p2', defaultBranch: 'main' },
+    { repo: 'o/a', number: 50, branch: 'solo', base: 'main', defaultBranch: 'main' },
+  ]);
+  const byNum = Object.fromEntries(out.map((r) => [r.number, r]));
+  assert.equal(byNum[30].stackIndex, 0);
+  assert.equal(byNum[31].stackIndex, 0);
+  assert.equal(byNum[40].stackIndex, 1);
+  assert.equal(byNum[41].stackIndex, 1);
+  assert.equal(byNum[50].stackIndex, undefined, 'solo row: no block');
+});
+
+test('groupStacks: root always on top → never a stackUp flag (single ↳ marker)', () => {
+  const out = groupStacks(stackRows());
+  assert.ok(out.every((r) => r.stackUp === undefined));
+});
+
+test('groupStacks: a branched block (a parent with 2 children) is flagged stackBranched', () => {
+  // A ← B ← (C ← D, E ← F): branching at B → per-depth indent needed.
+  const out = groupStacks([
+    { repo: 'o/a', number: 1, branch: 'a', base: 'main', defaultBranch: 'main' },
+    { repo: 'o/a', number: 2, branch: 'b', base: 'a', defaultBranch: 'main' },
+    { repo: 'o/a', number: 3, branch: 'c', base: 'b', defaultBranch: 'main' },
+    { repo: 'o/a', number: 4, branch: 'd', base: 'c', defaultBranch: 'main' },
+    { repo: 'o/a', number: 5, branch: 'e', base: 'b', defaultBranch: 'main' },
+    { repo: 'o/a', number: 6, branch: 'f', base: 'e', defaultBranch: 'main' },
+  ]);
+  assert.deepEqual(order(out), [1, 2, 3, 4, 5, 6]); // DFS: the E branch after the C one
+  const byNum = Object.fromEntries(out.map((r) => [r.number, r]));
+  assert.deepEqual([byNum[3].stackDepth, byNum[5].stackDepth], [2, 2], 'C and E are siblings in depth');
+  assert.ok(out.filter((r) => r.stackDepth).every((r) => r.stackBranched === true), 'children flagged');
+});
+
+test('groupStacks: a LINEAR chain is never flagged stackBranched (single indent stays)', () => {
+  const out = groupStacks([
+    { repo: 'o/a', number: 1, branch: 'a', base: 'main', defaultBranch: 'main' },
+    { repo: 'o/a', number: 2, branch: 'b', base: 'a', defaultBranch: 'main' },
+    { repo: 'o/a', number: 3, branch: 'c', base: 'b', defaultBranch: 'main' },
+  ]);
+  assert.ok(out.every((r) => r.stackBranched === undefined));
 });

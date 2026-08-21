@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync, mkdtempSync } from 'node:fs';
-import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, ignoredChecksFor, toggleIgnoredCheck, favModesOf, toggleFavMode } from '../src/prefs.js';
+import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, ignoredChecksFor, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf } from '../src/prefs.js';
 
 test('prefsPath respects XDG_STATE_HOME', () => {
   const prev = process.env.XDG_STATE_HOME;
@@ -211,4 +211,11 @@ test('toggleIgnoredCheck: tolerates absent ignoredChecks and trims the name', ()
   assert.deepEqual(prefs.ignoredChecks, { 'o/r': ['behat'] }); // created + trimmed
   toggleIgnoredCheck(prefs, 'o/r', 'behat'); // removal (trimmed match)
   assert.deepEqual(prefs.ignoredChecks, {});
+});
+
+test('stacksOf: false by default, true only if explicitly enabled', () => {
+  assert.equal(stacksOf({ stacks: true }), true);
+  assert.equal(stacksOf({ stacks: false }), false);
+  assert.equal(stacksOf({}), false);
+  assert.equal(stacksOf({ stacks: 'yes' }), false); // tampered file → default
 });

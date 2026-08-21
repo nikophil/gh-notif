@@ -18,6 +18,7 @@ function parseJson(stdout) {
 const PR_FRAGMENT = `fragment pr on PullRequest {
   number title author { login } createdAt updatedAt additions deletions isDraft state mergeable headRefName
   headRepository { nameWithOwner }
+  baseRefName baseRepository { defaultBranchRef { name } }
   latestOpinionatedReviews(first: 100) { nodes { author { login } state submittedAt } }
   commits(last: 1) { nodes { commit { statusCheckRollup {
     state
@@ -74,6 +75,10 @@ function normalizePull(pr) {
     branch: pr.headRefName ?? null,
     // repo hosting the head branch (a fork for external PRs; null if deleted).
     branchRepo: pr.headRepository?.nameWithOwner ?? null,
+    // base branch + default branch of the base repo: base ≠ default on a PR
+    // whose parent is another PR's head → stacked-PR detection (sort.js).
+    base: pr.baseRefName ?? null,
+    defaultBranch: pr.baseRepository?.defaultBranchRef?.name ?? null,
     // latestOpinionatedReviews = latest APPROVED/CHANGES_REQUESTED review per
     // author (ignores COMMENTED): a comment does not cancel an approval.
     reviews: (pr.latestOpinionatedReviews?.nodes ?? []).map((r) => ({

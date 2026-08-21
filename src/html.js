@@ -4,6 +4,7 @@
 import { ciIcon, stateIcon, relativeDate, checksByRepo } from './render.js';
 import { isReady } from './approvals.js';
 import { favoriteLabel } from './favorites.js';
+import { hasStacks } from './sort.js';
 
 // Labels shown on hover (title="") of the icons — they give the meaning.
 const STATE_LABEL = { draft: 'Draft', open: 'Open', merged: 'Merged', closed: 'Closed' };
@@ -209,6 +210,29 @@ const branchCell = (r) => {
     + copyBtn(r.branch, 'Copy branch name');
 };
 
+// « ⤷ stacks » toggle in a section title: offered ONLY when the table's visible
+// rows contain at least one parent/child link (hasStacks) — no stack, no button.
+// One global state for both tables (POST /stacks, delegated on #content).
+const stacksBtn = (rows, on) =>
+  hasStacks(rows)
+    ? ` <button class="stacks-toggle${on ? ' on' : ''}" title="Group stacked PRs under their parent">⤷ stacks</button>`
+    : '';
+
+// Title cell, stacked-PR aware (sort.js#groupStacks annotations): a child row
+// (`stackDepth`) gets a SINGLE fixed ⤷ indent whatever its depth (the grouped
+// order already tells the nesting; per-depth offsets just wasted title width);
+// a stacked row whose parent is NOT in the table (`orphanBase`) gets a discreet
+// « base: … » chip instead. No annotation → the bare link (byte-identical compat).
+const titleCell = (r) => {
+  const mark = r.stackDepth
+    ? `<span class="stack-indent"${r.stackBranched ? ` style="padding-left:${(r.stackDepth - 1) * 14}px"` : ''} title="Stacked on the PR above">↳</span> `
+    : '';
+  const chip = r.orphanBase
+    ? ` <span class="stack-base" title="Stacked PR — its base branch is not in this table">⤷ base: ${escapeHtml(r.orphanBase)}</span>`
+    : '';
+  return mark + link(r.url, r.title) + chip;
+};
+
 const tableRow = (cells, cls = '') => `<tr${cls ? ` class="${cls}"` : ''}>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`;
 
 // A header is either a string (bare th), or { html, attrs } (sortable th —
@@ -232,12 +256,21 @@ function table(headers, rows) {
 const dateCell = (label, iso, now) =>
   titled(`${label} ${relativeDate(iso, now)}`, escapeHtml(relativeDate(iso, now)));
 
+// Row classes: `hid` (hidden mode) + `stack stack-a|b` (row of a stacked-PRs
+// block → tinted background, parent and children alike; the tint alternates
+// with the block's stackIndex so adjacent stacks read as separate units).
+const rowClass = (r, hidden) =>
+  [
+    (r.stackDepth || r.inStack) && `stack stack-${(r.stackIndex ?? 0) % 2 ? 'b' : 'a'}`,
+    hidden && 'hid',
+  ].filter(Boolean).join(' ');
+
 function mineRow(r, now, hidden, ignoredChecks = {}) {
   return tableRow(
     [
       link(r.url, r.repo),
       link(r.url, `#${r.number}`),
-      link(r.url, r.title),
+      titleCell(r),
       branchCell(r),
       dateCell('Opened', r.createdAt, now),
       dateCell('Updated', r.updatedAt, now),
@@ -248,7 +281,7 @@ function mineRow(r, now, hidden, ignoredChecks = {}) {
       ciCell(r, ignoredChecks),
       actionButton(r, hidden),
     ],
-    hidden ? 'hid' : '',
+    rowClass(r, hidden),
   );
 }
 
@@ -281,7 +314,7 @@ function otherRow(r, now, hidden, ignoredChecks = {}) {
     [
       link(r.url, r.repo),
       link(r.url, `#${r.number}`),
-      link(r.url, r.title),
+      titleCell(r),
       branchCell(r),
       r.author ? `@${escapeHtml(r.author)}` : '?',
       dateCell('Opened', r.createdAt, now),
@@ -293,7 +326,7 @@ function otherRow(r, now, hidden, ignoredChecks = {}) {
       ciCell(r, ignoredChecks),
       actionButton(r, hidden),
     ],
-    hidden ? 'hid' : '',
+    rowClass(r, hidden),
   );
 }
 
@@ -353,6 +386,7 @@ export function renderFragment(data, opts = {}) {
   const sort = opts.sort ?? null;
   const sortMine = opts.sortMine ?? null;
   const ignoredChecks = opts.ignoredChecks ?? {};
+  const stacks = !!opts.stacks;
   const mine = data?.mine ?? [];
   const hiddenMine = data?.hiddenMine ?? [];
   const hiddenMineCount = data?.hiddenMineCount ?? hiddenMine.length;
@@ -372,7 +406,7 @@ export function renderFragment(data, opts = {}) {
     const rows = mine.length > 0 || (showHidden && hiddenMineCount > 0)
       ? mineTable(mine, hiddenMine, now, showHidden, sortMine, ignoredChecks)
       : '';
-    blocks.push(`<section><h2>📥 Your open PRs ${count}${hist}</h2>${rows}</section>`);
+    blocks.push(`<section><h2>📥 Your open PRs ${count}${hist}${stacksBtn(mine, stacks)}</h2>${rows}</section>`);
   }
   if (others.length > 0 || (showHidden && hiddenCount > 0)) {
     const count =
@@ -380,7 +414,7 @@ export function renderFragment(data, opts = {}) {
         ? `(${others.length}, ${hiddenCount} hidden)`
         : `(${others.length})`;
     blocks.push(
-      `<section><h2>👥 Activity on others' PRs ${count}</h2>${othersTable(others, hiddenRows, now, showHidden, sort, ignoredChecks)}</section>`,
+      `<section><h2>👥 Activity on others' PRs ${count}${stacksBtn(others, stacks)}</h2>${othersTable(others, hiddenRows, now, showHidden, sort, ignoredChecks)}</section>`,
     );
   }
   // Watched issues (« all » mode): their own section, rendered only when it has
@@ -567,6 +601,12 @@ ${FAVICON}
   /* Title column: absorbs the remaining width and truncates on a single line
      (width:100% + max-width:0 + ellipsis trick on an auto-layout table). */
   td:nth-child(3) { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* Stacked-PRs blocks: subtle veil on every row of a stack (parent +
+     children) so each block reads as one unit; two alternating tints tell
+     adjacent blocks apart. Declared BEFORE tr:hover (same specificity) so the
+     hover feedback still wins on top. */
+  tbody tr.stack-a { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+  tbody tr.stack-b { background: color-mix(in srgb, var(--success) 6%, transparent); }
   tbody tr:hover { background: var(--canvas-subtle); }
   /* Last-clicked row: subtle accent veil so coming back from the PR tab shows
      where you left off. Re-applied by the client after each fragment
@@ -592,6 +632,21 @@ ${FAVICON}
   code.branch { display: inline-block; max-width: 9rem; overflow: hidden; text-overflow: ellipsis;
                 vertical-align: middle; background: color-mix(in srgb, var(--accent) 10%, transparent);
                 color: var(--accent); padding: .1em .35em; border-radius: 4px; font-size: .625rem; }
+  /* Stacked PRs: ⤷ marker of a child row (indent carried inline, per depth)
+     and « base: … » chip of a stacked row whose parent is not in the table —
+     both muted and tiny, GitHub-like discretion. */
+  .stack-indent { color: var(--fg-muted); }
+  /* « ⤷ stacks » toggle in the section titles: tiny GitHub-like chip, accent
+     when active (same visual language as the 🙈 hidden toggle, but smaller). */
+  button.stacks-toggle { font-size: .625rem; font-weight: 400; color: var(--fg-muted);
+                         background: transparent; border: 1px solid var(--border-muted);
+                         border-radius: 10px; padding: 0 .5em; margin-left: .4rem;
+                         vertical-align: middle; box-shadow: none; }
+  button.stacks-toggle:hover { color: var(--accent); border-color: var(--accent); }
+  button.stacks-toggle.on { color: var(--accent); border-color: var(--accent);
+                            background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .stack-base { font-size: .625rem; color: var(--fg-muted); white-space: nowrap;
+                border: 1px solid var(--border-muted); border-radius: 10px; padding: 0 .4em; }
   /* CI checks popover: the ✗/● icon becomes a discreet button opening a
      GitHub-like panel listing the runs. position:fixed because the sections
      clip their content (overflow:hidden for the rounded corners) — the client
@@ -883,6 +938,9 @@ ${FAVICON}
       act('/sort', sq);
       return;
     }
+    // Stacked-PRs grouping: one global toggle (both tables), server-persisted.
+    var stk = e.target.closest('button.stacks-toggle');
+    if (stk) { act('/stacks'); return; }
     var btn = e.target.closest('.act');
     if (!btn) return;
     act('/hide', 'key=' + encodeURIComponent(btn.getAttribute('data-key')));

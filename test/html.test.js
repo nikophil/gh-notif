@@ -829,3 +829,84 @@ test('renderShell: forwards favModes to the chips and wires POST /fav/mode', () 
   assert.match(html, /class="chip-mode all" data-fav-mode="zenstruck\/foundry"/);
   assert.match(html, /\/fav\/mode/);
 });
+
+test('renderFragment: a stacked child row gets a single fixed indent marker, whatever the depth', () => {
+  const out = renderFragment({ mine: [myRow({ stackDepth: 1 })], others: [otherRow({ stackDepth: 2 })] }, { now: NOW });
+  assert.equal((out.match(/class="stack-indent"/g) || []).length, 2);
+  assert.ok(out.includes('↳'));
+  assert.ok(!out.includes('padding-left'), 'no per-depth offset: one fixed indent');
+});
+
+test('renderFragment: orphanBase → discreet « base: » chip, branch escaped', () => {
+  const out = renderFragment({ mine: [], others: [otherRow({ orphanBase: 'feat/<x>' })] }, { now: NOW });
+  assert.ok(out.includes('class="stack-base"'));
+  assert.ok(out.includes('base: feat/&lt;x&gt;'));
+  assert.ok(!out.includes('feat/<x>'));
+});
+
+test('renderFragment: no stack annotation → no marker nor chip (compat)', () => {
+  const out = renderFragment({ mine: [myRow()], others: [otherRow()] }, { now: NOW });
+  assert.ok(!out.includes('stack-indent'));
+  assert.ok(!out.includes('stack-base'));
+});
+
+test('renderFragment: « ⤷ stacks » toggle shown only where a stack exists (per table)', () => {
+  const parent = otherRow({ number: 1, branch: 'p', base: 'main', defaultBranch: 'main' });
+  const child = otherRow({ number: 2, branch: 'c', base: 'p', defaultBranch: 'main' });
+  const out = renderFragment({ mine: [myRow()], others: [parent, child] }, { now: NOW });
+  assert.equal((out.match(/stacks-toggle/g) || []).length, 1); // others yes, mine no
+});
+
+test('renderFragment: no stack anywhere → no toggle (compat)', () => {
+  const out = renderFragment({ mine: [myRow()], others: [otherRow()] }, { now: NOW });
+  assert.ok(!out.includes('stacks-toggle'));
+});
+
+test('renderFragment: opts.stacks marks the toggle active', () => {
+  const parent = otherRow({ number: 1, branch: 'p', base: 'main', defaultBranch: 'main' });
+  const child = otherRow({ number: 2, branch: 'c', base: 'p', defaultBranch: 'main' });
+  const on = renderFragment({ mine: [], others: [parent, child] }, { now: NOW, stacks: true });
+  assert.ok(on.includes('class="stacks-toggle on"'));
+  const off = renderFragment({ mine: [], others: [parent, child] }, { now: NOW });
+  assert.ok(off.includes('class="stacks-toggle"'));
+  assert.ok(!off.includes('stacks-toggle on'));
+});
+
+test('renderFragment: the rows of a stack carry the .stack class (block background)', () => {
+  const out = renderFragment({
+    mine: [myRow({ inStack: true }), myRow({ number: 121, stackDepth: 1 }), myRow({ number: 122 })],
+    others: [],
+  }, { now: NOW });
+  assert.equal((out.match(/<tr class="stack stack-a">/g) || []).length, 2, 'parent + child, not the solo row');
+});
+
+test('renderFragment: adjacent stacks alternate two block tints (stack-a / stack-b)', () => {
+  const out = renderFragment({
+    mine: [
+      myRow({ inStack: true, stackIndex: 0 }), myRow({ number: 121, stackDepth: 1, inStack: true, stackIndex: 0 }),
+      myRow({ number: 122, inStack: true, stackIndex: 1 }), myRow({ number: 123, stackDepth: 1, inStack: true, stackIndex: 1 }),
+      myRow({ number: 124 }),
+    ],
+    others: [],
+  }, { now: NOW });
+  assert.equal((out.match(/<tr class="stack stack-a">/g) || []).length, 2);
+  assert.equal((out.match(/<tr class="stack stack-b">/g) || []).length, 2);
+});
+
+test('renderFragment: single ↳ marker, root always above', () => {
+  const out = renderFragment({ mine: [myRow({ stackDepth: 1 })], others: [] }, { now: NOW });
+  assert.ok(out.includes('↳'));
+  assert.match(out, /title="Stacked on the PR above"/);
+  assert.ok(!out.includes('↱'), 'no mirrored marker anymore');
+});
+
+test('renderFragment: per-depth indent ONLY on branched blocks', () => {
+  const branched = renderFragment({
+    mine: [myRow({ stackDepth: 2, stackBranched: true }), myRow({ number: 121, stackDepth: 3, stackBranched: true })],
+    others: [],
+  }, { now: NOW });
+  assert.ok(branched.includes('padding-left:14px'), 'depth 2 → one extra offset');
+  assert.ok(branched.includes('padding-left:28px'), 'depth 3 → two extra offsets');
+  const linear = renderFragment({ mine: [myRow({ stackDepth: 3 })], others: [] }, { now: NOW });
+  assert.ok(!linear.includes('padding-left'), 'linear chain keeps the single fixed indent');
+});

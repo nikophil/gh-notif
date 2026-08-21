@@ -11,13 +11,13 @@ import { collectPRs, recomputeCi } from './collect.js';
 import { CATEGORY } from './filter.js';
 import { hiddenPath, loadHidden, saveHidden, toggleHidden, isHidden, keyOf } from './hidden.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './state.js';
-import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, toggleIgnoredCheck, favModesOf, toggleFavMode } from './prefs.js';
+import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf } from './prefs.js';
 import {
   parseScope, normalizeFavorites, addFavorite, removeFavorite,
   favoriteScopes, activeFavoriteOf, filterDataByScope, favoriteCounts, closedPRsUrl, repoInAllMode,
 } from './favorites.js';
 import { diffApprovals } from './approvals.js';
-import { normalizeSort, toggleSort, sortRows, SORT_KEYS, MINE_SORT_KEYS } from './sort.js';
+import { normalizeSort, toggleSort, sortRows, groupStacks, SORT_KEYS, MINE_SORT_KEYS, DEFAULT_SORT } from './sort.js';
 import { sendNotification } from './notify.js';
 import { isRateLimitError, nextBackoffSeconds } from './ratelimit.js';
 import { startSpinner } from './spinner.js';
@@ -62,18 +62,36 @@ function recompute(data, hidden) {
 // no data yet (1st poll in progress) → spinner; otherwise → the tables.
 // ⚠️ The snapshot contains the data of the UNION of favorites; the active
 // favorite filter is applied HERE, at render time — never at collection (cf. §14).
-function fragmentBody(snapshot, { now, showHidden, viewScope = null, closedUrl = null, sort = null, sortMine = null, ignoredChecks = {} } = {}) {
+function fragmentBody(snapshot, { now, showHidden, viewScope = null, closedUrl = null, sort = null, sortMine = null, ignoredChecks = {}, stacks = false } = {}) {
   if (snapshot.error) return `<p class="empty offline">⚠️ Error: ${escapeHtml(snapshot.error)}</p>`;
   if (!snapshot.updatedAt) return renderLoading(viewScope?.value ?? '');
   let data = filterDataByScope(snapshot.data ?? { mine: [], others: [] }, viewScope);
   // Display sort of the « others » table (the hidden ones follow, consistency in
   // ?hidden=1 mode) and of « Your PRs » (independent state, its own key set).
   // `sort`/`sortMine` absent → collection order unchanged (compat).
+  if (stacks) {
+    // Stacks mode DROPS the column sorts (§20): canonical view — the stacks
+    // first (root on top, children below), the non-stacked rows after. The
+    // incoming rows are pre-ordered updated-desc so the freshest block comes
+    // first, deterministically. The persisted sort states survive untouched
+    // but are neutralized at render: NO_SORT keeps the headers clickable
+    // (clicking a column exits stacks mode, POST /sort) with no active
+    // column/arrow. The hidden rows (?hidden=1) keep a flat updated-desc order.
+    data = {
+      ...data,
+      mine: groupStacks(sortRows(data.mine, DEFAULT_SORT, MINE_SORT_KEYS)),
+      others: groupStacks(sortRows(data.others, DEFAULT_SORT)),
+      hidden: sortRows(data.hidden, DEFAULT_SORT),
+      hiddenMine: sortRows(data.hiddenMine, DEFAULT_SORT, MINE_SORT_KEYS),
+    };
+    const NO_SORT = { key: null, dir: null };
+    return renderFragment(data, { now, showHidden, closedUrl, sort: NO_SORT, sortMine: NO_SORT, ignoredChecks, stacks });
+  }
   if (sort) data = { ...data, others: sortRows(data.others, sort), hidden: sortRows(data.hidden, sort) };
   if (sortMine) data = { ...data, mine: sortRows(data.mine, sortMine, MINE_SORT_KEYS), hiddenMine: sortRows(data.hiddenMine, sortMine, MINE_SORT_KEYS) };
   // `ignoredChecks` only affects the popover display (struck checks) — the CI
   // verdict itself was already recomputed at collection (§16).
-  return renderFragment(data, { now, showHidden, closedUrl, sort, sortMine, ignoredChecks });
+  return renderFragment(data, { now, showHidden, closedUrl, sort, sortMine, ignoredChecks, stacks });
 }
 
 // Scope(s) that the view DISPLAYS, to contextualize the « closed ↗ » link:
@@ -99,7 +117,7 @@ export function handleRequest(pathname, snapshot, opts = {}) {
   const {
     now, intervalMs, showHidden, scope, notifyEnabled = true, theme = 'auto',
     favorites = [], activeFav = null, adhoc = false, sort = null, sortMine = null, ignoredChecks = {},
-    favModes = null,
+    favModes = null, stacks = false,
   } = opts;
   // Display filter: the active favorite, except in ad-hoc mode (the entered scope
   // already drives the collection, re-filtering would be redundant).
@@ -112,14 +130,14 @@ export function handleRequest(pathname, snapshot, opts = {}) {
     return { status: 200, type: 'text/html; charset=utf-8', body: renderShell({ intervalMs, scopeLabel: scopeLabel(scope), notifyEnabled, theme, favorites, activeFav, adhoc, counts, favModes }) };
   }
   if (pathname === '/fragment') {
-    return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, sort, sortMine, ignoredChecks }) };
+    return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, sort, sortMine, ignoredChecks, stacks }) };
   }
   // Unified poll of the client: filtered tables + favorites bar (up-to-date counters)
   // + updatedAt (the client probes until it changes after an add/remove).
   if (pathname === '/view') {
     return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify({
       chips: renderFavorites(favorites, activeFav, { adhoc, counts, favModes }),
-      fragment: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, sort, sortMine, ignoredChecks }),
+      fragment: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, sort, sortMine, ignoredChecks, stacks }),
       updatedAt: snapshot.updatedAt,
     }) };
   }
@@ -187,6 +205,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   let theme = themeOf(prefs);
   let sort = normalizeSort(prefs.sort); // sort of the « others » table (persisted)
   let sortMine = normalizeSort(prefs.sortMine, MINE_SORT_KEYS); // sort of « Your PRs » (persisted, Opened/Updated only)
+  let stacks = stacksOf(prefs); // stacked-PRs grouping (persisted, POST /stacks toggles it)
   // favorites: pinned scopes (persisted). activeFav: the one we are looking at
   // (null = all). collectScope: what we actually request from GitHub.
   let favorites = normalizeFavorites(prefs.favorites);
@@ -295,6 +314,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         sort,
         sortMine,
         ignoredChecks,
+        stacks,
       }),
       updatedAt: snapshot.updatedAt,
     });
@@ -419,6 +439,10 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         const mine = url.searchParams.get('table') === 'mine';
         const keys = mine ? MINE_SORT_KEYS : SORT_KEYS;
         if (!keys.includes(key)) return send(400, 'text/plain; charset=utf-8', `unknown sort key: ${key ?? ''}`);
+        // Sorting a column exits the stacks mode (§20): the stacked view has
+        // no sort semantics, asking for a column order means leaving it.
+        stacks = false;
+        prefs.stacks = false; // ⚠️ same full-rewrite rule as below
         if (mine) {
           sortMine = toggleSort(sortMine, key, MINE_SORT_KEYS);
           prefs.sortMine = sortMine; // ⚠️ mutate + rewrite IN FULL (otherwise notify/theme lost)
@@ -426,6 +450,14 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
           sort = toggleSort(sort, key);
           prefs.sort = sort; // ⚠️ mutate + rewrite IN FULL (otherwise notify/theme lost)
         }
+        savePrefs(prefsFile, prefs);
+        return send(200, json, currentView(showHidden));
+      }
+      if (pathname === '/stacks') {
+        // Stacked-PRs grouping = pure display state: local recompute, NO
+        // GitHub call (same philosophy as /sort).
+        stacks = !stacks;
+        prefs.stacks = stacks; // ⚠️ mutate + rewrite IN FULL (otherwise notify/theme lost)
         savePrefs(prefsFile, prefs);
         return send(200, json, currentView(showHidden));
       }
@@ -480,6 +512,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       sortMine,
       ignoredChecks,
       favModes,
+      stacks,
     });
     send(status, type, body);
   });

@@ -824,3 +824,133 @@ test('POST /fav/mode: toggles « all » mode, auto-watches, silent seed (no burs
     rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+const stackSnapshot = () => {
+  const parent = { repo: 'o/r', number: 10, url: 'u10', title: 'PARENT-PR', triggers: [], ci: 'pass', state: 'open', approvals: 0, branch: 'feat/p', base: 'main', defaultBranch: 'main' };
+  const child = { repo: 'o/r', number: 11, url: 'u11', title: 'CHILD-PR', triggers: [], ci: 'pass', state: 'open', approvals: 0, branch: 'feat/c', base: 'feat/p', defaultBranch: 'main' };
+  const solo = { repo: 'o/r', number: 12, url: 'u12', title: 'SOLO-PR', triggers: [], ci: 'pass', state: 'open', approvals: 0, branch: 'feat/s', base: 'main', defaultBranch: 'main' };
+  // child deliberately BEFORE its parent in collection order
+  return { data: { mine: [], others: [child, parent, solo] }, updatedAt: NOW, error: null };
+};
+
+test('GET /fragment + stacks enabled: stacks first (root on top), solo rows below', () => {
+  const res = handleRequest('/fragment', stackSnapshot(), { ...OPTS, stacks: true });
+  const idx = (s) => res.body.indexOf(s);
+  assert.ok(idx('PARENT-PR') >= 0 && idx('CHILD-PR') >= 0);
+  assert.ok(idx('PARENT-PR') < idx('CHILD-PR') && idx('CHILD-PR') < idx('SOLO-PR'), 'root, child, then solo');
+  assert.ok(res.body.includes('stack-indent'));
+});
+
+test('GET /fragment without stacks (default): flat order, no marker', () => {
+  const res = handleRequest('/fragment', stackSnapshot(), OPTS);
+  const iParent = res.body.indexOf('PARENT-PR');
+  const iChild = res.body.indexOf('CHILD-PR');
+  assert.ok(iChild < iParent, 'collection order untouched');
+  assert.ok(!res.body.includes('stack-indent'));
+});
+
+// ── integration: POST /stacks toggles the stacked-PRs grouping ──────────────
+test('POST /stacks groups the stacked PRs, a second POST flattens back', async () => {
+  const gh = {
+    getCurrentUser: async () => 'me',
+    listNotifications: async () => [],
+    searchReviewRequested: async () => [],
+    searchAuthored: async () => [
+      { repository_url: 'https://api.github.com/repos/o/r', number: 2, title: 'CHILD-PR', html_url: 'u2', updated_at: '2026-06-24T00:00:00Z' },
+      { repository_url: 'https://api.github.com/repos/o/r', number: 1, title: 'PARENT-PR', html_url: 'u1', updated_at: '2026-06-23T00:00:00Z' },
+    ],
+    getPullDetailsBatch: async (prs) => prs.map((p) => ({
+      number: p.number, title: p.number === 1 ? 'PARENT-PR' : 'CHILD-PR', author: { login: 'me' },
+      createdAt: '2026-06-24T00:00:00Z', updatedAt: p.number === 2 ? '2026-06-24T00:00:00Z' : '2026-06-23T00:00:00Z',
+      additions: 1, deletions: 0, isDraft: false, state: 'OPEN', reviews: [], statusCheckRollupState: 'SUCCESS',
+      branch: p.number === 1 ? 'feat/p' : 'feat/c', base: p.number === 1 ? 'main' : 'feat/p', defaultBranch: 'main',
+    })),
+    getComment: async () => null,
+    getReviewComments: async () => [],
+  };
+  const tmp = `/tmp/gh-notif-test-stacks-${process.pid}`;
+  process.env.XDG_STATE_HOME = tmp;
+  rmSync(tmp, { recursive: true, force: true });
+
+  const PORT = 7793;
+  const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false });
+  try {
+    await new Promise((r) => setTimeout(r, 250)); // 1st poll
+    const flat = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
+    assert.ok(flat.includes('stacks-toggle'), 'the toggle is offered (a stack exists)');
+    assert.ok(!flat.includes('stack-indent'), 'flat by default');
+    assert.ok(flat.indexOf('CHILD-PR') < flat.indexOf('PARENT-PR'), 'sorted updated desc: child first');
+
+    await fetch(`http://localhost:${PORT}/stacks`, { method: 'POST' });
+    const grouped = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
+    assert.ok(grouped.includes('stack-indent'), 'grouped after the toggle');
+    assert.ok(grouped.indexOf('PARENT-PR') < grouped.indexOf('CHILD-PR'), 'canonical stacked view: root on top');
+    assert.ok(grouped.includes('stacks-toggle on'), 'the button stays marked selected');
+
+    await fetch(`http://localhost:${PORT}/stacks`, { method: 'POST' });
+    const flat2 = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
+    assert.ok(!flat2.includes('stack-indent'), 'second POST → flat again');
+  } finally {
+    server.close();
+  }
+});
+
+test('GET /fragment + stacks: the column sorts are DROPPED (no arrow, headers still clickable)', () => {
+  const snap = () => {
+    const s = stackSnapshot();
+    s.data.others[0].createdAt = '2026-06-24T00:00:00Z'; // CHILD-PR
+    s.data.others[1].createdAt = '2026-06-23T00:00:00Z'; // PARENT-PR
+    s.data.others[2].createdAt = '2026-06-22T00:00:00Z'; // SOLO-PR
+    return s;
+  };
+  // whatever sort was active: the stacked view ignores it — root-first blocks,
+  // solos below, no active column (clicking a column exits stacks mode).
+  const res = handleRequest('/fragment', snap(), { ...OPTS, stacks: true, sort: { key: 'date', dir: 'desc' } });
+  const idx = (s) => res.body.indexOf(s);
+  assert.ok(idx('PARENT-PR') < idx('CHILD-PR') && idx('CHILD-PR') < idx('SOLO-PR'), 'root, child, then solo');
+  assert.ok(!res.body.includes('▾') && !res.body.includes('▴'), 'no sort arrow');
+  assert.ok(!res.body.includes('col class="sorted"'), 'no highlighted column');
+  assert.ok(res.body.includes('data-sort-key'), 'headers stay clickable (clicking exits stacks mode)');
+});
+
+// ── integration: clicking a sort column exits the stacks mode ───────────────
+test('POST /sort while stacks is on → stacks turns off, the sort applies', async () => {
+  const gh = {
+    getCurrentUser: async () => 'me',
+    listNotifications: async () => [],
+    searchReviewRequested: async () => [],
+    searchAuthored: async () => [
+      { repository_url: 'https://api.github.com/repos/o/r', number: 2, title: 'CHILD-PR', html_url: 'u2', updated_at: '2026-06-24T00:00:00Z' },
+      { repository_url: 'https://api.github.com/repos/o/r', number: 1, title: 'PARENT-PR', html_url: 'u1', updated_at: '2026-06-23T00:00:00Z' },
+    ],
+    getPullDetailsBatch: async (prs) => prs.map((p) => ({
+      number: p.number, title: p.number === 1 ? 'PARENT-PR' : 'CHILD-PR', author: { login: 'me' },
+      createdAt: p.number === 2 ? '2026-06-24T00:00:00Z' : '2026-06-23T00:00:00Z',
+      updatedAt: p.number === 2 ? '2026-06-24T00:00:00Z' : '2026-06-23T00:00:00Z',
+      additions: 1, deletions: 0, isDraft: false, state: 'OPEN', reviews: [], statusCheckRollupState: 'SUCCESS',
+      branch: p.number === 1 ? 'feat/p' : 'feat/c', base: p.number === 1 ? 'main' : 'feat/p', defaultBranch: 'main',
+    })),
+    getComment: async () => null,
+    getReviewComments: async () => [],
+  };
+  const tmp = `/tmp/gh-notif-test-stacks-sort-${process.pid}`;
+  process.env.XDG_STATE_HOME = tmp;
+  rmSync(tmp, { recursive: true, force: true });
+
+  const PORT = 7794;
+  const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false });
+  try {
+    await new Promise((r) => setTimeout(r, 250)); // 1st poll
+    await fetch(`http://localhost:${PORT}/stacks`, { method: 'POST' });
+    const grouped = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
+    assert.ok(grouped.includes('stack-indent'), 'stacks mode on');
+
+    await fetch(`http://localhost:${PORT}/sort?key=date&table=mine`, { method: 'POST' });
+    const flat = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
+    assert.ok(!flat.includes('stack-indent'), 'clicking a column exits stacks mode');
+    assert.ok(!flat.includes('stacks-toggle on'), 'the button is deselected');
+    assert.ok(flat.indexOf('CHILD-PR') < flat.indexOf('PARENT-PR'), 'the clicked sort applies (date desc)');
+  } finally {
+    server.close();
+  }
+});

@@ -160,6 +160,31 @@ test('getPullDetailsBatch: mergeable absent from the response → null (never CO
   assert.equal(out[0].mergeable, null);
 });
 
+test('getPullDetailsBatch: exposes the base branch and the default branch (stacked PRs)', async () => {
+  const gqlResponse = JSON.stringify({ data: { p0: { pullRequest: {
+    number: 42, title: 'A', author: { login: 'alice' }, createdAt: 'd1', additions: 1, deletions: 0,
+    isDraft: false, state: 'OPEN', latestOpinionatedReviews: { nodes: [] },
+    baseRefName: 'feat/parent', baseRepository: { defaultBranchRef: { name: 'main' } },
+  } } } });
+  const runner = fakeRunner([['api graphql', gqlResponse]]);
+  const out = await makeGh(runner).getPullDetailsBatch([{ repo: 'o/r', number: 42 }]);
+  assert.equal(out[0].base, 'feat/parent');
+  assert.equal(out[0].defaultBranch, 'main');
+  const q = runner.calls[0].join(' ');
+  assert.ok(q.includes('baseRefName'));
+  assert.ok(q.includes('defaultBranchRef'));
+});
+
+test('getPullDetailsBatch: base/default branch absent from the response → null', async () => {
+  const gqlResponse = JSON.stringify({ data: { p0: { pullRequest: {
+    number: 42, title: 'A', author: { login: 'alice' }, createdAt: 'd1', additions: 1, deletions: 0,
+    isDraft: false, state: 'OPEN', latestOpinionatedReviews: { nodes: [] },
+  } } } });
+  const out = await makeGh(fakeRunner([['api graphql', gqlResponse]])).getPullDetailsBatch([{ repo: 'o/r', number: 42 }]);
+  assert.equal(out[0].base, null);
+  assert.equal(out[0].defaultBranch, null);
+});
+
 test('getPullDetailsBatch: normalizes the checks (CheckRun + StatusContext) to {name,state}', async () => {
   const gqlResponse = JSON.stringify({ data: {
     p0: { pullRequest: {

@@ -322,6 +322,8 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
       author: d?.author?.login ?? null,
       branch: d?.branch ?? null,
       branchRepo: d?.branchRepo ?? null,
+      base: d?.base ?? null,
+      defaultBranch: d?.defaultBranch ?? null,
       createdAt: d?.createdAt ?? null,
       updatedAt: d?.updatedAt ?? null,
       additions: d?.additions ?? 0,
