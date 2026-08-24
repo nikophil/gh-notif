@@ -325,6 +325,7 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
       base: d?.base ?? null,
       defaultBranch: d?.defaultBranch ?? null,
       createdAt: d?.createdAt ?? null,
+      readyAt: d?.readyAt ?? null, // draft → ready date (easter-egg gate, cf. html.js)
       updatedAt: d?.updatedAt ?? null,
       additions: d?.additions ?? 0,
       deletions: d?.deletions ?? 0,

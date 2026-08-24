@@ -243,6 +243,26 @@ const tableRow = (cells, cls = '', attrs = '') => `<tr${cls ? ` class="${cls}"` 
 export const isMergeable = (r) =>
   r?.state === 'open' && r?.ci === 'pass' && isReady(r?.approvals) && !r?.conflicting;
 
+// …but the party only fires on a PR that has been in review for MORE than
+// 2 business days (a Friday-noon PR only parties from Tuesday noon): merged
+// fast = business as usual, no fireworks. Basis = `readyAt` (the draft →
+// « ready for review » date, cf. github.js) when known, else `createdAt`;
+// no date at all → never (no party on unknown age).
+export const PARTY_BUSINESS_DAYS = 2;
+export function addBusinessDays(ms, n) {
+  const d = new Date(ms);
+  for (let added = 0; added < n; ) {
+    d.setDate(d.getDate() + 1);
+    const day = d.getDay();
+    if (day !== 0 && day !== 6) added++;
+  }
+  return d.getTime();
+}
+export function partyWorthy(r, now) {
+  const basis = Date.parse(r?.readyAt ?? r?.createdAt ?? '');
+  return Number.isFinite(basis) && now >= addBusinessDays(basis, PARTY_BUSINESS_DAYS);
+}
+
 // A header is either a string (bare th), or { html, attrs } (sortable th —
 // attrs carries data-sort-key for click delegation on the client side).
 // If a header is `active` (current sort column), a <colgroup> marks the
@@ -275,7 +295,9 @@ const rowClass = (r, hidden) =>
 
 function mineRow(r, now, hidden, ignoredChecks = {}) {
   // Hidden rows are never tagged: no party for a PR you chose not to see.
-  const party = !hidden && isMergeable(r) ? ` data-party="${escapeHtml(`${r.repo}#${r.number}`)}"` : '';
+  // partyWorthy gates on the PR's age in business days (easter egg, not a badge).
+  const party = !hidden && isMergeable(r) && partyWorthy(r, now)
+    ? ` data-party="${escapeHtml(`${r.repo}#${r.number}`)}"` : '';
   return tableRow(
     [
       link(r.url, r.repo),

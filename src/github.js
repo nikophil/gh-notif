@@ -20,6 +20,7 @@ const PR_FRAGMENT = `fragment pr on PullRequest {
   headRepository { nameWithOwner }
   baseRefName baseRepository { defaultBranchRef { name } }
   latestOpinionatedReviews(first: 100) { nodes { author { login } state submittedAt } }
+  timelineItems(itemTypes: READY_FOR_REVIEW_EVENT, last: 1) { nodes { ... on ReadyForReviewEvent { createdAt } } }
   commits(last: 1) { nodes { commit { statusCheckRollup {
     state
     contexts(first: 100) { nodes {
@@ -60,6 +61,10 @@ function normalizePull(pr) {
     title: pr.title,
     author: pr.author ? { login: pr.author.login } : null,
     createdAt: pr.createdAt,
+    // Date the PR left draft (last ReadyForReviewEvent of the timeline, same
+    // request → zero cost); null if the PR was never a draft. Consumed by the
+    // easter-egg business-days gate (html.js), which falls back on createdAt.
+    readyAt: pr.timelineItems?.nodes?.[0]?.createdAt ?? null,
     updatedAt: pr.updatedAt,
     additions: pr.additions,
     deletions: pr.deletions,

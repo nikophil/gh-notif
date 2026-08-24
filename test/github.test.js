@@ -121,6 +121,7 @@ test('getPullDetailsBatch: one GraphQL request, alias per PR, normalized shape',
       number: 42, title: 'A', author: { login: 'alice' }, createdAt: 'd1', additions: 10, deletions: 2,
       isDraft: false, state: 'OPEN', mergeable: 'CONFLICTING', headRefName: 'feat/login', headRepository: { nameWithOwner: 'fork/r' },
       latestOpinionatedReviews: { nodes: [{ author: { login: 'bob' }, state: 'APPROVED', submittedAt: 's1' }] },
+      timelineItems: { nodes: [{ createdAt: 'ready1' }] },
       commits: { nodes: [{ commit: { statusCheckRollup: { state: 'SUCCESS' } } }] },
     } },
     p1: { pullRequest: null }, // PR not found → null
@@ -137,6 +138,7 @@ test('getPullDetailsBatch: one GraphQL request, alias per PR, normalized shape',
   assert.equal(out[0].branchRepo, 'fork/r');
   assert.equal(out[0].statusCheckRollupState, 'SUCCESS');
   assert.equal(out[0].mergeable, 'CONFLICTING');
+  assert.equal(out[0].readyAt, 'ready1'); // draft → ready date (easter-egg gate)
   assert.deepEqual(out[0].reviews, [{ author: { login: 'bob' }, state: 'APPROVED', submittedAt: 's1' }]);
   assert.equal(out[1], null);
 
@@ -158,6 +160,7 @@ test('getPullDetailsBatch: mergeable absent from the response → null (never CO
   } } } });
   const out = await makeGh(fakeRunner([['api graphql', gqlResponse]])).getPullDetailsBatch([{ repo: 'o/r', number: 42 }]);
   assert.equal(out[0].mergeable, null);
+  assert.equal(out[0].readyAt, null);
 });
 
 test('getPullDetailsBatch: exposes the base branch and the default branch (stacked PRs)', async () => {

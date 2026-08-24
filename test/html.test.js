@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { escapeHtml, isMergeable, renderFragment, renderShell, renderLoading, renderDebug, renderDebugShell, renderFavorites } from '../src/html.js';
+import { escapeHtml, isMergeable, addBusinessDays, partyWorthy, renderFragment, renderShell, renderLoading, renderDebug, renderDebugShell, renderFavorites } from '../src/html.js';
 
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
 
@@ -126,6 +126,30 @@ test('isMergeable: open + CI green + ≥2 approvals + no conflict', () => {
   assert.equal(isMergeable(myRow({ approvals: 2, conflicting: true })), false);
   assert.equal(isMergeable(myRow({ approvals: 2, state: 'draft' })), false);
   assert.equal(isMergeable(myRow({ approvals: 2, state: 'merged' })), false);
+});
+
+test('addBusinessDays: skips the weekend (Friday noon + 2 → Tuesday noon)', () => {
+  // 2026-06-19 = Friday, 2026-06-22 = Monday.
+  assert.equal(addBusinessDays(Date.parse('2026-06-19T12:00:00Z'), 2), Date.parse('2026-06-23T12:00:00Z'));
+  assert.equal(addBusinessDays(Date.parse('2026-06-22T12:00:00Z'), 2), Date.parse('2026-06-24T12:00:00Z'));
+});
+
+test('partyWorthy: ≥2 business days in review, readyAt takes precedence over createdAt', () => {
+  // NOW = Wednesday 2026-06-24 noon; myRow createdAt = Monday 22 noon → exactly 2 business days.
+  assert.equal(partyWorthy(myRow(), NOW), true);
+  // Opened Tuesday (1 business day) → too fresh.
+  assert.equal(partyWorthy(myRow({ createdAt: '2026-06-23T12:00:00Z' }), NOW), false);
+  // Old draft, marked ready yesterday → the ready date wins, too fresh.
+  assert.equal(partyWorthy(myRow({ createdAt: '2026-06-01T12:00:00Z', readyAt: '2026-06-23T12:00:00Z' }), NOW), false);
+  // No date at all → never.
+  assert.equal(partyWorthy(myRow({ createdAt: null }), NOW), false);
+});
+
+test('renderFragment: no data-party on a mergeable PR in review for less than 2 business days', () => {
+  const fresh = myRow({ approvals: 2, createdAt: '2026-06-23T12:00:00Z' });
+  assert.ok(!renderFragment({ mine: [fresh], others: [] }, { now: NOW }).includes('data-party'));
+  const readied = myRow({ approvals: 2, createdAt: '2026-06-01T12:00:00Z', readyAt: '2026-06-23T12:00:00Z' });
+  assert.ok(!renderFragment({ mine: [readied], others: [] }, { now: NOW }).includes('data-party'));
 });
 
 test('renderFragment: mergeable row of MINE tagged data-party (easter egg)', () => {
