@@ -716,6 +716,29 @@ sequenceDiagram
     dies the same day with zero signal loss (verdict authority); unacted-on signal dies at
     14 days (age authority).
 
+23. **Resizable columns (drag on a header edge, web).** Motivation: reading full PR titles —
+    the Title column absorbs the leftover width (§CSS trick `width:100%; max-width:0`), so the
+    two levers are **shrinking the other columns** (Title absorbs what they release) and
+    **dragging Title's own edge**. Grips (`.col-grip`, invisible, accent line on hover) on every
+    `<th>` right edge except the ✕ column. **First drag freezes** every column **except Title**
+    at its current `offsetWidth` on the `<colgroup>` and switches the table to
+    `table-layout: fixed` + ellipsis on all cells: fixed layout is what allows shrinking a
+    column **below its content width** (auto layout forbids it). Title's colw entry stays
+    `null` (= keeps absorbing the leftover) **until its own grip is dragged**, which pins an
+    explicit width; in fixed layout the table then widens to the sum of its columns
+    (`max(100%, Σ cols)`), so the sections are `overflow-x: auto` (y stays hidden for the
+    rounded corners) — a Title widened beyond the page scrolls instead of being clipped. ⚠️ Fully
+    **client-side** (shell JS of `html.js`), zero server change: (a) the tests lock « no colgroup
+    without active sort » in `table()`, so the client **creates** the colgroup when missing;
+    (b) widths are a per-device display state → `localStorage` (`ghn-colw-v1`, per table
+    `mine`/`others` — identified by `th[data-sort-table="mine"]` / bare `th[data-sort-key]`; the
+    issues table has neither → not resizable), invalidated when the column count changes
+    (stale widths ignored). `#content` being re-injected at every poll, `setContent` →
+    `initResize()` re-installs grips and re-applies widths (same pattern as `markLastClicked`
+    §19). ⚠️ The mouseup ending a drag still emits a `click` inside the sortable th → the
+    delegated click handler early-returns on `.col-grip` (otherwise every resize would fire a
+    sort POST). Double-click on a grip = back to auto layout for that table.
+
 ## Test conventions
 
 - Pure logic (`filter`, `render` helpers, `state`, `collect`, `ciRollup`, `scope`): fixtures, no

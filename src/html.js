@@ -619,7 +619,9 @@ ${FAVICON}
   .fav-err { flex-basis: 100%; color: var(--danger); font-size: .8125rem; }
   .fav-err:empty { display: none; }
   /* Section = GitHub « Box »: rounded border, header on a subtle background. */
-  section { margin: 0 0 1.5rem; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  /* overflow-x:auto (y stays hidden): a table widened beyond the page by a
+     column drag scrolls inside its section instead of being clipped. */
+  section { margin: 0 0 1.5rem; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; overflow-x: auto; }
   h2 { font-size: .875rem; font-weight: 600; margin: 0; padding: .65rem 1rem;
        background: var(--canvas-subtle); border-bottom: 1px solid var(--border); }
   /* Section without a table (« Your PRs (0) » with only the closed link): no
@@ -639,6 +641,17 @@ ${FAVICON}
   /* Title column: absorbs the remaining width and truncates on a single line
      (width:100% + max-width:0 + ellipsis trick on an auto-layout table). */
   td:nth-child(3) { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* Resizable columns (client-side): an invisible grip on each th right edge,
+     a thin accent line on hover/drag. Once a table is resized it switches to
+     fixed layout (widths on the colgroup) — every cell then truncates like the
+     Title column, which keeps absorbing the leftover width. */
+  th { position: relative; }
+  .col-grip { position: absolute; top: 0; right: 0; width: 7px; height: 100%; cursor: col-resize; }
+  .col-grip::after { content: ''; position: absolute; top: 0; right: 0; width: 2px; height: 100%; }
+  .col-grip:hover::after, .col-grip.dragging::after { background: var(--accent); }
+  table.resized { table-layout: fixed; }
+  table.resized th, table.resized td { overflow: hidden; text-overflow: ellipsis; }
+  body.col-resizing { cursor: col-resize; user-select: none; }
   /* Stacked-PRs blocks: subtle veil on every row of a stack (parent +
      children) so each block reads as one unit; two alternating tints tell
      adjacent blocks apart. Declared BEFORE tr:hover (same specificity) so the
@@ -1022,6 +1035,7 @@ ${FAVICON}
     closeCiPop();
     content.innerHTML = html;
     markLastClicked();
+    initResize();
     // « upd » = the time of the REAL GitHub poll (updatedAt of the server
     // snapshot), not the display time — otherwise a ctrl+R claims an update it
     // didn't make. The counter is aligned on the estimated next server poll
@@ -1159,9 +1173,121 @@ ${FAVICON}
       markLastClicked();
     }
   }
+  // ── Resizable columns (drag on a header edge) ────────────────────────────
+  // Client-only display state, like the last-clicked row: #content is
+  // re-injected at every poll (innerHTML wipes the grips AND any inline
+  // width), so initResize() re-installs both after each injection. Widths
+  // persist in localStorage per device (no server round-trip). The Title
+  // column keeps its auto « absorb the rest » behavior: shrinking any other
+  // column hands the space straight to the titles — the point of the feature.
+  var COLW_KEY = 'ghn-colw-v1';
+  var TITLE_COL = 2; // stays auto — absorbs whatever the others release
+  function loadColw() {
+    try { var v = JSON.parse(localStorage.getItem(COLW_KEY)); return v && typeof v === 'object' ? v : {}; }
+    catch (e) { return {}; }
+  }
+  function saveColw() { try { localStorage.setItem(COLW_KEY, JSON.stringify(colw)); } catch (e) {} }
+  var colw = loadColw();
+  // mine = th tagged data-sort-table; others = sortable th without it. The
+  // issues table has no sortable th → no resize (minimal columns, no need).
+  function tableIdOf(tbl) {
+    if (tbl.querySelector('th[data-sort-table="mine"]')) return 'mine';
+    if (tbl.querySelector('th[data-sort-key]')) return 'others';
+    return null;
+  }
+  // The sorted-column colgroup only exists under an active sort — create one
+  // otherwise (widths live on the cols, so fixed layout reads them all).
+  function colsOf(tbl, n) {
+    var cg = tbl.querySelector('colgroup');
+    if (!cg) {
+      cg = document.createElement('colgroup');
+      for (var i = 0; i < n; i++) cg.appendChild(document.createElement('col'));
+      tbl.insertBefore(cg, tbl.firstChild);
+    }
+    return cg.children;
+  }
+  function applyWidths(tbl, id, n) {
+    var w = colw[id];
+    if (!w || w.length !== n) return; // column set changed → stale widths ignored
+    var cols = colsOf(tbl, n);
+    for (var i = 0; i < n; i++) cols[i].style.width = w[i] == null ? '' : w[i] + 'px';
+    tbl.classList.add('resized');
+  }
+  function initResize() {
+    var tables = content.querySelectorAll('table');
+    for (var t = 0; t < tables.length; t++) {
+      var tbl = tables[t];
+      var id = tableIdOf(tbl);
+      if (!id) continue;
+      var ths = tbl.querySelectorAll('thead th');
+      for (var i = 0; i < ths.length - 1; i++) { // last col (✕ button): no grip
+        var g = document.createElement('div');
+        g.className = 'col-grip';
+        g.setAttribute('data-col', i);
+        g.title = 'Drag to resize · double-click to reset';
+        ths[i].appendChild(g);
+      }
+      applyWidths(tbl, id, ths.length);
+    }
+  }
+  var colDrag = null;
+  content.addEventListener('mousedown', function (e) {
+    var g = e.target.closest('.col-grip');
+    if (!g || e.button !== 0) return;
+    e.preventDefault();
+    var tbl = g.closest('table');
+    var id = tableIdOf(tbl);
+    var n = tbl.querySelectorAll('thead th').length;
+    var i = +g.getAttribute('data-col');
+    // First drag freezes every column (except Title) at its current size,
+    // then fixed layout takes over: shrinking a column below its content
+    // width is exactly what auto layout forbids. Title itself only gets an
+    // explicit width when ITS grip is dragged (colw entry stays null until
+    // then) — otherwise it keeps absorbing the leftover width; widened
+    // beyond the page, the table scrolls inside its section (overflow-x).
+    var startW = g.parentElement.offsetWidth; // before the freeze reflows
+    if (!colw[id] || colw[id].length !== n) {
+      var ths = tbl.querySelectorAll('thead th'), w = [];
+      for (var k = 0; k < n; k++) w.push(k === TITLE_COL ? null : ths[k].offsetWidth);
+      colw[id] = w;
+    }
+    if (colw[id][i] != null) startW = colw[id][i];
+    applyWidths(tbl, id, n);
+    colDrag = { tbl: tbl, id: id, col: i, n: n, startX: e.clientX, startW: startW };
+    g.classList.add('dragging');
+    document.body.classList.add('col-resizing');
+  });
+  document.addEventListener('mousemove', function (e) {
+    if (!colDrag) return;
+    var w = Math.max(30, colDrag.startW + e.clientX - colDrag.startX);
+    colw[colDrag.id][colDrag.col] = w;
+    colsOf(colDrag.tbl, colDrag.n)[colDrag.col].style.width = w + 'px';
+  });
+  document.addEventListener('mouseup', function () {
+    if (!colDrag) return;
+    saveColw(); // a poll may have swapped the table mid-drag: colw is truth,
+    var g = colDrag.tbl.querySelector('.col-grip.dragging'); // the next injection re-applies it
+    if (g) g.classList.remove('dragging');
+    document.body.classList.remove('col-resizing');
+    colDrag = null;
+  });
+  // Double-click on a grip: back to auto layout for that table.
+  content.addEventListener('dblclick', function (e) {
+    var g = e.target.closest('.col-grip');
+    if (!g) return;
+    var tbl = g.closest('table');
+    delete colw[tableIdOf(tbl)];
+    saveColw();
+    var cols = tbl.querySelectorAll('colgroup col');
+    for (var i = 0; i < cols.length; i++) cols[i].style.width = '';
+    tbl.classList.remove('resized');
+  });
   // Middle-click (open in a background tab) fires auxclick, not click.
   content.addEventListener('auxclick', function (e) { if (e.button === 1) rememberClick(e); });
   content.addEventListener('click', function (e) {
+    // A mouseup ending a column drag still emits a click inside the th:
+    // without this guard it would fire the column sort.
+    if (e.target.closest('.col-grip')) return;
     rememberClick(e);
     // Copy button (branch name / PR number): ✓ feedback for a second. The
     // fragment may be re-injected meanwhile — the stale button just vanishes.
