@@ -233,7 +233,15 @@ const titleCell = (r) => {
   return mark + link(r.url, r.title) + chip;
 };
 
-const tableRow = (cells, cls = '') => `<tr${cls ? ` class="${cls}"` : ''}>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`;
+const tableRow = (cells, cls = '', attrs = '') => `<tr${cls ? ` class="${cls}"` : ''}${attrs}>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`;
+
+// Easter egg 🚀: a « mergeable » PR of mine — open, CI green, ≥ 2 approvals, no
+// conflict with the base. Derived display state (like the 🎉 badge): the row is
+// tagged `data-party="repo#n"` and the CLIENT decides whether it's NEW (vs a
+// localStorage set, silent-seeded on first run — same philosophy as §4) and
+// fires the confetti — only when the page has focus.
+export const isMergeable = (r) =>
+  r?.state === 'open' && r?.ci === 'pass' && isReady(r?.approvals) && !r?.conflicting;
 
 // A header is either a string (bare th), or { html, attrs } (sortable th —
 // attrs carries data-sort-key for click delegation on the client side).
@@ -266,6 +274,8 @@ const rowClass = (r, hidden) =>
   ].filter(Boolean).join(' ');
 
 function mineRow(r, now, hidden, ignoredChecks = {}) {
+  // Hidden rows are never tagged: no party for a PR you chose not to see.
+  const party = !hidden && isMergeable(r) ? ` data-party="${escapeHtml(`${r.repo}#${r.number}`)}"` : '';
   return tableRow(
     [
       link(r.url, r.repo),
@@ -282,6 +292,7 @@ function mineRow(r, now, hidden, ignoredChecks = {}) {
       actionButton(r, hidden),
     ],
     rowClass(r, hidden),
+    party,
   );
 }
 
@@ -675,6 +686,26 @@ ${FAVICON}
   .empty { color: var(--fg-muted); font-size: 1rem; padding: 2rem; text-align: center;
            border: 1px solid var(--border); border-radius: 6px; }
   .offline { color: var(--danger) !important; }
+  /* Easter egg 🚀 (PR freshly mergeable): full-screen confetti canvas (inert,
+     removed when the physics dies down), golden shimmer on the celebrated row,
+     and a springy « Ship it! » banner. Client-driven (cf. checkParty). */
+  .party-canvas { position: fixed; inset: 0; z-index: 50; pointer-events: none; }
+  tbody tr.party { animation: ghn-party-row 3s ease-out; }
+  @keyframes ghn-party-row {
+    0%, 100% { background: transparent; }
+    15%, 60% { background: color-mix(in srgb, var(--attention) 22%, transparent); }
+  }
+  .party-banner { position: fixed; top: 50%; left: 50%; z-index: 51; pointer-events: none;
+                  transform: translate(-50%, -50%); background: var(--canvas); border: 1px solid var(--border);
+                  border-radius: 12px; box-shadow: 0 8px 24px rgba(1,4,9,.3); padding: 1rem 2rem;
+                  font-weight: 600; white-space: nowrap; text-align: center;
+                  animation: ghn-party-pop .6s cubic-bezier(.2,1.9,.4,1); }
+  @keyframes ghn-party-pop { from { transform: translate(-50%, -50%) scale(.3) rotate(-6deg); opacity: 0; }
+                             to { transform: translate(-50%, -50%) scale(1); opacity: 1; } }
+  .party-banner.out { transition: opacity .5s, transform .5s; opacity: 0;
+                      transform: translate(-50%, -50%) translateY(-2rem); }
+  .party-banner .party-head { font-size: 2.5rem; font-weight: 800; line-height: 1.2; }
+  .party-banner .party-pr { font-weight: 400; font-size: .875rem; color: var(--fg-muted); }
 </style>
 </head>
 <body>
@@ -758,6 +789,208 @@ ${FAVICON}
       if (tr) { tr.classList.add('clicked'); return; }
     }
   }
+  // ── Easter egg 🚀: party when one of MY PRs becomes mergeable ────────────
+  // The server tags the mergeable rows (data-party="repo#n", cf. isMergeable);
+  // the client spots the NEW keys vs a localStorage set (silent seed on first
+  // run — no burst at feature launch, same philosophy as the server seeds; the
+  // list is capped and never pruned on absence: a partial poll must not
+  // re-party, same invariant as the hidden reconcile). The animation only
+  // plays when the page HAS FOCUS: detected in a background tab, the party is
+  // queued and fires when you come back.
+  var PARTY_KEY = 'ghn-party-v1';
+  var partyQueue = [];
+  var partyBusy = false;
+  function partySeen() {
+    try { var v = JSON.parse(localStorage.getItem(PARTY_KEY)); return Array.isArray(v) ? v : null; }
+    catch (e) { return null; }
+  }
+  function partyMark(list) {
+    try { localStorage.setItem(PARTY_KEY, JSON.stringify(list.slice(-200))); } catch (e) {}
+  }
+  function checkParty() {
+    var rows = content.querySelectorAll('tr[data-party]');
+    var keys = [], i;
+    for (i = 0; i < rows.length; i++) keys.push(rows[i].getAttribute('data-party'));
+    var seen = partySeen();
+    if (seen === null) { partyMark(keys); return; }
+    for (i = 0; i < keys.length; i++) {
+      if (seen.indexOf(keys[i]) === -1 && partyQueue.indexOf(keys[i]) === -1) partyQueue.push(keys[i]);
+    }
+    drainParty();
+  }
+  function drainParty() {
+    if (partyBusy || partyQueue.length === 0 || !document.hasFocus()) return;
+    // ONE party for the whole batch: several PRs ready at once → a single
+    // banner listing them all, every ready row highlighted together.
+    var keys = partyQueue.splice(0, partyQueue.length);
+    var seen = partySeen() || [];
+    for (var i = 0; i < keys.length; i++) if (seen.indexOf(keys[i]) === -1) seen.push(keys[i]);
+    partyMark(seen);
+    partyBusy = true;
+    playParty(keys, function () {
+      partyBusy = false;
+      // Keys queued while the show played → next batch.
+      drainParty();
+    });
+  }
+  window.addEventListener('focus', drainParty);
+
+  // The show: side cannons from EACH ready row, a wobbling 🚀 lifting off from
+  // each of them (staggered) with a spark trail, explosion near the top, then
+  // — once the last rocket has blown — confetti rain over the whole page.
+  // Canvas overlay (pointer-events none), removed when the last particle dies;
+  // the celebrated rows shimmer gold meanwhile.
+  function playParty(keys, done) {
+    var rows = [], all = content.querySelectorAll('tr[data-party]'), i, j;
+    for (i = 0; i < all.length; i++) {
+      if (keys.indexOf(all[i].getAttribute('data-party')) !== -1) rows.push(all[i]);
+    }
+    for (i = 0; i < rows.length; i++) {
+      rows[i].classList.add('party');
+    }
+    setTimeout(function () {
+      for (var r = 0; r < rows.length; r++) rows[r].classList.remove('party');
+    }, 3000);
+    // Banner: headline + the list of PRs, one per line (textContent only — the
+    // keys come from GitHub data, never injected as HTML).
+    var banner = document.createElement('div');
+    banner.className = 'party-banner';
+    var head = document.createElement('div');
+    head.className = 'party-head';
+    head.textContent = '🚀 Push to prod! 🎉';
+    banner.appendChild(head);
+    for (i = 0; i < keys.length; i++) {
+      var line = document.createElement('div');
+      line.className = 'party-pr';
+      line.textContent = keys[i];
+      banner.appendChild(line);
+    }
+    document.body.appendChild(banner);
+    setTimeout(function () { banner.classList.add('out'); }, 3800);
+    setTimeout(function () { banner.remove(); }, 4400);
+
+    var cv = document.createElement('canvas');
+    cv.className = 'party-canvas';
+    cv.width = window.innerWidth; cv.height = window.innerHeight;
+    document.body.appendChild(cv);
+    var cx = cv.getContext('2d');
+    var W = cv.width, H = cv.height;
+    var COLORS = ['#0969da', '#1a7f37', '#cf222e', '#9a6700', '#8250df', '#fb8500', '#3fb950'];
+    var EMOJI = ['🎉', '🎊', '✅', '🍾', '🦄', '🐙'];
+    var parts = [];
+
+    function confetti(x, y, vx, vy, jx, jy) {
+      parts.push({
+        kind: 'c', x: x, y: y,
+        vx: vx + (Math.random() - 0.5) * jx, vy: vy + (Math.random() - 0.5) * jy,
+        rot: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.3,
+        w: 4 + Math.random() * 5, h: 7 + Math.random() * 5,
+        color: COLORS[(Math.random() * COLORS.length) | 0],
+        ttl: 140 + Math.random() * 80, sway: Math.random() * Math.PI * 2,
+      });
+    }
+    function emoji(x, y, vx, vy) {
+      parts.push({
+        kind: 'e', x: x, y: y, vx: vx, vy: vy,
+        rot: (Math.random() - 0.5) * 0.6, vr: (Math.random() - 0.5) * 0.1,
+        size: 16 + Math.random() * 12, glyph: EMOJI[(Math.random() * EMOJI.length) | 0],
+        ttl: 160 + Math.random() * 60, sway: Math.random() * Math.PI * 2,
+      });
+    }
+    function boom(x, y, n) {
+      for (var k = 0; k < n; k++) {
+        var a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 7;
+        confetti(x, y, Math.cos(a) * sp, Math.sin(a) * sp - 2, 0, 0);
+      }
+      for (var m = 0; m < 10; m++) {
+        var a2 = Math.random() * Math.PI * 2, sp2 = 1 + Math.random() * 4;
+        emoji(x, y, Math.cos(a2) * sp2, Math.sin(a2) * sp2 - 3);
+      }
+    }
+
+    // Act 1: two cannons fire inward from each ready row's ends, and a rocket
+    // is armed on each row — lift-offs staggered (negative t = countdown) so
+    // the fleet doesn't blur into one blob. Origins clamped in the viewport
+    // (a row may be scrolled out); no row at all → one rocket, bottom centre.
+    var rockets = [];
+    for (i = 0; i < rows.length; i++) {
+      var rc = rows[i].getBoundingClientRect();
+      var rx = (rc.left + rc.right) / 2;
+      var ry = Math.max(24, Math.min((rc.top + rc.bottom) / 2, H - 24));
+      rockets.push({ ox: rx, x: rx, y: ry, vy: -Math.max(9, H / 80), t: -i * 14, alive: true });
+      for (j = 0; j < 25; j++) {
+        confetti(Math.max(8, rc.left), ry, 4, -6, 4, 5);
+        confetti(Math.min(W - 8, rc.right), ry, -4, -6, 4, 5);
+      }
+    }
+    if (rockets.length === 0) {
+      rockets.push({ ox: W / 2, x: W / 2, y: H - 24, vy: -Math.max(9, H / 80), t: 0, alive: true });
+    }
+    var rocketsLeft = rockets.length;
+
+    function tick() {
+      cx.clearRect(0, 0, W, H);
+      var anyRocket = false;
+      for (var ri = 0; ri < rockets.length; ri++) {
+        var rk = rockets[ri];
+        if (!rk.alive) continue;
+        anyRocket = true;
+        rk.t++;
+        if (rk.t < 0) continue; // still on the launch pad (staggered lift-off)
+        rk.y += rk.vy;
+        rk.x = rk.ox + Math.sin(rk.t / 4) * 18;
+        for (var s = 0; s < 3; s++) confetti(rk.x, rk.y + 12, 0, 1.5, 3, 2);
+        cx.save();
+        cx.translate(rk.x, rk.y);
+        // The 🚀 glyph points NE → tilt it to face up, wobbling with the flight.
+        cx.rotate(Math.sin(rk.t / 4) * 0.25 - Math.PI / 4);
+        cx.font = '28px serif';
+        cx.textAlign = 'center';
+        cx.fillText('🚀', 0, 0);
+        cx.restore();
+        if (rk.y < Math.max(60, H * 0.12)) {
+          rk.alive = false;
+          rocketsLeft--;
+          boom(rk.x, rk.y, 120);
+          // Act 3, once the LAST rocket has blown: confetti rain across the
+          // whole top of the page.
+          if (rocketsLeft === 0) {
+            for (var r2 = 0; r2 < 60; r2++) confetti(Math.random() * W, -10 - Math.random() * 40, 0, 2 + Math.random() * 2, 2, 1);
+          }
+        }
+      }
+      for (var j = parts.length - 1; j >= 0; j--) {
+        var p = parts[j];
+        p.ttl--;
+        p.vy += 0.14;
+        p.vx *= 0.99;
+        p.sway += 0.15;
+        p.x += p.vx + Math.sin(p.sway) * 0.8;
+        p.y += p.vy;
+        p.rot += p.vr;
+        if (p.ttl <= 0 || p.y > H + 30) { parts.splice(j, 1); continue; }
+        cx.save();
+        cx.translate(p.x, p.y);
+        cx.rotate(p.rot);
+        if (p.kind === 'c') {
+          cx.globalAlpha = Math.min(1, p.ttl / 40);
+          cx.fillStyle = p.color;
+          // Height squeezed by the sway → cheap 3D tumble effect.
+          cx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h * (0.4 + Math.abs(Math.sin(p.sway)) * 0.6));
+        } else {
+          cx.globalAlpha = Math.min(1, p.ttl / 30);
+          cx.font = p.size + 'px serif';
+          cx.textAlign = 'center';
+          cx.fillText(p.glyph, 0, 0);
+        }
+        cx.restore();
+      }
+      if (anyRocket || parts.length > 0) requestAnimationFrame(tick);
+      else { cv.remove(); done(); }
+    }
+    requestAnimationFrame(tick);
+  }
+
   function setContent(html, updatedAt) {
     closeCiPop();
     content.innerHTML = html;
@@ -776,6 +1009,9 @@ ${FAVICON}
     var loading = !!content.querySelector('[data-loading]');
     favs.classList.toggle('loading', loading);
     if (loading) left = 1;
+    // Never during the loading placeholder: seeding on an EMPTY page would
+    // make every already-mergeable PR party at the next injection.
+    if (!loading) checkParty();
   }
   function fail() {
     stamp.classList.add('offline');

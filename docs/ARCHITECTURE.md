@@ -652,6 +652,31 @@ sequenceDiagram
     for both tables. Collection, hiding, notifs and favorite counters see no change (the
     §14 order is untouched: grouping is pure rendering).
 
+21. **Easter egg 🚀 (confetti when a PR of mine becomes mergeable).** « Mergeable » is a
+    derived display state (`isMergeable`, html.js, exported/tested): open + `ci === 'pass'` +
+    `isReady` (≥ 2 approvals) + not `conflicting`. `mineRow` tags such rows with
+    `data-party="repo#n"` (**never** the hidden rows, and never others' PRs — the celebration
+    is about *my* PR being ready). Everything else is **client-side** (renderShell JS):
+    - after each fragment injection (`setContent` → `checkParty`, **skipped on the loading
+      placeholder** — seeding on an empty page would make every already-mergeable PR party at
+      the next injection), the current keys are compared with a `localStorage` list
+      (`ghn-party-v1`). **First run = silent seed** (no burst at feature launch, same
+      philosophy as §4). The list is **capped (200), never pruned on absence**: a poll is a
+      partial sample (§10) — pruning would re-party on a transient absence. Intended
+      consequence: one party per PR ever (a red→green CI flap does not re-celebrate).
+    - the animation **only plays when the page has focus** (`document.hasFocus()`): detected
+      in a background tab, the party is queued and fires on the `focus` event. Several PRs
+      ready at once → **ONE party for the whole batch** (the queue is drained in one go): a
+      single « 🚀 Push to prod! » banner listing every PR (one line each, `textContent` — no
+      injection), every ready row highlighted together.
+    - the show (`playParty(keys)`): side confetti cannons from EACH ready row's ends, a
+      wobbling 🚀 per row (canvas `fillText`, tilted −45° because the glyph points NE) with
+      staggered lift-offs (negative `t` = launch-pad countdown) and a spark trail, explosion
+      near the top, then — once the LAST rocket has blown — confetti+emoji rain across the
+      page; the rows shimmer gold (`tr.party`, CSS animation). Canvas overlay
+      `pointer-events:none`, removed when the last particle dies. Zero server state, zero
+      GitHub cost.
+
 ## Test conventions
 
 - Pure logic (`filter`, `render` helpers, `state`, `collect`, `ciRollup`, `scope`): fixtures, no

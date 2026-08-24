@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { escapeHtml, renderFragment, renderShell, renderLoading, renderDebug, renderDebugShell, renderFavorites } from '../src/html.js';
+import { escapeHtml, isMergeable, renderFragment, renderShell, renderLoading, renderDebug, renderDebugShell, renderFavorites } from '../src/html.js';
 
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
 
@@ -116,6 +116,37 @@ test('renderFragment: no 🎉 badge below threshold nor on draft/merged', () => 
   assert.ok(!renderFragment({ mine: [myRow({ state: 'open', approvals: 1 })], others: [] }, { now: NOW }).includes('🎉'));
   assert.ok(!renderFragment({ mine: [myRow({ state: 'draft', approvals: 3 })], others: [] }, { now: NOW }).includes('🎉'));
   assert.ok(!renderFragment({ mine: [myRow({ state: 'merged', approvals: 3 })], others: [] }, { now: NOW }).includes('🎉'));
+});
+
+test('isMergeable: open + CI green + ≥2 approvals + no conflict', () => {
+  assert.equal(isMergeable(myRow({ approvals: 2 })), true);
+  assert.equal(isMergeable(myRow({ approvals: 1 })), false);
+  assert.equal(isMergeable(myRow({ approvals: 2, ci: 'fail' })), false);
+  assert.equal(isMergeable(myRow({ approvals: 2, ci: 'pending' })), false);
+  assert.equal(isMergeable(myRow({ approvals: 2, conflicting: true })), false);
+  assert.equal(isMergeable(myRow({ approvals: 2, state: 'draft' })), false);
+  assert.equal(isMergeable(myRow({ approvals: 2, state: 'merged' })), false);
+});
+
+test('renderFragment: mergeable row of MINE tagged data-party (easter egg)', () => {
+  const out = renderFragment({ mine: [myRow({ approvals: 2 })], others: [] }, { now: NOW });
+  assert.match(out, /<tr data-party="symfony\/web#120">/);
+});
+
+test('renderFragment: no data-party below threshold, on conflict, red CI, or others\' PRs', () => {
+  assert.ok(!renderFragment({ mine: [myRow({ approvals: 1 })], others: [] }, { now: NOW }).includes('data-party'));
+  assert.ok(!renderFragment({ mine: [myRow({ approvals: 2, conflicting: true })], others: [] }, { now: NOW }).includes('data-party'));
+  assert.ok(!renderFragment({ mine: [myRow({ approvals: 2, ci: 'fail' })], others: [] }, { now: NOW }).includes('data-party'));
+  // Others' PRs never party (mergeable is only meaningful on MY PRs).
+  assert.ok(!renderFragment({ mine: [], others: [otherRow({ approvals: 2 })] }, { now: NOW }).includes('data-party'));
+});
+
+test('renderFragment: a hidden mergeable row is NOT tagged data-party', () => {
+  const out = renderFragment(
+    { mine: [], hiddenMine: [myRow({ approvals: 2 })], hiddenMineCount: 1 },
+    { now: NOW, showHidden: true },
+  );
+  assert.ok(!out.includes('data-party'));
 });
 
 test('renderFragment: approvals (number, · if zero)', () => {
