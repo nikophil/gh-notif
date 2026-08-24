@@ -280,9 +280,14 @@ function table(headers, rows) {
   return `<table>${colgroup}${head}${body}</table>`;
 }
 
-// Relative-date cell (Opened / Updated), with the full label in the tooltip.
+// Relative-date cell (Opened / Updated); the tooltip carries the precise local date.
+const pad2 = (n) => String(n).padStart(2, '0');
+const preciseDate = (iso) => {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+};
 const dateCell = (label, iso, now) =>
-  titled(`${label} ${relativeDate(iso, now)}`, escapeHtml(relativeDate(iso, now)));
+  titled(`${label} ${iso ? preciseDate(iso) : '?'}`, escapeHtml(relativeDate(iso, now)));
 
 // Row classes: `hid` (hidden mode) + `stack stack-a|b` (row of a stacked-PRs
 // block → tinted background, parent and children alike; the tint alternates

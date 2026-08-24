@@ -228,8 +228,8 @@ test('renderFragment: « mine » table shows Opened, Updated and Diff like the o
   assert.match(mineSection, /<th>Opened<\/th>/);
   assert.match(mineSection, /<th>Updated<\/th>/);
   assert.match(mineSection, /<th>Diff<\/th>/);
-  assert.match(mineSection, /Opened 2d ago/);        // tooltip on the relative date
-  assert.match(mineSection, /Updated 1d ago/);       // idem for the last update
+  assert.match(mineSection, /title="Opened \d{4}-\d{2}-\d{2} \d{2}:\d{2}"/);   // precise date in the tooltip
+  assert.match(mineSection, /title="Updated \d{4}-\d{2}-\d{2} \d{2}:\d{2}"/);  // idem for the last update
   assert.ok(mineSection.includes('<span class="add">+17</span>'));
   assert.ok(mineSection.includes('<span class="del">−4</span>'));
 });
@@ -237,7 +237,7 @@ test('renderFragment: « mine » table shows Opened, Updated and Diff like the o
 test('renderFragment: « others » table shows Updated too', () => {
   const out = renderFragment({ mine: [], others: [otherRow()] }, { now: NOW });
   assert.match(out, /<th>Updated<\/th>/);
-  assert.match(out, /Updated 2d ago/);
+  assert.match(out, /title="Updated \d{4}-\d{2}-\d{2} \d{2}:\d{2}"/);
 });
 
 test('renderFragment: Branch column (both tables), GitHub-like chip + copy button', () => {
