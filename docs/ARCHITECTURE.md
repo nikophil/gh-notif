@@ -76,6 +76,7 @@ flowchart LR
     E4["POST graphql<br/>PR details · 1 per batch of 30"]
     E5["GET latest_comment_url<br/>1 per modified thread"]
     E6["GET /repos/.../pulls/N/comments<br/>per_page=100 (+since) · 1 per modified thread"]
+    E7["PATCH /notifications/threads/id<br/>1 per noise-verdict thread (auto-purge, §22)"]
   end
 
   N --> E1
@@ -84,6 +85,7 @@ flowchart LR
   B --> E4
   INS --> E5
   INS --> E6
+  N --> E7
   Cache[("inspection cache<br/>Map by thread.id")] -. "unchanged thread → 0 requests" .-> INS
 
   Collect --> Out["mine · others · hidden · notifications"]
@@ -93,7 +95,7 @@ flowchart LR
   classDef socle fill:#dafbe1,stroke:#1a7f37,color:#0a3d1a;
   classDef variable fill:#fff8c5,stroke:#9a6700,color:#4d3800;
   class E1,E2,E3,E4 socle;
-  class E5,E6 variable;
+  class E5,E6,E7 variable;
 ```
 
 `getCurrentUser` (`GET /user`) is called **only once** at startup, outside the loop. The three
@@ -682,6 +684,37 @@ sequenceDiagram
       page; the rows shimmer gold (`tr.party`, CSS animation). Canvas overlay
       `pointer-events:none`, removed when the last particle dies. Zero server state, zero
       GitHub cost.
+
+22. **Auto-purge (noise threads marked read on GitHub).** gh-notif being the only notification
+    UI, the unread threads that `classifyVerdict` rejects as noise would otherwise accumulate
+    forever (nothing ever marks them read) and every server restart would re-inspect the whole
+    backlog cold (~2 requests per thread — the colleague-rate-limit scenario of §11).
+    `collectNotifications` therefore PATCHes (`gh.markThreadRead`, `PATCH
+    /notifications/threads/{id}`) every thread whose verdict is `kept: false` — always on, no
+    pref. The thread disappears from `/notifications`; if it re-bumps with a real signal it
+    comes back **unread with a `last_read_at` set**, which is exactly what the hardened sticky
+    branches of §1 expect. ⚠️ Two guards: a **null inspection** (fetch failure) is never noise —
+    purging on it would eat a real signal — and threads filtered **before** classification
+    (non-PR types, out-of-scope repos) are never purged: they were never evaluated, only a
+    verdict has authority. PATCHes go through `mapLimit(CONCURRENCY)`, each **best-effort**
+    (`.catch`): a failed PATCH leaves the thread unread → retried at the next poll, zero state.
+    `typeof gh.markThreadRead === 'function'` guard for older stubs (same motive as
+    `scopeExists`). Kept items are untouched — including `review_request`, which is an emitted
+    item even though `collectPRs` ignores it (§1).
+
+    **Second rule — age purge (`PURGE_AGE_DAYS = 14`).** A signal ignored for 14 days is
+    treated elsewhere or dead: right after `listNotifications`, if any thread is older than
+    the cutoff, ONE `PUT /notifications` (`gh.markReadBefore`, `last_read_at = now − 14 d`)
+    marks everything older as read **server-side** — one request whatever the count, and no
+    request at all when nothing qualifies. Deliberately **whole-account** (not scope-filtered):
+    gh-notif being the only notification UI, out-of-scope threads are seen nowhere and would
+    inflate the listing forever. Same properties as the noise purge: best-effort (`.catch` —
+    a failure retries at the next poll), `typeof` guard, zero disk state, `now` injectable via
+    the opts (tests). Display consequence, intended: rows fed by old notifications (replies,
+    mentions) disappear once past the cutoff — the « Your PRs » table itself and the pending
+    reviews come from searches and never flinch (§7). The two rules are complementary: noise
+    dies the same day with zero signal loss (verdict authority); unacted-on signal dies at
+    14 days (age authority).
 
 ## Test conventions
 

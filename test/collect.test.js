@@ -34,6 +34,106 @@ test('collectNotifications drops a non-PR thread', async () => {
   assert.equal(items.length, 0);
 });
 
+// ── Auto-purge (mark noise threads as read on GitHub) ─────────────────────
+
+// A `reason: comment` thread with no comment at all → classifyVerdict drops it
+// (« no reply to your thread → noise »).
+const noiseThread = {
+  ...reviewReqThread,
+  id: 'tn', reason: 'comment',
+  subject: { ...reviewReqThread.subject, latest_comment_url: null },
+};
+
+function purgingGh(over = {}) {
+  const purged = [];
+  const gh = { ...fakeGh(over), async markThreadRead(id) { purged.push(id); } };
+  return { gh, purged };
+}
+
+test('auto-purge: a noise verdict marks the thread as read', async () => {
+  const { gh, purged } = purgingGh({ notifications: [noiseThread] });
+  const items = await collectNotifications(gh, ME, {});
+  assert.equal(items.length, 0);
+  assert.deepEqual(purged, ['tn']);
+});
+
+test('auto-purge: a kept item is never marked as read', async () => {
+  const { gh, purged } = purgingGh({ notifications: [reviewReqThread] });
+  const items = await collectNotifications(gh, ME, {});
+  assert.equal(items.length, 1);
+  assert.deepEqual(purged, []);
+});
+
+test('auto-purge: a failed inspection is not noise → no purge', async () => {
+  const { gh, purged } = purgingGh({ notifications: [noiseThread] });
+  gh.getReviewComments = async () => { throw new Error('network'); };
+  await collectNotifications(gh, ME, {});
+  assert.deepEqual(purged, []);
+});
+
+test('auto-purge: threads filtered before classification are not purged', async () => {
+  const issue = { ...noiseThread, id: 'ti', subject: { ...noiseThread.subject, type: 'Issue' } };
+  const { gh, purged } = purgingGh({ notifications: [issue] });
+  await collectNotifications(gh, ME, {});
+  assert.deepEqual(purged, []);
+});
+
+test('auto-purge: a failing PATCH does not break the collection', async () => {
+  const gh = {
+    ...fakeGh({ notifications: [noiseThread, reviewReqThread] }),
+    async markThreadRead() { throw new Error('rate limit'); },
+  };
+  const items = await collectNotifications(gh, ME, {});
+  assert.equal(items.length, 1);
+});
+
+test('auto-purge: a gh stub without markThreadRead still works', async () => {
+  const items = await collectNotifications(fakeGh({ notifications: [noiseThread] }), ME, {});
+  assert.equal(items.length, 0);
+});
+
+// ── Age purge (mark everything older than PURGE_AGE_DAYS as read) ─────────
+
+const NOW = Date.parse('2026-08-24T12:00:00Z');
+const CUTOFF_ISO = '2026-08-10T12:00:00.000Z'; // NOW − 14 days
+
+function agePurgingGh(over = {}) {
+  const puts = [];
+  const gh = { ...fakeGh(over), async markReadBefore(iso) { puts.push(iso); } };
+  return { gh, puts };
+}
+
+test('age purge: a thread older than 14 days triggers one PUT with the cutoff', async () => {
+  const old = { ...reviewReqThread, updated_at: '2026-07-01T00:00:00Z' };
+  const fresh = { ...reviewReqThread, id: 't2', updated_at: '2026-08-23T00:00:00Z' };
+  const { gh, puts } = agePurgingGh({ notifications: [old, fresh] });
+  await collectNotifications(gh, ME, { now: NOW });
+  assert.deepEqual(puts, [CUTOFF_ISO]);
+});
+
+test('age purge: only fresh threads → no PUT', async () => {
+  const fresh = { ...reviewReqThread, updated_at: '2026-08-23T00:00:00Z' };
+  const { gh, puts } = agePurgingGh({ notifications: [fresh] });
+  await collectNotifications(gh, ME, { now: NOW });
+  assert.deepEqual(puts, []);
+});
+
+test('age purge: a failing PUT does not break the collection', async () => {
+  const old = { ...reviewReqThread, updated_at: '2026-07-01T00:00:00Z' };
+  const gh = {
+    ...fakeGh({ notifications: [old] }),
+    async markReadBefore() { throw new Error('rate limit'); },
+  };
+  const items = await collectNotifications(gh, ME, { now: NOW });
+  assert.equal(items.length, 1);
+});
+
+test('age purge: a gh stub without markReadBefore still works', async () => {
+  const old = { ...reviewReqThread, updated_at: '2026-07-01T00:00:00Z' };
+  const items = await collectNotifications(fakeGh({ notifications: [old] }), ME, { now: NOW });
+  assert.equal(items.length, 1);
+});
+
 test('collectPending maps the search items', async () => {
   const search = [{
     number: 98, title: 'PR to review',

@@ -104,8 +104,20 @@ export async function inspectThread(gh, thread, me, cacheEntry = null) {
   return { latestComment, reviewComments };
 }
 
-export async function collectNotifications(gh, me, { all = false, scope = null, cache = null, debug = null, watchAll = null } = {}) {
+export const PURGE_AGE_DAYS = 14;
+
+export async function collectNotifications(gh, me, { all = false, scope = null, cache = null, debug = null, watchAll = null, now = Date.now() } = {}) {
   const threads = await gh.listNotifications({ all });
+  // Age purge (ARCHITECTURE §22): anything older than PURGE_AGE_DAYS is dead —
+  // one server-side PUT purges it all, and ONLY when something qualifies (no
+  // request in the common case). Best-effort: on failure the threads stay
+  // unread and the next poll retries. Whole account on purpose (not the scope):
+  // gh-notif is the only notification UI, out-of-scope threads are never seen
+  // anywhere and would inflate the listing forever.
+  const cutoffMs = now - PURGE_AGE_DAYS * 86400e3;
+  if (typeof gh.markReadBefore === 'function' && threads.some((t) => Date.parse(t.updated_at) < cutoffMs)) {
+    await gh.markReadBefore(new Date(cutoffMs).toISOString()).catch(() => {});
+  }
   // Keep only the PRs in scope before any request (filtering = free). A repo
   // covered by an « all »-mode favorite (`watchAll` predicate) ALSO keeps its
   // Issue threads (cf. ARCHITECTURE §18); everything else is unchanged.
@@ -137,10 +149,15 @@ export async function collectNotifications(gh, me, { all = false, scope = null, 
     for (const id of cache.keys()) if (!present.has(id)) cache.delete(id);
   }
   const items = [];
+  const purgeIds = [];
   prThreads.forEach((thread, i) => {
     const inspection = inspections[i];
     const { item, reason } = classifyVerdict(thread, me, inspection, { watchAll: inAllMode(thread) });
     if (item) items.push(item);
+    // Auto-purge: a thread the verdict rejects as noise is marked read on
+    // GitHub, so it stops accumulating (listing pages + cold-restart
+    // inspection cost). A null inspection is a fetch FAILURE, never noise.
+    else if (inspection) purgeIds.push(thread.id);
     // Debug sink (optional): compact verdict per thread, without the comment
     // body (cost + privacy). Produced for free (data already fetched).
     if (debug) {
@@ -157,6 +174,12 @@ export async function collectNotifications(gh, me, { all = false, scope = null, 
       });
     }
   });
+  // Best-effort: a failed PATCH leaves the thread unread → retried at the
+  // next poll for free. `typeof` guard: same motive as `scopeExists` (older
+  // gh stubs without markThreadRead must keep working).
+  if (typeof gh.markThreadRead === 'function') {
+    await mapLimit(purgeIds, CONCURRENCY, (id) => gh.markThreadRead(id).catch(() => {}));
+  }
   return items;
 }
 

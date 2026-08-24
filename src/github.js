@@ -143,6 +143,16 @@ export function makeGh(runner = defaultRunner) {
       if (all) args.push('-f', 'all=true');
       return parseJson(await runner(args)) ?? [];
     },
+    // Auto-purge (ARCHITECTURE §22): marks a notification thread as read
+    // (205 No Content — nothing to parse).
+    async markThreadRead(threadId) {
+      await runner(['api', '-X', 'PATCH', `notifications/threads/${threadId}`]);
+    },
+    // Age purge (ARCHITECTURE §22): GitHub marks read, server-side, every
+    // notification updated before `iso` — one request whatever the count.
+    async markReadBefore(iso) {
+      await runner(['api', '-X', 'PUT', '/notifications', '-f', `last_read_at=${iso}`, '-F', 'read=true']);
+    },
     async getComment(apiUrl) {
       const path = apiUrl.replace('https://api.github.com', '');
       return parseJson(await runner(['api', path]));

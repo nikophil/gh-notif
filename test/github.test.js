@@ -28,6 +28,24 @@ test('listNotifications parses the array and passes all=true', async () => {
   assert.ok(runner.calls[0].join(' ').includes('all=true'));
 });
 
+test('markThreadRead PATCHes the notification thread', async () => {
+  const runner = fakeRunner([['notifications/threads/t42', '']]);
+  const gh = makeGh(runner);
+  await gh.markThreadRead('t42');
+  const call = runner.calls[0];
+  assert.ok(call.includes('-X') && call.includes('PATCH'), 'uses PATCH');
+  assert.ok(call.join(' ').includes('notifications/threads/t42'));
+});
+
+test('markReadBefore PUTs /notifications with last_read_at', async () => {
+  const runner = fakeRunner([['/notifications', '']]);
+  const gh = makeGh(runner);
+  await gh.markReadBefore('2026-08-10T12:00:00.000Z');
+  const call = runner.calls[0];
+  assert.ok(call.includes('-X') && call.includes('PUT'), 'uses PUT');
+  assert.ok(call.join(' ').includes('last_read_at=2026-08-10T12:00:00.000Z'));
+});
+
 test('getComment returns null on empty stdout', async () => {
   const gh = makeGh(fakeRunner([['repos/o/r', '']]));
   assert.equal(await gh.getComment('https://api.github.com/repos/o/r/issues/comments/1'), null);
