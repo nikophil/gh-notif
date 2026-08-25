@@ -76,9 +76,11 @@ export function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ESC[c]);
 }
 
-// Links in a new tab (target=_blank), with rel=noopener (security).
-const link = (url, text) =>
-  `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(text)}</a>`;
+// Links in a new tab (target=_blank), with rel=noopener (security). `tip`
+// puts the full text in the tooltip — for the text cells that a column
+// resize can truncate (repo, title; branch has its own chip tooltip).
+const link = (url, text, tip = null) =>
+  `<a href="${escapeHtml(url)}"${tip ? ` title="${escapeHtml(tip)}"` : ''} target="_blank" rel="noopener">${escapeHtml(text)}</a>`;
 
 const diffCell = (additions, deletions) =>
   `<span class="add">+${additions || 0}</span> <span class="del">−${deletions || 0}</span>`;
@@ -230,7 +232,7 @@ const titleCell = (r) => {
   const chip = r.orphanBase
     ? ` <span class="stack-base" title="Stacked PR — its base branch is not in this table">⤷ base: ${escapeHtml(r.orphanBase)}</span>`
     : '';
-  return mark + link(r.url, r.title) + chip;
+  return mark + link(r.url, r.title, r.title) + chip;
 };
 
 const tableRow = (cells, cls = '', attrs = '') => `<tr${cls ? ` class="${cls}"` : ''}${attrs}>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`;
@@ -305,7 +307,7 @@ function mineRow(r, now, hidden, ignoredChecks = {}) {
     ? ` data-party="${escapeHtml(`${r.repo}#${r.number}`)}"` : '';
   return tableRow(
     [
-      link(r.url, r.repo),
+      link(r.url, r.repo, r.repo),
       link(r.url, `#${r.number}`),
       titleCell(r),
       branchCell(r),
@@ -325,12 +327,18 @@ function mineRow(r, now, hidden, ignoredChecks = {}) {
 
 function mineTable(rows, hiddenRows, now, showHidden, sort = null, ignoredChecks = {}) {
   const headers = [
-    'Repository', 'PR', 'Title', 'Branch',
+    sortableTh('Repository', 'repo', sort, 'mine'),
+    sortableTh('PR', 'number', sort, 'mine'),
+    sortableTh('Title', 'title', sort, 'mine'),
+    sortableTh('Branch', 'branch', sort, 'mine'),
     sortableTh('Opened', 'date', sort, 'mine'),
     sortableTh('Updated', 'updated', sort, 'mine'),
     sortableTh('Diff', 'diff', sort, 'mine'),
     sortableTh(STATUS_TH, 'status', sort, 'mine'),
-    APPROVALS_TH, TRIGGERS_TH, 'CI', '',
+    sortableTh(APPROVALS_TH, 'approvals', sort, 'mine'),
+    sortableTh(TRIGGERS_TH, 'triggers', sort, 'mine'),
+    sortableTh('CI', 'ci', sort, 'mine'),
+    '',
   ];
   const trs = [
     ...rows.map((r) => mineRow(r, now, false, ignoredChecks)),
@@ -350,11 +358,11 @@ function actionButton(r, hidden) {
 function otherRow(r, now, hidden, ignoredChecks = {}) {
   return tableRow(
     [
-      link(r.url, r.repo),
+      link(r.url, r.repo, r.repo),
       link(r.url, `#${r.number}`),
       titleCell(r),
       branchCell(r),
-      r.author ? `@${escapeHtml(r.author)}` : '?',
+      r.author ? titled(`@${r.author}`, `@${escapeHtml(r.author)}`) : '?',
       dateCell('Opened', r.createdAt, now),
       dateCell('Updated', r.updatedAt, now),
       diffCell(r.additions, r.deletions),
@@ -370,14 +378,19 @@ function otherRow(r, now, hidden, ignoredChecks = {}) {
 
 function othersTable(others, hiddenRows, now, showHidden, sort = null, ignoredChecks = {}) {
   const headers = [
-    'Repository', 'PR', 'Title', 'Branch',
+    sortableTh('Repository', 'repo', sort),
+    sortableTh('PR', 'number', sort),
+    sortableTh('Title', 'title', sort),
+    sortableTh('Branch', 'branch', sort),
     sortableTh('Author', 'author', sort),
     sortableTh('Opened', 'date', sort),
     sortableTh('Updated', 'updated', sort),
     sortableTh('Diff', 'diff', sort),
     sortableTh(STATUS_TH, 'status', sort),
     sortableTh(APPROVALS_TH, 'approvals', sort),
-    TRIGGERS_TH, 'CI', '',
+    sortableTh(TRIGGERS_TH, 'triggers', sort),
+    sortableTh('CI', 'ci', sort),
+    '',
   ];
   const trs = [
     ...others.map((r) => otherRow(r, now, false, ignoredChecks)),

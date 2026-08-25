@@ -500,10 +500,14 @@ sequenceDiagram
 
 15. **Sorting of the tables (`--serve`) = display state, like the active favorite.** ONE
     criterion per table (never a multi-column cumulation), each with its own persisted state
-    in `prefs-v1.json`: `sort` for « others » (`{key: date|updated|approvals|author|diff|status, dir}`)
-    and `sortMine` for « Your PRs » (`{key: date|updated|diff|status, dir}` — `MINE_SORT_KEYS`: author
-    is always me and approvals are of little use there; the Opened/Updated/Diff/🚦 columns
-    are clickable). `diff` sorts on the size `additions + deletions` (both counters
+    in `prefs-v1.json`: `sort` for « others » (`{key, dir}`, every column — `SORT_KEYS`:
+    repo|number|title|branch|date|updated|approvals|author|diff|status|triggers|ci) and
+    `sortMine` for « Your PRs » (`MINE_SORT_KEYS` = the same minus `author`, always me).
+    Text keys (repo/title/branch/author) compare lowercased, missing at the end; `number`
+    defaults desc (higher = more recent within a repo); `ci` sorts on a semantic rank
+    (fail 0 → pending 1 → pass 2, `none`/absent → missing) and `triggers` on the rank of
+    the row's MOST important trigger (same order as `TRIGGER_META`, review first — not
+    alphabetical, like `STATE_RANK`). `diff` sorts on the size `additions + deletions` (both counters
     absent → missing, at the end; a lone 0 is a real value). `status` sorts the 🚦 column on a
     **semantic rank, not alphabetical** (`STATE_RANK`: open 0 → draft 1 → merged 2 → closed 3,
     « actionable first »; unknown/absent state → missing, at the end). Both `null` by default — `normalizeSort(raw, keys)` applies

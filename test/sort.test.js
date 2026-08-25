@@ -18,11 +18,11 @@ test('normalizeSort: valid passes, invalid/absent → default', () => {
   assert.deepEqual(normalizeSort({ key: 'nope', dir: 'asc' }), DEFAULT_SORT);
   assert.deepEqual(normalizeSort({ key: 'date', dir: 'sideways' }), DEFAULT_SORT);
   assert.deepEqual(DEFAULT_SORT, { key: 'updated', dir: 'desc' });
-  assert.deepEqual(SORT_KEYS, ['date', 'updated', 'approvals', 'author', 'diff', 'status']);
+  assert.deepEqual(SORT_KEYS, ['repo', 'number', 'title', 'branch', 'date', 'updated', 'approvals', 'author', 'diff', 'status', 'triggers', 'ci']);
 });
 
-test('normalizeSort with MINE_SORT_KEYS: only date/updated/diff/status valid, the rest → default', () => {
-  assert.deepEqual(MINE_SORT_KEYS, ['date', 'updated', 'diff', 'status']);
+test('normalizeSort with MINE_SORT_KEYS: every column except author, the rest → default', () => {
+  assert.deepEqual(MINE_SORT_KEYS, SORT_KEYS.filter((k) => k !== 'author'));
   assert.ok(MINE_SORT_KEYS.includes(DEFAULT_SORT.key), 'the shared default must stay valid for mine');
   assert.deepEqual(normalizeSort({ key: 'date', dir: 'asc' }, MINE_SORT_KEYS), { key: 'date', dir: 'asc' });
   assert.deepEqual(normalizeSort({ key: 'author', dir: 'asc' }, MINE_SORT_KEYS), DEFAULT_SORT);
@@ -65,6 +65,43 @@ test('sortRows: updated desc (default) → last-touched first; asc → reverse',
 test('sortRows: approvals asc → least approved first', () => {
   assert.deepEqual(order(sortRows(rows(), { key: 'approvals', dir: 'asc' })), [2, 3, 1]);
   assert.deepEqual(order(sortRows(rows(), { key: 'approvals', dir: 'desc' })), [1, 3, 2]);
+});
+
+test('sortRows: repo/title/branch alphabetical, case-insensitive; missing at the end', () => {
+  const withText = [
+    { number: 1, repo: 'o/b', title: 'Zulu', branch: 'feat/x' },
+    { number: 2, repo: 'O/a', title: 'alpha', branch: null },
+    { number: 3, repo: null, title: 'Mike', branch: 'Chore/y' },
+  ];
+  assert.deepEqual(order(sortRows(withText, { key: 'repo', dir: 'asc' })), [2, 1, 3]);
+  assert.deepEqual(order(sortRows(withText, { key: 'title', dir: 'asc' })), [2, 3, 1]);
+  assert.deepEqual(order(sortRows(withText, { key: 'branch', dir: 'asc' })), [3, 1, 2]);
+});
+
+test('sortRows: number desc (default) → highest PR number first', () => {
+  assert.deepEqual(order(sortRows(rows(), { key: 'number', dir: 'desc' })), [3, 2, 1]);
+  assert.deepEqual(toggleSort({ key: 'date', dir: 'asc' }, 'number'), { key: 'number', dir: 'desc' });
+});
+
+test('sortRows: ci asc → failing first, then pending, then green; none/absent at the end', () => {
+  const withCi = [
+    { number: 1, ci: 'pass' },
+    { number: 2, ci: 'fail' },
+    { number: 3, ci: 'none' },
+    { number: 4, ci: 'pending' },
+  ];
+  assert.deepEqual(order(sortRows(withCi, { key: 'ci', dir: 'asc' })), [2, 4, 1, 3]);
+  assert.deepEqual(order(sortRows(withCi, { key: 'ci', dir: 'desc' })), [1, 4, 2, 3]);
+});
+
+test('sortRows: triggers ranked semantically (most important trigger of the row), empty at the end', () => {
+  const withTriggers = [
+    { number: 1, triggers: ['activity'] },
+    { number: 2, triggers: ['comment', 'review'] }, // review dominates
+    { number: 3, triggers: ['reply'] },
+    { number: 4, triggers: [] },
+  ];
+  assert.deepEqual(order(sortRows(withTriggers, { key: 'triggers', dir: 'asc' })), [2, 3, 1, 4]);
 });
 
 test('sortRows: diff = additions + deletions (asc → smallest first)', () => {

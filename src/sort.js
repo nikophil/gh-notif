@@ -5,16 +5,21 @@
 // has its own key set and its own persisted state (`sort` for « others »,
 // `sortMine` for « Your PRs »).
 
-export const SORT_KEYS = ['date', 'updated', 'approvals', 'author', 'diff', 'status'];
-// « Your PRs »: the two date columns, the diff size and the status (author = me,
-// approvals of little use there).
-export const MINE_SORT_KEYS = ['date', 'updated', 'diff', 'status'];
+export const SORT_KEYS = ['repo', 'number', 'title', 'branch', 'date', 'updated', 'approvals', 'author', 'diff', 'status', 'triggers', 'ci'];
+// « Your PRs »: every column except Author (always me).
+export const MINE_SORT_KEYS = SORT_KEYS.filter((k) => k !== 'author');
 
 // Default direction on the first click on a column: dates → newest first,
-// approvals → least approved first (the ones that most need a review), author →
-// alphabetical, diff → smallest first (the quick reviews), status → actionable
-// first (open before draft before merged/closed).
-const DEFAULT_DIR = { date: 'desc', updated: 'desc', approvals: 'asc', author: 'asc', diff: 'asc', status: 'asc' };
+// number → highest first (a higher number = a more recent PR within a repo),
+// approvals → least approved first (the ones that most need a review), text
+// columns (repo/title/branch/author) → alphabetical, diff → smallest first
+// (the quick reviews), status/triggers/ci → actionable first (open, review,
+// failing CI…).
+const DEFAULT_DIR = {
+  repo: 'asc', number: 'desc', title: 'asc', branch: 'asc',
+  date: 'desc', updated: 'desc', approvals: 'asc', author: 'asc',
+  diff: 'asc', status: 'asc', triggers: 'asc', ci: 'asc',
+};
 const DIRS = ['asc', 'desc'];
 
 // `updated` desc: the PRs that moved last come first (valid for BOTH key
@@ -40,13 +45,29 @@ export function toggleSort(current, key, keys = SORT_KEYS) {
 // Semantic rank of the 🚦 column: NOT alphabetical — actionable first (open),
 // then draft, then the finished ones (merged/closed). Unknown state → missing.
 const STATE_RANK = { open: 0, draft: 1, merged: 2, closed: 3 };
+// CI: failing first (needs action), then pending, then green. `none` → missing.
+const CI_RANK = { fail: 0, pending: 1, pass: 2 };
+// ⚡ triggers: rank of the MOST important trigger of the row (same order as
+// TRIGGER_META in html.js — review first). NOT alphabetical, like STATE_RANK.
+const TRIGGER_RANK = { review: 0, mention: 1, reply: 2, comment: 3, new: 4, activity: 5 };
+
+const lower = (s) => (s ? String(s).toLowerCase() : null);
 
 // Comparison value of a row for a key. null = missing (sorted at the end).
 function valueOf(row, key) {
+  if (key === 'repo') return lower(row.repo);
+  if (key === 'number') return row.number ?? null;
+  if (key === 'title') return lower(row.title);
+  if (key === 'branch') return lower(row.branch);
   if (key === 'approvals') return row.approvals ?? null; // 0 is a real value
-  if (key === 'author') return row.author ? String(row.author).toLowerCase() : null;
+  if (key === 'author') return lower(row.author);
   if (key === 'updated') return row.updatedAt ?? null; // ISO 8601: lexical comparison is enough
   if (key === 'status') return STATE_RANK[row.state] ?? null;
+  if (key === 'ci') return CI_RANK[row.ci] ?? null;
+  if (key === 'triggers') {
+    const ranks = (row.triggers ?? []).map((t) => TRIGGER_RANK[t]).filter((r) => r != null);
+    return ranks.length ? Math.min(...ranks) : null;
+  }
   if (key === 'diff') {
     // Size = additions + deletions (the two cells of the Diff column). Both
     // absent → missing; a lone 0 is a real value (empty diff).
