@@ -680,7 +680,10 @@ sequenceDiagram
       in a background tab, the party is queued and fires on the `focus` event. Several PRs
       ready at once → **ONE party for the whole batch** (the queue is drained in one go): a
       single « 🚀 Push to prod! » banner listing every PR (one line each, `textContent` — no
-      injection), every ready row highlighted together.
+      injection), every ready row highlighted together. ⚠️ The queue is **per tab** (in
+      memory) while `seen` is **shared** (localStorage): the drain re-filters the queue
+      against a fresh `seen` read — checking only at enqueue let a background tab replay the
+      party for a PR another tab had already celebrated, once per open tab (real bug).
     - the show (`playParty(keys)`): side confetti cannons from EACH ready row's ends, a
       wobbling 🚀 per row (canvas `fillText`, tilted −45° because the glyph points NE) with
       staggered lift-offs (negative `t` = launch-pad countdown) and a spark trail, explosion

@@ -875,9 +875,17 @@ ${FAVICON}
     if (partyBusy || partyQueue.length === 0 || !document.hasFocus()) return;
     // ONE party for the whole batch: several PRs ready at once → a single
     // banner listing them all, every ready row highlighted together.
-    var keys = partyQueue.splice(0, partyQueue.length);
+    // Re-check seen AT DRAIN TIME, not only at enqueue: another tab may have
+    // partied for the same key while it sat queued here (queues are per tab,
+    // seen is shared) — replaying the stale queue re-partied the same PR
+    // once per open tab (real bug).
+    var queued = partyQueue.splice(0, partyQueue.length);
     var seen = partySeen() || [];
-    for (var i = 0; i < keys.length; i++) if (seen.indexOf(keys[i]) === -1) seen.push(keys[i]);
+    var keys = [];
+    for (var i = 0; i < queued.length; i++) {
+      if (seen.indexOf(queued[i]) === -1) { seen.push(queued[i]); keys.push(queued[i]); }
+    }
+    if (keys.length === 0) return;
     partyMark(seen);
     partyBusy = true;
     playParty(keys, function () {
