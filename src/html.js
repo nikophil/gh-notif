@@ -635,8 +635,13 @@ ${FAVICON}
   /* overflow-x:auto (y stays hidden): a table widened beyond the page by a
      column drag scrolls inside its section instead of being clipped. */
   section { margin: 0 0 1.5rem; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; overflow-x: auto; }
+  /* sticky left: the section is the horizontal scrollport (a resized table can
+     be wider than the page) and a block h2 only spans the VISIBLE width — without
+     this the banner scrolls away with the table and its background stops short
+     of the scrolled content's right edge. */
   h2 { font-size: .875rem; font-weight: 600; margin: 0; padding: .65rem 1rem;
-       background: var(--canvas-subtle); border-bottom: 1px solid var(--border); }
+       background: var(--canvas-subtle); border-bottom: 1px solid var(--border);
+       position: sticky; left: 0; }
   /* Section without a table (« Your PRs (0) » with only the closed link): no
      double rule under the header. */
   section h2:last-child { border-bottom: 0; }
