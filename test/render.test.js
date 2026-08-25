@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ciIcon, stateIcon, relativeDate, checksByRepo, favoritesBar,
+  ciIcon, stateIcon, relativeDate, durationSince, checksByRepo, favoritesBar,
 } from '../src/render.js';
 
 // Deterministic layout: color disabled.
@@ -42,6 +42,14 @@ test('relativeDate', () => {
   assert.equal(relativeDate('2026-06-24T07:00:00Z', NOW), '5h ago');
   assert.equal(relativeDate('2026-06-24T11:30:00Z', NOW), '30min ago');
   assert.equal(relativeDate(null, NOW), '?');
+});
+
+test('durationSince: bare duration, no « ago »', () => {
+  assert.equal(durationSince('2026-06-21T12:00:00Z', NOW), '3d');
+  assert.equal(durationSince('2026-06-24T07:00:00Z', NOW), '5h');
+  assert.equal(durationSince('2026-06-24T11:30:00Z', NOW), '30min');
+  assert.equal(durationSince('2026-06-24T11:59:30Z', NOW), '<1min');
+  assert.equal(durationSince(null, NOW), '?');
 });
 
 // ── Favorites bar (terminal, `gh notif fav list`) ─────────────────────────

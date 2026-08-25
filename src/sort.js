@@ -5,19 +5,20 @@
 // has its own key set and its own persisted state (`sort` for « others »,
 // `sortMine` for « Your PRs »).
 
-export const SORT_KEYS = ['repo', 'number', 'title', 'labels', 'branch', 'date', 'updated', 'approvals', 'author', 'diff', 'status', 'triggers', 'ci'];
+export const SORT_KEYS = ['repo', 'number', 'title', 'labels', 'branch', 'date', 'review', 'updated', 'approvals', 'author', 'diff', 'status', 'triggers', 'ci'];
 // « Your PRs »: every column except Author (always me).
 export const MINE_SORT_KEYS = SORT_KEYS.filter((k) => k !== 'author');
 
 // Default direction on the first click on a column: dates → newest first,
 // number → highest first (a higher number = a more recent PR within a repo),
-// approvals → least approved first (the ones that most need a review), text
+// approvals → least approved first (the ones that most need a review),
+// review → longest in review first (the ones waiting the most), text
 // columns (repo/title/branch/author) → alphabetical, diff → smallest first
 // (the quick reviews), status/triggers/ci → actionable first (open, review,
 // failing CI…).
 const DEFAULT_DIR = {
   repo: 'asc', number: 'desc', title: 'asc', labels: 'asc', branch: 'asc',
-  date: 'desc', updated: 'desc', approvals: 'asc', author: 'asc',
+  date: 'desc', review: 'asc', updated: 'desc', approvals: 'asc', author: 'asc',
   diff: 'asc', status: 'asc', triggers: 'asc', ci: 'asc',
 };
 const DIRS = ['asc', 'desc'];
@@ -65,6 +66,12 @@ function valueOf(row, key) {
     return names.length ? names.join(',').toLowerCase() : null;
   }
   if (key === 'branch') return lower(row.branch);
+  if (key === 'review') {
+    // In-review start = readyAt (last draft → ready) falling back on createdAt,
+    // same basis as the easter egg (§21). Only an OPEN PR is in review: draft,
+    // merged and closed → missing (at the end).
+    return row.state === 'open' ? (row.readyAt ?? row.createdAt ?? null) : null;
+  }
   if (key === 'approvals') return row.approvals ?? null; // 0 is a real value
   if (key === 'author') return lower(row.author);
   if (key === 'updated') return row.updatedAt ?? null; // ISO 8601: lexical comparison is enough

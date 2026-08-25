@@ -234,6 +234,28 @@ test('renderFragment: « mine » table shows Opened, Updated and Diff like the o
   assert.ok(mineSection.includes('<span class="del">−4</span>'));
 });
 
+test('renderFragment: « In review » column — bare duration since readyAt, fallback createdAt', () => {
+  // Never draft → basis createdAt (2026-06-22, NOW 06-24 → 2d).
+  const out = renderFragment({ mine: [myRow()], others: [otherRow()] }, { now: NOW });
+  const mineSection = out.split('👥')[0];
+  assert.match(mineSection, /<th>In review<\/th>/);
+  assert.match(mineSection, /title="In review since 2026-06-22 \d{2}:\d{2}">2d</);
+  assert.match(out.split('👥')[1], /<th>In review<\/th>/); // others table too
+  // Long-drafted PR → basis readyAt, not createdAt.
+  const ready = renderFragment({ mine: [myRow({ createdAt: '2026-06-01T12:00:00Z', readyAt: '2026-06-23T12:00:00Z' })], others: [] }, { now: NOW });
+  assert.match(ready, /title="In review since 2026-06-23 \d{2}:\d{2}">1d</);
+});
+
+test('renderFragment: « In review » shows « – » for a draft, empty for a finished PR', () => {
+  const out = renderFragment({
+    mine: [myRow({ state: 'draft' })],
+    others: [otherRow({ state: 'merged' })],
+  }, { now: NOW });
+  assert.ok(!out.includes('In review since'));
+  assert.match(out.split('👥')[0], /<td>–<\/td>/);      // draft → –
+  assert.doesNotMatch(out.split('👥')[1], /<td>–<\/td>/); // merged → empty
+});
+
 test('renderFragment: « others » table shows Updated too', () => {
   const out = renderFragment({ mine: [], others: [otherRow()] }, { now: NOW });
   assert.match(out, /<th>Updated<\/th>/);

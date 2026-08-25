@@ -1,7 +1,7 @@
 // Pure HTML rendering (no I/O) for the local web dashboard (`gh notif`). Reuses
 // the presentation helpers exported by render.js (ciIcon, stateIcon, relativeDate,
 // checksByRepo): the display logic stays shared, only the HTML formatting lives here.
-import { ciIcon, stateIcon, relativeDate, checksByRepo } from './render.js';
+import { ciIcon, stateIcon, relativeDate, durationSince, checksByRepo } from './render.js';
 import { isReady } from './approvals.js';
 import { favoriteLabel } from './favorites.js';
 import { hasStacks } from './sort.js';
@@ -335,11 +335,11 @@ export function partyWorthy(r, now) {
 // (same single-source guarantee as the colgroup: filtering both through the
 // same list cannot desynchronize them). 'act' = the ✕/⚙ column. Title is the
 // pivot column (absorbs the leftover width, §23) → never hideable.
-const MINE_COL_KEYS = ['repo', 'number', 'title', 'labels', 'branch', 'date', 'updated', 'diff', 'status', 'approvals', 'triggers', 'ci', 'act'];
-const OTHERS_COL_KEYS = ['repo', 'number', 'title', 'labels', 'branch', 'author', 'date', 'updated', 'diff', 'status', 'approvals', 'triggers', 'ci', 'act'];
+const MINE_COL_KEYS = ['repo', 'number', 'title', 'labels', 'branch', 'date', 'review', 'updated', 'diff', 'status', 'approvals', 'triggers', 'ci', 'act'];
+const OTHERS_COL_KEYS = ['repo', 'number', 'title', 'labels', 'branch', 'author', 'date', 'review', 'updated', 'diff', 'status', 'approvals', 'triggers', 'ci', 'act'];
 const COL_LABELS = {
   repo: 'Repository', number: 'PR', labels: 'Labels', branch: 'Branch', author: 'Author',
-  date: 'Opened', updated: 'Updated', diff: 'Diff', status: 'Status',
+  date: 'Opened', review: 'In review', updated: 'Updated', diff: 'Diff', status: 'Status',
   approvals: 'Approvals', triggers: 'Triggers', ci: 'CI', act: 'Hide button',
 };
 const NEVER_HIDDEN = new Set(['title']);
@@ -390,6 +390,17 @@ const preciseDate = (iso) => {
 const dateCell = (label, iso, now) =>
   titled(`${label} ${iso ? preciseDate(iso) : '?'}`, escapeHtml(relativeDate(iso, now)));
 
+// « In review » cell: bare duration since readyAt (last draft → ready
+// transition) falling back on createdAt — the same basis as the easter egg
+// (§21). Only an OPEN PR is in review: a draft shows « – » (not yet in
+// review), merged and closed an empty cell (no longer relevant).
+const reviewCell = (r, now) => {
+  if (r.state === 'draft') return '–';
+  const iso = r.state === 'open' ? (r.readyAt ?? r.createdAt) : null;
+  if (!iso) return '';
+  return titled(`In review since ${preciseDate(iso)}`, escapeHtml(durationSince(iso, now)));
+};
+
 // Row classes: `hid` (hidden mode) + `stack stack-a|b` (row of a stacked-PRs
 // block → tinted background, parent and children alike; the tint alternates
 // with the block's stackIndex so adjacent stacks read as separate units).
@@ -411,6 +422,7 @@ function mineRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
     labelsCell(r.labels),
     branchCell(r),
     dateCell('Opened', r.createdAt, now),
+    reviewCell(r, now),
     dateCell('Updated', r.updatedAt, now),
     diffCell(r.additions, r.deletions),
     stateCell(r.state, r.conflicting),
@@ -435,6 +447,7 @@ function mineTable(rows, hiddenRows, now, showHidden, sort = null, ignoredChecks
     sortableTh('Labels', 'labels', sort, 'mine'),
     sortableTh('Branch', 'branch', sort, 'mine'),
     sortableTh('Opened', 'date', sort, 'mine'),
+    sortableTh('In review', 'review', sort, 'mine'),
     sortableTh('Updated', 'updated', sort, 'mine'),
     sortableTh('Diff', 'diff', sort, 'mine'),
     sortableTh(STATUS_TH, 'status', sort, 'mine'),
@@ -467,6 +480,7 @@ function otherRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
     branchCell(r),
     r.author ? titled(`@${r.author}`, `@${escapeHtml(r.author)}`) : '?',
     dateCell('Opened', r.createdAt, now),
+    reviewCell(r, now),
     dateCell('Updated', r.updatedAt, now),
     diffCell(r.additions, r.deletions),
     stateCell(r.state, r.conflicting),
@@ -491,6 +505,7 @@ function othersTable(others, hiddenRows, now, showHidden, sort = null, ignoredCh
     sortableTh('Branch', 'branch', sort),
     sortableTh('Author', 'author', sort),
     sortableTh('Opened', 'date', sort),
+    sortableTh('In review', 'review', sort),
     sortableTh('Updated', 'updated', sort),
     sortableTh('Diff', 'diff', sort),
     sortableTh(STATUS_TH, 'status', sort),

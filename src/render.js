@@ -43,6 +43,19 @@ export function relativeDate(iso, nowMs) {
   return 'just now';
 }
 
+// Bare elapsed duration (no « ago ») — the « In review » column reads as
+// « in review for 3d ».
+export function durationSince(iso, nowMs) {
+  if (!iso) return '?';
+  const min = Math.floor((nowMs - new Date(iso).getTime()) / 60000);
+  const h = Math.floor(min / 60);
+  const d = Math.floor(h / 24);
+  if (d > 0) return `${d}d`;
+  if (h > 0) return `${h}h`;
+  if (min > 0) return `${min}min`;
+  return '<1min';
+}
+
 // Groups rows by repo → DISTINCT checks (union, order of first appearance).
 // Since the blocklist is per repo, ignored-checks config is reasoned per repo,
 // not per PR (a same job appears on several PRs). A repo without checks is absent.

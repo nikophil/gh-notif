@@ -18,7 +18,7 @@ test('normalizeSort: valid passes, invalid/absent → default', () => {
   assert.deepEqual(normalizeSort({ key: 'nope', dir: 'asc' }), DEFAULT_SORT);
   assert.deepEqual(normalizeSort({ key: 'date', dir: 'sideways' }), DEFAULT_SORT);
   assert.deepEqual(DEFAULT_SORT, { key: 'updated', dir: 'desc' });
-  assert.deepEqual(SORT_KEYS, ['repo', 'number', 'title', 'labels', 'branch', 'date', 'updated', 'approvals', 'author', 'diff', 'status', 'triggers', 'ci']);
+  assert.deepEqual(SORT_KEYS, ['repo', 'number', 'title', 'labels', 'branch', 'date', 'review', 'updated', 'approvals', 'author', 'diff', 'status', 'triggers', 'ci']);
 });
 
 test('normalizeSort with MINE_SORT_KEYS: every column except author, the rest → default', () => {
@@ -172,6 +172,20 @@ test('sortRows: status valid with MINE_SORT_KEYS too', () => {
     { number: 2, state: 'open' },
   ];
   assert.deepEqual(order(sortRows(withStates, { key: 'status', dir: 'asc' }, MINE_SORT_KEYS)), [2, 1]);
+});
+
+test('sortRows: review asc → longest in review first (readyAt, fallback createdAt)', () => {
+  const inReview = [
+    { number: 1, state: 'open', createdAt: '2026-07-01T00:00:00Z', readyAt: '2026-07-25T00:00:00Z' }, // long draft, ready recently
+    { number: 2, state: 'open', createdAt: '2026-07-20T00:00:00Z' },                                  // never draft → createdAt
+    { number: 3, state: 'draft', createdAt: '2026-06-01T00:00:00Z' },                                 // not in review → missing, at the end
+    { number: 4, state: 'merged', createdAt: '2026-06-02T00:00:00Z', readyAt: '2026-06-03T00:00:00Z' },
+  ];
+  assert.deepEqual(order(sortRows(inReview, { key: 'review', dir: 'asc' })), [2, 1, 3, 4]);
+  assert.deepEqual(order(sortRows(inReview, { key: 'review', dir: 'desc' })), [1, 2, 3, 4]);
+  assert.deepEqual(order(sortRows(inReview, { key: 'review', dir: 'asc' }, MINE_SORT_KEYS)), [2, 1, 3, 4]);
+  // First click default: the ones waiting the most first.
+  assert.deepEqual(toggleSort({ key: 'date', dir: 'asc' }, 'review'), { key: 'review', dir: 'asc' });
 });
 
 test('sortRows: author case-insensitive (Alice < bob < zoe)', () => {
