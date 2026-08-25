@@ -1283,7 +1283,20 @@ ${FAVICON}
     if (g) g.classList.remove('dragging');
     document.body.classList.remove('col-resizing');
     colDrag = null;
+    // The click that follows this mouseup fires on the COMMON ANCESTOR of the
+    // press and release points (the th, or the table — never the grip, the
+    // pointer moved away from it): swallow it in capture phase, otherwise
+    // releasing a drag over a header sorts the column. The timeout clears the
+    // flag if no click follows at all (release outside the window).
+    swallowClick = true;
+    setTimeout(function () { swallowClick = false; }, 0);
   });
+  var swallowClick = false;
+  document.addEventListener('click', function (e) {
+    if (!swallowClick) return;
+    swallowClick = false;
+    e.stopPropagation();
+  }, true);
   // Double-click on a grip: back to auto layout for that table.
   content.addEventListener('dblclick', function (e) {
     var g = e.target.closest('.col-grip');
@@ -1298,9 +1311,6 @@ ${FAVICON}
   // Middle-click (open in a background tab) fires auxclick, not click.
   content.addEventListener('auxclick', function (e) { if (e.button === 1) rememberClick(e); });
   content.addEventListener('click', function (e) {
-    // A mouseup ending a column drag still emits a click inside the th:
-    // without this guard it would fire the column sort.
-    if (e.target.closest('.col-grip')) return;
     rememberClick(e);
     // Copy button (branch name / PR number): ✓ feedback for a second. The
     // fragment may be re-injected meanwhile — the stale button just vanishes.

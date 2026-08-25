@@ -739,9 +739,13 @@ sequenceDiagram
     issues table has neither → not resizable), invalidated when the column count changes
     (stale widths ignored). `#content` being re-injected at every poll, `setContent` →
     `initResize()` re-installs grips and re-applies widths (same pattern as `markLastClicked`
-    §19). ⚠️ The mouseup ending a drag still emits a `click` inside the sortable th → the
-    delegated click handler early-returns on `.col-grip` (otherwise every resize would fire a
-    sort POST). Double-click on a grip = back to auto layout for that table.
+    §19). ⚠️ The mouseup ending a drag still emits a `click` — on the **common ancestor** of the
+    press and release points (the th or the table, never the grip: the pointer moved), so a
+    `closest('.col-grip')` guard in the click handler can NOT catch it (real bug: every resize
+    fired a sort POST). Instead the mouseup arms a one-shot `swallowClick` flag consumed by a
+    **capture-phase** document click listener (`stopPropagation`), cleared by a `setTimeout(0)`
+    when no click follows (release outside the window). `dblclick` is a separate event, not
+    stopped by it → double-click on a grip still resets the table to auto layout.
 
 ## Test conventions
 
