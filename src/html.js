@@ -265,6 +265,40 @@ export function partyWorthy(r, now) {
   return Number.isFinite(basis) && now >= addBusinessDays(basis, PARTY_BUSINESS_DAYS);
 }
 
+// ── Column selector (per-table view, §24) ──────────────────────────────────
+// One key per column, ALIGNED with the headers AND cells arrays of each table
+// (same single-source guarantee as the colgroup: filtering both through the
+// same list cannot desynchronize them). 'act' = the ✕/⚙ column. Title is the
+// pivot column (absorbs the leftover width, §23) → never hideable.
+const MINE_COL_KEYS = ['repo', 'number', 'title', 'branch', 'date', 'updated', 'diff', 'status', 'approvals', 'triggers', 'ci', 'act'];
+const OTHERS_COL_KEYS = ['repo', 'number', 'title', 'branch', 'author', 'date', 'updated', 'diff', 'status', 'approvals', 'triggers', 'ci', 'act'];
+const COL_LABELS = {
+  repo: 'Repository', number: 'PR', branch: 'Branch', author: 'Author',
+  date: 'Opened', updated: 'Updated', diff: 'Diff', status: 'Status',
+  approvals: 'Approvals', triggers: 'Triggers', ci: 'CI', act: 'Hide button',
+};
+const NEVER_HIDDEN = new Set(['title']);
+// GitHub `gear` octicon (16 px inline SVG — the ⚙ text glyph renders tiny and
+// inconsistently across fonts).
+const GEAR_ICON =
+  '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" style="fill:currentColor;vertical-align:text-bottom">' +
+  '<path d="M8 0a8.2 8.2 0 0 1 .701.031C9.444.095 9.99.645 10.16 1.29l.288 1.107c.018.066.079.158.212.224.231.114.454.243.668.386.123.082.233.09.299.071l1.103-.303c.644-.176 1.392.021 1.82.63.27.385.506.792.704 1.218.315.675.111 1.422-.364 1.891l-.814.806c-.049.048-.098.147-.088.294.016.257.016.515 0 .772-.01.147.038.246.088.294l.814.806c.475.469.679 1.216.364 1.891a7.977 7.977 0 0 1-.704 1.217c-.428.61-1.176.807-1.82.63l-1.102-.302c-.067-.019-.177-.011-.3.071a5.909 5.909 0 0 1-.668.386c-.133.066-.194.158-.211.224l-.29 1.106c-.168.646-.715 1.196-1.458 1.26a8.006 8.006 0 0 1-1.402 0c-.743-.064-1.289-.614-1.458-1.26l-.289-1.106c-.018-.066-.079-.158-.212-.224a5.738 5.738 0 0 1-.668-.386c-.123-.082-.233-.09-.299-.071l-1.103.303c-.644.176-1.392-.021-1.82-.63a8.12 8.12 0 0 1-.704-1.218c-.315-.675-.111-1.422.363-1.891l.815-.806c.05-.048.098-.147.088-.294a6.214 6.214 0 0 1 0-.772c.01-.147-.038-.246-.088-.294l-.815-.806C.635 6.045.431 5.298.746 4.623a7.92 7.92 0 0 1 .704-1.217c.428-.61 1.176-.807 1.82-.63l1.102.302c.067.019.177.011.3-.071.214-.143.437-.272.668-.386.133-.066.194-.158.211-.224l.29-1.106C6.009.645 6.556.095 7.299.03 7.53.01 7.764 0 8 0Zm-.571 1.525c-.036.003-.108.036-.137.146l-.289 1.105c-.147.561-.549.967-.998 1.189-.173.086-.34.183-.5.29-.417.278-.97.423-1.529.27l-1.103-.303c-.109-.03-.175.016-.195.045-.22.312-.412.644-.573.99-.014.031-.021.11.059.19l.815.806c.411.406.562.957.53 1.456a4.709 4.709 0 0 0 0 .582c.032.499-.119 1.05-.53 1.456l-.815.806c-.081.08-.073.159-.059.19.162.346.353.677.573.989.02.03.085.076.195.046l1.102-.303c.56-.153 1.113-.008 1.53.27.161.107.328.204.501.29.447.222.85.629.997 1.189l.289 1.105c.029.109.101.143.137.146a6.6 6.6 0 0 0 1.142 0c.036-.003.108-.036.137-.146l.289-1.105c.147-.561.549-.967.998-1.189.173-.086.34-.183.5-.29.417-.278.97-.423 1.529-.27l1.103.303c.109.029.175-.016.195-.045.22-.313.411-.644.573-.99.014-.031.021-.11-.059-.19l-.815-.806c-.411-.406-.562-.957-.53-1.456a4.709 4.709 0 0 0 0-.582c-.032-.499.119-1.05.53-1.456l.815-.806c.081-.08.073-.159.059-.19a6.464 6.464 0 0 0-.573-.989c-.02-.03-.085-.076-.195-.046l-1.102.303c-.56.153-1.113.008-1.53-.27a4.44 4.44 0 0 0-.501-.29c-.447-.222-.85-.629-.997-1.189l-.289-1.105c-.029-.11-.101-.143-.137-.146a6.6 6.6 0 0 0-1.142 0ZM11 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM9.5 8a1.5 1.5 0 1 0-3.001.001A1.5 1.5 0 0 0 9.5 8Z"></path></svg>';
+const dropHidden = (arr, keys, hidden) =>
+  hidden.length ? arr.filter((_, i) => !hidden.includes(keys[i])) : arr;
+
+// Gear button + checkbox popover (one per table, in the section <h2> next to
+// the stacks toggle — the header stays reachable even with the ✕ column
+// hidden). Same popover mechanics as the CI checks (§17): rendered inline
+// hidden, toggled and positioned fixed by the client, one open at a time.
+function colsMenu(table, keys, hidden) {
+  const rows = keys
+    .filter((k) => !NEVER_HIDDEN.has(k))
+    .map((k) =>
+      `<label class="cols-row"><input type="checkbox" data-cols-table="${table}" data-cols-key="${k}"${hidden.includes(k) ? '' : ' checked'}> ${COL_LABELS[k]}</label>`)
+    .join('');
+  return `<span class="cols-wrap"><button class="cols-btn" data-cols-table="${table}" title="Choose columns">${GEAR_ICON}</button><div class="cols-pop" hidden>${rows}</div></span>`;
+}
+
 // A header is either a string (bare th), or { html, attrs } (sortable th —
 // attrs carries data-sort-key for click delegation on the client side).
 // If a header is `active` (current sort column), a <colgroup> marks the
@@ -300,33 +334,34 @@ const rowClass = (r, hidden) =>
     hidden && 'hid',
   ].filter(Boolean).join(' ');
 
-function mineRow(r, now, hidden, ignoredChecks = {}) {
+function mineRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
   // Hidden rows are never tagged: no party for a PR you chose not to see.
   // partyWorthy gates on the PR's age in business days (easter egg, not a badge).
   const party = !hidden && isMergeable(r) && partyWorthy(r, now)
     ? ` data-party="${escapeHtml(`${r.repo}#${r.number}`)}"` : '';
+  const cells = [
+    link(r.url, r.repo, r.repo),
+    link(r.url, `#${r.number}`),
+    titleCell(r),
+    branchCell(r),
+    dateCell('Opened', r.createdAt, now),
+    dateCell('Updated', r.updatedAt, now),
+    diffCell(r.additions, r.deletions),
+    stateCell(r.state, r.conflicting),
+    approvalsCell(r.approvals, r.state === 'open' && isReady(r.approvals), r.changesRequested),
+    triggersCell(r.triggers),
+    ciCell(r, ignoredChecks),
+    actionButton(r, hidden),
+  ];
   return tableRow(
-    [
-      link(r.url, r.repo, r.repo),
-      link(r.url, `#${r.number}`),
-      titleCell(r),
-      branchCell(r),
-      dateCell('Opened', r.createdAt, now),
-      dateCell('Updated', r.updatedAt, now),
-      diffCell(r.additions, r.deletions),
-      stateCell(r.state, r.conflicting),
-      approvalsCell(r.approvals, r.state === 'open' && isReady(r.approvals), r.changesRequested),
-      triggersCell(r.triggers),
-      ciCell(r, ignoredChecks),
-      actionButton(r, hidden),
-    ],
+    dropHidden(cells, MINE_COL_KEYS, hiddenCols),
     rowClass(r, hidden),
     party,
   );
 }
 
-function mineTable(rows, hiddenRows, now, showHidden, sort = null, ignoredChecks = {}) {
-  const headers = [
+function mineTable(rows, hiddenRows, now, showHidden, sort = null, ignoredChecks = {}, hiddenCols = []) {
+  const headers = dropHidden([
     sortableTh('Repository', 'repo', sort, 'mine'),
     sortableTh('PR', 'number', sort, 'mine'),
     sortableTh('Title', 'title', sort, 'mine'),
@@ -339,10 +374,10 @@ function mineTable(rows, hiddenRows, now, showHidden, sort = null, ignoredChecks
     sortableTh(TRIGGERS_TH, 'triggers', sort, 'mine'),
     sortableTh('CI', 'ci', sort, 'mine'),
     '',
-  ];
+  ], MINE_COL_KEYS, hiddenCols);
   const trs = [
-    ...rows.map((r) => mineRow(r, now, false, ignoredChecks)),
-    ...(showHidden ? hiddenRows.map((r) => mineRow(r, now, true, ignoredChecks)) : []),
+    ...rows.map((r) => mineRow(r, now, false, ignoredChecks, hiddenCols)),
+    ...(showHidden ? hiddenRows.map((r) => mineRow(r, now, true, ignoredChecks, hiddenCols)) : []),
   ];
   return table(headers, trs);
 }
@@ -355,29 +390,30 @@ function actionButton(r, hidden) {
     : `<button class="act" data-key="${key}" data-act="hide" title="Hide">✕</button>`;
 }
 
-function otherRow(r, now, hidden, ignoredChecks = {}) {
+function otherRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
+  const cells = [
+    link(r.url, r.repo, r.repo),
+    link(r.url, `#${r.number}`),
+    titleCell(r),
+    branchCell(r),
+    r.author ? titled(`@${r.author}`, `@${escapeHtml(r.author)}`) : '?',
+    dateCell('Opened', r.createdAt, now),
+    dateCell('Updated', r.updatedAt, now),
+    diffCell(r.additions, r.deletions),
+    stateCell(r.state, r.conflicting),
+    approvalsCell(r.approvals, false, r.changesRequested),
+    triggersCell(r.triggers),
+    ciCell(r, ignoredChecks),
+    actionButton(r, hidden),
+  ];
   return tableRow(
-    [
-      link(r.url, r.repo, r.repo),
-      link(r.url, `#${r.number}`),
-      titleCell(r),
-      branchCell(r),
-      r.author ? titled(`@${r.author}`, `@${escapeHtml(r.author)}`) : '?',
-      dateCell('Opened', r.createdAt, now),
-      dateCell('Updated', r.updatedAt, now),
-      diffCell(r.additions, r.deletions),
-      stateCell(r.state, r.conflicting),
-      approvalsCell(r.approvals, false, r.changesRequested),
-      triggersCell(r.triggers),
-      ciCell(r, ignoredChecks),
-      actionButton(r, hidden),
-    ],
+    dropHidden(cells, OTHERS_COL_KEYS, hiddenCols),
     rowClass(r, hidden),
   );
 }
 
-function othersTable(others, hiddenRows, now, showHidden, sort = null, ignoredChecks = {}) {
-  const headers = [
+function othersTable(others, hiddenRows, now, showHidden, sort = null, ignoredChecks = {}, hiddenCols = []) {
+  const headers = dropHidden([
     sortableTh('Repository', 'repo', sort),
     sortableTh('PR', 'number', sort),
     sortableTh('Title', 'title', sort),
@@ -391,10 +427,10 @@ function othersTable(others, hiddenRows, now, showHidden, sort = null, ignoredCh
     sortableTh(TRIGGERS_TH, 'triggers', sort),
     sortableTh('CI', 'ci', sort),
     '',
-  ];
+  ], OTHERS_COL_KEYS, hiddenCols);
   const trs = [
-    ...others.map((r) => otherRow(r, now, false, ignoredChecks)),
-    ...(showHidden ? hiddenRows.map((r) => otherRow(r, now, true, ignoredChecks)) : []),
+    ...others.map((r) => otherRow(r, now, false, ignoredChecks, hiddenCols)),
+    ...(showHidden ? hiddenRows.map((r) => otherRow(r, now, true, ignoredChecks, hiddenCols)) : []),
   ];
   return table(headers, trs);
 }
@@ -438,6 +474,10 @@ export function renderFragment(data, opts = {}) {
   const sortMine = opts.sortMine ?? null;
   const ignoredChecks = opts.ignoredChecks ?? {};
   const stacks = !!opts.stacks;
+  // `cols` (optional) = per-table hidden columns { mine: [...], others: [...] }
+  // (column selector, §24). Absent → no gear button, output strictly unchanged
+  // (compat, same contract as `sort`).
+  const cols = opts.cols ?? null;
   const mine = data?.mine ?? [];
   const hiddenMine = data?.hiddenMine ?? [];
   const hiddenMineCount = data?.hiddenMineCount ?? hiddenMine.length;
@@ -455,9 +495,10 @@ export function renderFragment(data, opts = {}) {
         ? `(${mine.length}, ${hiddenMineCount} hidden)`
         : `(${mine.length})`;
     const rows = mine.length > 0 || (showHidden && hiddenMineCount > 0)
-      ? mineTable(mine, hiddenMine, now, showHidden, sortMine, ignoredChecks)
+      ? mineTable(mine, hiddenMine, now, showHidden, sortMine, ignoredChecks, cols?.mine ?? [])
       : '';
-    blocks.push(`<section><h2>📥 Your open PRs ${count}${hist}${stacksBtn(mine, stacks)}</h2>${rows}</section>`);
+    const gear = cols && rows ? colsMenu('mine', MINE_COL_KEYS, cols.mine ?? []) : '';
+    blocks.push(`<section><h2>📥 Your open PRs ${count}${hist}${stacksBtn(mine, stacks)}${gear}</h2>${rows}</section>`);
   }
   if (others.length > 0 || (showHidden && hiddenCount > 0)) {
     const count =
@@ -465,7 +506,7 @@ export function renderFragment(data, opts = {}) {
         ? `(${others.length}, ${hiddenCount} hidden)`
         : `(${others.length})`;
     blocks.push(
-      `<section><h2>👥 Activity on others' PRs ${count}${stacksBtn(others, stacks)}</h2>${othersTable(others, hiddenRows, now, showHidden, sort, ignoredChecks)}</section>`,
+      `<section><h2>👥 Activity on others' PRs ${count}${stacksBtn(others, stacks)}${cols ? colsMenu('others', OTHERS_COL_KEYS, cols.others ?? []) : ''}</h2>${othersTable(others, hiddenRows, now, showHidden, sort, ignoredChecks, cols?.others ?? [])}</section>`,
     );
   }
   // Watched issues (« all » mode): their own section, rendered only when it has
@@ -641,12 +682,13 @@ ${FAVICON}
      of the scrolled content's right edge. */
   h2 { font-size: .875rem; font-weight: 600; margin: 0; padding: .65rem 1rem;
        background: var(--canvas-subtle); border-bottom: 1px solid var(--border);
-       position: sticky; left: 0; }
+       position: sticky; left: 0;
+       display: flex; align-items: center; gap: .35rem; }
   /* Section without a table (« Your PRs (0) » with only the closed link): no
      double rule under the header. */
   section h2:last-child { border-bottom: 0; }
   /* « closed ↗ » link: discreet in the section title. */
-  h2 .hist { font-size: .75rem; font-weight: 400; color: var(--fg-muted); margin-left: .35rem; }
+  h2 .hist { font-size: .75rem; font-weight: 400; color: var(--fg-muted); }
   h2 .hist:hover { color: var(--accent); }
   table { border-collapse: collapse; width: 100%; }
   th, td { text-align: left; padding: .5rem 1rem; border-bottom: 1px solid var(--border-muted); white-space: nowrap; }
@@ -707,9 +749,17 @@ ${FAVICON}
   .stack-indent { color: var(--fg-muted); }
   /* « ⤷ stacks » toggle in the section titles: tiny GitHub-like chip, accent
      when active (same visual language as the 🙈 hidden toggle, but smaller). */
+  /* Right-side group of the section bar: the stacks toggle then the gear.
+     margin-left:auto pushes the FIRST present one to the right edge (the ~
+     rule cancels it on the gear when the stacks toggle is also there). */
+  button.stacks-toggle, h2 .cols-wrap { margin-left: auto; }
+  button.stacks-toggle ~ .cols-wrap { margin-left: 0; }
+  /* the wrap is a flex item: without this the button inside sits on the
+     baseline and the gear rides higher than the stacks chip next to it */
+  h2 .cols-wrap { display: inline-flex; align-items: center; }
   button.stacks-toggle { font-size: .625rem; font-weight: 400; color: var(--fg-muted);
                          background: transparent; border: 1px solid var(--border-muted);
-                         border-radius: 10px; padding: 0 .5em; margin-left: .4rem;
+                         border-radius: 10px; padding: 0 .5em;
                          vertical-align: middle; box-shadow: none; }
   button.stacks-toggle:hover { color: var(--accent); border-color: var(--accent); }
   button.stacks-toggle.on { color: var(--accent); border-color: var(--accent);
@@ -735,6 +785,19 @@ ${FAVICON}
   .ci-pop .ci-check a { color: var(--fg); }
   .ci-pop .ci-check a:hover { color: var(--accent); text-decoration: none; }
   .ci-pop .ci-check.ignored { opacity: .5; }
+  /* Column selector (§24): tiny gear in the ✕-column th, revealed on hover
+     (GitHub-discreet), opening a checkbox popover — same fixed positioning as
+     the CI popover (the sections clip their overflow). */
+  button.cols-btn { border: 0; background: transparent; box-shadow: none; padding: .15rem .3rem;
+                    border-radius: 4px; line-height: 1; display: inline-flex; color: var(--fg-muted); }
+  button.cols-btn:hover { background: var(--btn-hover); color: var(--accent); }
+  .cols-pop { position: fixed; z-index: 30; min-width: 9rem; background: var(--canvas);
+              border: 1px solid var(--border); border-radius: 6px;
+              box-shadow: 0 8px 24px rgba(1,4,9,.3); padding: .3rem 0;
+              font-size: .75rem; font-weight: 400; text-align: left; }
+  .cols-pop .cols-row { display: flex; align-items: center; gap: .45rem;
+                        padding: .25rem .75rem; white-space: nowrap; cursor: pointer; }
+  .cols-pop .cols-row:hover { background: var(--canvas-subtle); }
   .spinner { display: inline-block; width: 1em; height: 1em; vertical-align: -2px;
              border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
              animation: ghn-spin .7s linear infinite; }
@@ -816,11 +879,45 @@ ${FAVICON}
   // CI checks popover: one open at a time; closed on outside click, Escape,
   // or fragment re-injection (the node would be detached anyway).
   var openPop = null;
-  function closeCiPop() { if (openPop) { openPop.hidden = true; openPop = null; } }
+  // Column-selector popover: which table's menu is open ('mine'/'others'), so
+  // it can be re-opened after each fragment re-injection (checking a box POSTs
+  // /cols and replaces #content — without this the menu would close after
+  // every single toggle).
+  var openColsTable = null;
+  var popAnchor = null;
+  function closeCiPop() {
+    if (openPop) {
+      openPop.hidden = true;
+      // Undo the <body> reparenting (showPop): back next to its anchor, or
+      // dropped if the fragment was re-injected meanwhile (orphan node).
+      if (openPop.parentNode === document.body) {
+        if (popAnchor && popAnchor.isConnected) popAnchor.after(openPop);
+        else openPop.remove();
+      }
+      openPop = null;
+    }
+    openColsTable = null; popAnchor = null;
+  }
+  function showPop(anchor, pop) {
+    popAnchor = anchor;
+    // Reparent to <body>: an ancestor sticky h2 creates a stacking context
+    // that would confine the popover's z-index under the table headers.
+    if (pop.parentNode !== document.body) document.body.appendChild(pop);
+    pop.hidden = false;
+    var rect = anchor.getBoundingClientRect();
+    pop.style.top = Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - pop.offsetHeight - 8)) + 'px';
+    pop.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - pop.offsetWidth - 8)) + 'px';
+    openPop = pop;
+  }
   document.addEventListener('click', function (e) {
-    if (openPop && !e.target.closest('.ci-pop') && !e.target.closest('button.ci-btn')) closeCiPop();
+    if (openPop && !e.target.closest('.ci-pop, .cols-pop') && !e.target.closest('button.ci-btn, button.cols-btn')) closeCiPop();
   });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeCiPop(); });
+  // position:fixed popovers don't follow the page: re-anchor them on scroll
+  // (capture: the horizontal scroll happens on the sections, not on window).
+  document.addEventListener('scroll', function () {
+    if (openPop && popAnchor) showPop(popAnchor, openPop);
+  }, true);
 
   function q(extra) {
     var p = [];
@@ -1058,10 +1155,20 @@ ${FAVICON}
   }
 
   function setContent(html, updatedAt) {
+    var reopenCols = openColsTable; // survive the closeCiPop below (re-opened after injection)
     closeCiPop();
     content.innerHTML = html;
     markLastClicked();
     initResize();
+    // Re-open the column menu that was open before the injection (fresh node,
+    // up-to-date checkboxes) — multi-toggling stays fluid across re-renders.
+    if (reopenCols) {
+      var reBtn = content.querySelector('button.cols-btn[data-cols-table="' + reopenCols + '"]');
+      if (reBtn && reBtn.nextElementSibling) {
+        showPop(reBtn, reBtn.nextElementSibling);
+        openColsTable = reopenCols;
+      }
+    }
     // « upd » = the time of the REAL GitHub poll (updatedAt of the server
     // snapshot), not the display time — otherwise a ctrl+R claims an update it
     // didn't make. The counter is aligned on the estimated next server poll
@@ -1344,15 +1451,24 @@ ${FAVICON}
       var pop = cib.nextElementSibling;
       var wasOpen = (pop === openPop);
       closeCiPop();
-      if (!wasOpen && pop) {
-        pop.hidden = false;
-        var rect = cib.getBoundingClientRect();
-        pop.style.top = Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - pop.offsetHeight - 8)) + 'px';
-        pop.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - pop.offsetWidth - 8)) + 'px';
-        openPop = pop;
+      if (!wasOpen && pop) showPop(cib, pop);
+      return;
+    }
+    // Column selector: the ⚙ of a table header toggles its checkbox menu.
+    var colsBtn = e.target.closest('button.cols-btn');
+    if (colsBtn) {
+      var colsPop = colsBtn.nextElementSibling;
+      var colsWasOpen = (colsPop === openPop);
+      closeCiPop();
+      if (!colsWasOpen && colsPop) {
+        showPop(colsBtn, colsPop);
+        openColsTable = colsBtn.getAttribute('data-cols-table');
       }
       return;
     }
+    // Clicks inside the menu (labels, checkboxes) are handled by the change
+    // listener — nothing else to do here.
+    if (e.target.closest('.cols-pop')) return;
     // Sort: click on a sortable header. data-sort-table ('mine') targets the
     // « Your PRs » sort state; without it, the « others » one.
     var th = e.target.closest('th[data-sort-key]');
@@ -1369,6 +1485,17 @@ ${FAVICON}
     var btn = e.target.closest('.act');
     if (!btn) return;
     act('/hide', 'key=' + encodeURIComponent(btn.getAttribute('data-key')));
+  });
+  // Column-selector checkboxes (delegated on document: the OPEN popover is
+  // reparented to <body> by showPop, so #content delegation would miss it).
+  // POST /cols → the fragment comes back without/with the column; the open
+  // menu is re-opened by setContent (openColsTable).
+  document.addEventListener('change', function (e) {
+    var el = e.target.closest('input[data-cols-key]');
+    if (!el) return;
+    var qs = 'key=' + encodeURIComponent(el.getAttribute('data-cols-key'));
+    if (el.getAttribute('data-cols-table') === 'mine') qs += '&table=mine';
+    act('/cols', qs);
   });
 
   setInterval(function () {

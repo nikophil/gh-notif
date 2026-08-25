@@ -954,3 +954,77 @@ test('POST /sort while stacks is on → stacks turns off, the sort applies', asy
     server.close();
   }
 });
+
+test('POST /cols : hides/shows a column per table, persists, 400 on invalid key', async () => {
+  let polls = 0;
+  const gh = {
+    getCurrentUser: async () => 'me',
+    listNotifications: async () => { polls += 1; return []; },
+    searchReviewRequested: async () => [
+      { repository_url: 'https://api.github.com/repos/o/r', number: 1, title: 't', html_url: 'u', updated_at: '2026-06-24T00:00:00Z' },
+    ],
+    searchAuthored: async () => [
+      { repository_url: 'https://api.github.com/repos/o/r', number: 2, title: 'm', html_url: 'u2', updated_at: '2026-06-24T00:00:00Z' },
+    ],
+    getPullDetailsBatch: async (prs) => prs.map((p) => ({
+      number: p.number, title: 't', author: { login: p.number === 2 ? 'me' : 'alice' },
+      createdAt: '2026-06-01T00:00:00Z', updatedAt: '2026-06-02T00:00:00Z',
+      additions: 3, deletions: 1, isDraft: false, state: 'OPEN', reviews: [], statusCheckRollupState: 'SUCCESS',
+    })),
+    getComment: async () => null,
+    getReviewComments: async () => [],
+  };
+  const tmp = `/tmp/gh-notif-test-cols-${process.pid}`;
+  rmSync(tmp, { recursive: true, force: true });
+  process.env.XDG_STATE_HOME = tmp;
+
+  const PORT = 7798;
+  const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false });
+  try {
+    await new Promise((r) => setTimeout(r, 250)); // 1st poll
+    // Baseline: both tables show the Diff column, and each carries its gear.
+    const frag1 = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
+    assert.equal((frag1.match(/data-sort-key="diff"/g) || []).length, 2);
+    assert.equal((frag1.match(/cols-btn/g) || []).length, 2);
+
+    // Hide « diff » on others → gone from others only, persisted.
+    const r1 = await fetch(`http://localhost:${PORT}/cols?key=diff`, { method: 'POST' });
+    assert.equal(r1.status, 200);
+    const d1 = await r1.json();
+    assert.equal((d1.fragment.match(/data-sort-key="diff"/g) || []).length, 1, 'mine keeps its Diff column');
+    assert.deepEqual(loadPrefs(prefsPath()).cols, ['diff']);
+    assert.equal(loadPrefs(prefsPath()).colsMine, undefined);
+
+    // table=mine: its own state.
+    await fetch(`http://localhost:${PORT}/cols?key=branch&table=mine`, { method: 'POST' });
+    assert.deepEqual(loadPrefs(prefsPath()).colsMine, ['branch']);
+    assert.deepEqual(loadPrefs(prefsPath()).cols, ['diff']);
+
+    // Re-toggle → the column comes back, the pref key disappears.
+    const d2 = await (await fetch(`http://localhost:${PORT}/cols?key=diff`, { method: 'POST' })).json();
+    assert.equal((d2.fragment.match(/data-sort-key="diff"/g) || []).length, 2);
+    assert.equal(loadPrefs(prefsPath()).cols, undefined);
+
+    // The ✕ (hide-button) column is hideable too.
+    const rAct = await fetch(`http://localhost:${PORT}/cols?key=act`, { method: 'POST' });
+    assert.equal(rAct.status, 200);
+    assert.deepEqual(loadPrefs(prefsPath()).cols, ['act']);
+    await fetch(`http://localhost:${PORT}/cols?key=act`, { method: 'POST' }); // back
+
+    // Invalid keys → 400, prefs intact (title is the pivot, never hideable).
+    for (const bad of ['title', 'nope', '']) {
+      const r = await fetch(`http://localhost:${PORT}/cols?key=${bad}`, { method: 'POST' });
+      assert.equal(r.status, 400, `key=${bad}`);
+    }
+    // author is valid on others but not on mine.
+    const badMine = await fetch(`http://localhost:${PORT}/cols?key=author&table=mine`, { method: 'POST' });
+    assert.equal(badMine.status, 400);
+    assert.equal(loadPrefs(prefsPath()).colsMine.includes('author'), false);
+
+    // POST /cols triggers no GitHub poll (local recompute only).
+    assert.equal(polls, 1);
+  } finally {
+    server.close();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});

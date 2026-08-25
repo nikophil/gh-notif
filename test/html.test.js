@@ -965,3 +965,56 @@ test('renderFragment: per-depth indent ONLY on branched blocks', () => {
   const linear = renderFragment({ mine: [myRow({ stackDepth: 3 })], others: [] }, { now: NOW });
   assert.ok(!linear.includes('padding-left'), 'linear chain keeps the single fixed indent');
 });
+
+// ── Column selector (per-table hidden columns, opts.cols) ────────────────────
+
+test('renderFragment: without opts.cols, no gear button and output unchanged', () => {
+  const data = { mine: [myRow()], others: [otherRow()] };
+  const out = renderFragment(data, { now: NOW });
+  assert.doesNotMatch(out, /cols-btn/);
+  assert.doesNotMatch(out, /cols-pop/);
+});
+
+test('renderFragment: opts.cols renders a gear + popover per table, all columns visible by default', () => {
+  const out = renderFragment({ mine: [myRow()], others: [otherRow()] }, { now: NOW, cols: { mine: [], others: [] } });
+  const gears = out.match(/cols-btn/g) || [];
+  assert.equal(gears.length, 2, 'one gear per table');
+  // the gear lives in the section <h2>, not inside the table
+  assert.ok(out.indexOf('cols-btn') < out.indexOf('<table'), 'gear rendered in the h2, before the table');
+  assert.doesNotMatch(out, /<th[^>]*><span class="cols-wrap"/);
+  // popover checkboxes carry the table + column key; Title is not offered,
+  // the ✕ hide-button column is
+  assert.match(out, /data-cols-table="mine" data-cols-key="branch"[^>]* checked/);
+  assert.match(out, /data-cols-table="others" data-cols-key="author"[^>]* checked/);
+  assert.match(out, /data-cols-table="mine" data-cols-key="act"[^>]* checked/);
+  assert.doesNotMatch(out, /data-cols-key="title"/);
+});
+
+test('renderFragment: the ✕ column is hideable like the others', () => {
+  const out = renderFragment({ mine: [myRow()], others: [otherRow()] }, { now: NOW, cols: { mine: ['act'], others: [] } });
+  const [mineTbl, othersTbl] = out.split('👥');
+  assert.doesNotMatch(mineTbl, /data-act="hide"/, 'no hide button left in mine');
+  assert.match(othersTbl, /data-act="hide"/, 'others untouched');
+  assert.match(mineTbl, /cols-btn/, 'gear still reachable (it lives in the h2)');
+});
+
+test('renderFragment: a hidden column disappears from headers and cells (mine only)', () => {
+  const data = { mine: [myRow()], others: [otherRow()] };
+  const out = renderFragment(data, { now: NOW, cols: { mine: ['diff'], others: [] } });
+  const [mineTbl, othersTbl] = out.split('👥');
+  assert.doesNotMatch(mineTbl, /data-sort-key="diff"/, 'Diff header gone from mine');
+  assert.doesNotMatch(mineTbl, /class="add"/, 'diff cell gone from mine');
+  assert.match(othersTbl, /class="add"/, 'others untouched');
+  // its checkbox is unchecked in the popover
+  assert.match(mineTbl, /data-cols-table="mine" data-cols-key="diff"(?![^>]*checked)/);
+  // headers and cells stay aligned (same count)
+  const ths = (mineTbl.match(/<th[ >]/g) || []).length; // not <thead>
+  const tds = (mineTbl.match(/<td[ >]/g) || []).length;
+  assert.equal(ths, tds, 'one td per th on a 1-row table');
+});
+
+test('renderFragment: hidden author column on others', () => {
+  const out = renderFragment({ mine: [], others: [otherRow()] }, { now: NOW, cols: { mine: [], others: ['author'] } });
+  assert.doesNotMatch(out, /data-sort-key="author"/);
+  assert.doesNotMatch(out, /@alice/);
+});

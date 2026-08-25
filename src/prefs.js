@@ -96,6 +96,29 @@ export function toggleFavMode(prefs, fav) {
   return prefs;
 }
 
+// Hidden columns of the two web tables (column selector, per-table view):
+// `cols` (« others ») and `colsMine` (« Your PRs »), arrays of column keys
+// (the sort keys of sort.js). Absent by default (an older file stays valid,
+// same as `stacks`). Robust against a tampered file: non-array → [], and
+// non-string entries are dropped.
+const colsKey = (table) => (table === 'mine' ? 'colsMine' : 'cols');
+const colsList = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
+export function hiddenColsOf(prefs) {
+  return { mine: colsList(prefs?.colsMine), others: colsList(prefs?.cols) };
+}
+
+// Toggles a column in a table's hidden list; last one removed → the pref key
+// is DELETED (clean file, same spirit as toggleIgnoredCheck). Mutates `prefs`
+// IN PLACE — cf. pitfall §14: the caller then re-writes it IN FULL via savePrefs.
+export function toggleHiddenCol(prefs, table, key) {
+  const k = colsKey(table);
+  const list = colsList(prefs[k]);
+  const next = list.includes(key) ? list.filter((x) => x !== key) : [...list, key];
+  if (next.length === 0) delete prefs[k];
+  else prefs[k] = next;
+  return prefs;
+}
+
 // Toggles a check in a repo's blocklist (toggle, trimmed name): present → we
 // remove it (and **delete the repo key** if its list becomes empty → clean map);
 // absent → we add it. Mutates `prefs.ignoredChecks` IN PLACE (created if absent) — cf.

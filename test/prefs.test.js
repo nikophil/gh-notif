@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync, mkdtempSync } from 'node:fs';
-import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, ignoredChecksFor, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf } from '../src/prefs.js';
+import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, ignoredChecksFor, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, hiddenColsOf, toggleHiddenCol } from '../src/prefs.js';
 
 test('prefsPath respects XDG_STATE_HOME', () => {
   const prev = process.env.XDG_STATE_HOME;
@@ -218,4 +218,33 @@ test('stacksOf: false by default, true only if explicitly enabled', () => {
   assert.equal(stacksOf({ stacks: false }), false);
   assert.equal(stacksOf({}), false);
   assert.equal(stacksOf({ stacks: 'yes' }), false); // tampered file → default
+});
+
+test('hiddenColsOf: empty lists by default, tolerates absent/malformed', () => {
+  assert.deepEqual(hiddenColsOf(undefined), { mine: [], others: [] });
+  assert.deepEqual(hiddenColsOf({}), { mine: [], others: [] });
+  assert.deepEqual(hiddenColsOf({ cols: 'nope', colsMine: 42 }), { mine: [], others: [] }); // invalid types → []
+  // non-string entries dropped; valid ones kept as-is
+  assert.deepEqual(hiddenColsOf({ cols: ['branch', 7], colsMine: ['diff'] }), { mine: ['diff'], others: ['branch'] });
+});
+
+test('toggleHiddenCol: adds, removes, deletes the pref key when empty', () => {
+  const prefs = {};
+  toggleHiddenCol(prefs, 'mine', 'branch');
+  assert.deepEqual(prefs.colsMine, ['branch']);
+  toggleHiddenCol(prefs, 'mine', 'diff');
+  assert.deepEqual(prefs.colsMine, ['branch', 'diff']);
+  // the two tables have independent states
+  toggleHiddenCol(prefs, 'others', 'author');
+  assert.deepEqual(prefs.cols, ['author']);
+  assert.deepEqual(prefs.colsMine, ['branch', 'diff']);
+  // removal; last one → the key disappears (clean file, like toggleIgnoredCheck)
+  toggleHiddenCol(prefs, 'mine', 'branch');
+  assert.deepEqual(prefs.colsMine, ['diff']);
+  toggleHiddenCol(prefs, 'mine', 'diff');
+  assert.equal('colsMine' in prefs, false);
+  // tolerates a tampered value (non-array → restarts from empty)
+  const bad = { cols: 'oops' };
+  toggleHiddenCol(bad, 'others', 'ci');
+  assert.deepEqual(bad.cols, ['ci']);
 });

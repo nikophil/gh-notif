@@ -11,7 +11,7 @@ import { collectPRs, recomputeCi } from './collect.js';
 import { CATEGORY } from './filter.js';
 import { hiddenPath, loadHidden, saveHidden, toggleHidden, isHidden, keyOf } from './hidden.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './state.js';
-import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf } from './prefs.js';
+import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, hiddenColsOf, toggleHiddenCol } from './prefs.js';
 import {
   parseScope, normalizeFavorites, addFavorite, removeFavorite,
   favoriteScopes, activeFavoriteOf, filterDataByScope, favoriteCounts, closedPRsUrl, repoInAllMode,
@@ -62,7 +62,7 @@ function recompute(data, hidden) {
 // no data yet (1st poll in progress) → spinner; otherwise → the tables.
 // ⚠️ The snapshot contains the data of the UNION of favorites; the active
 // favorite filter is applied HERE, at render time — never at collection (cf. §14).
-function fragmentBody(snapshot, { now, showHidden, viewScope = null, closedUrl = null, sort = null, sortMine = null, ignoredChecks = {}, stacks = false } = {}) {
+function fragmentBody(snapshot, { now, showHidden, viewScope = null, closedUrl = null, sort = null, sortMine = null, ignoredChecks = {}, stacks = false, cols = null } = {}) {
   if (snapshot.error) return `<p class="empty offline">⚠️ Error: ${escapeHtml(snapshot.error)}</p>`;
   if (!snapshot.updatedAt) return renderLoading(viewScope?.value ?? '');
   let data = filterDataByScope(snapshot.data ?? { mine: [], others: [] }, viewScope);
@@ -85,13 +85,13 @@ function fragmentBody(snapshot, { now, showHidden, viewScope = null, closedUrl =
       hiddenMine: sortRows(data.hiddenMine, DEFAULT_SORT, MINE_SORT_KEYS),
     };
     const NO_SORT = { key: null, dir: null };
-    return renderFragment(data, { now, showHidden, closedUrl, sort: NO_SORT, sortMine: NO_SORT, ignoredChecks, stacks });
+    return renderFragment(data, { now, showHidden, closedUrl, sort: NO_SORT, sortMine: NO_SORT, ignoredChecks, stacks, cols });
   }
   if (sort) data = { ...data, others: sortRows(data.others, sort), hidden: sortRows(data.hidden, sort) };
   if (sortMine) data = { ...data, mine: sortRows(data.mine, sortMine, MINE_SORT_KEYS), hiddenMine: sortRows(data.hiddenMine, sortMine, MINE_SORT_KEYS) };
   // `ignoredChecks` only affects the popover display (struck checks) — the CI
   // verdict itself was already recomputed at collection (§16).
-  return renderFragment(data, { now, showHidden, closedUrl, sort, sortMine, ignoredChecks, stacks });
+  return renderFragment(data, { now, showHidden, closedUrl, sort, sortMine, ignoredChecks, stacks, cols });
 }
 
 // Scope(s) that the view DISPLAYS, to contextualize the « closed ↗ » link:
@@ -117,7 +117,7 @@ export function handleRequest(pathname, snapshot, opts = {}) {
   const {
     now, intervalMs, showHidden, scope, notifyEnabled = true, theme = 'auto',
     favorites = [], activeFav = null, adhoc = false, sort = null, sortMine = null, ignoredChecks = {},
-    favModes = null, stacks = false,
+    favModes = null, stacks = false, cols = null,
   } = opts;
   // Display filter: the active favorite, except in ad-hoc mode (the entered scope
   // already drives the collection, re-filtering would be redundant).
@@ -130,14 +130,14 @@ export function handleRequest(pathname, snapshot, opts = {}) {
     return { status: 200, type: 'text/html; charset=utf-8', body: renderShell({ intervalMs, scopeLabel: scopeLabel(scope), notifyEnabled, theme, favorites, activeFav, adhoc, counts, favModes }) };
   }
   if (pathname === '/fragment') {
-    return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, sort, sortMine, ignoredChecks, stacks }) };
+    return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, sort, sortMine, ignoredChecks, stacks, cols }) };
   }
   // Unified poll of the client: filtered tables + favorites bar (up-to-date counters)
   // + updatedAt (the client probes until it changes after an add/remove).
   if (pathname === '/view') {
     return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify({
       chips: renderFavorites(favorites, activeFav, { adhoc, counts, favModes }),
-      fragment: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, sort, sortMine, ignoredChecks, stacks }),
+      fragment: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, sort, sortMine, ignoredChecks, stacks, cols }),
       updatedAt: snapshot.updatedAt,
     }) };
   }
@@ -225,6 +225,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   // while a --serve is running would be overwritten at the next POST (prefs object rewritten
   // in full) → edit with the server stopped, then relaunch.
   let ignoredChecks = ignoredChecksOf(prefs); // mutable: POST /ignore-check toggles it
+  let cols = hiddenColsOf(prefs); // hidden columns per table (mutable: POST /cols toggles them)
 
   // Approvals on my PRs: in-memory state (per process), independent of the disk
   // state of the notifs. 1st poll = silent seeding (no burst at startup).
@@ -315,6 +316,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         sortMine,
         ignoredChecks,
         stacks,
+        cols,
       }),
       updatedAt: snapshot.updatedAt,
     });
@@ -461,6 +463,21 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         savePrefs(prefsFile, prefs);
         return send(200, json, currentView(showHidden));
       }
+      if (pathname === '/cols') {
+        // Column selector = pure display state: local recompute, NO GitHub
+        // call (same philosophy as /sort). One hidden-columns list per table
+        // (`table=mine` targets « Your PRs »). Valid keys = the table's sort
+        // keys minus `title` (the pivot column, never hideable).
+        const key = url.searchParams.get('key');
+        const mine = url.searchParams.get('table') === 'mine';
+        const keys = mine ? MINE_SORT_KEYS : SORT_KEYS;
+        // `act` (the ✕ hide-button column) has no sort key but is hideable too.
+        if (key === 'title' || (key !== 'act' && !keys.includes(key))) return send(400, 'text/plain; charset=utf-8', `unknown column: ${key ?? ''}`);
+        toggleHiddenCol(prefs, mine ? 'mine' : 'others', key); // ⚠️ mutates prefs (rewritten IN FULL)
+        savePrefs(prefsFile, prefs);
+        cols = hiddenColsOf(prefs);
+        return send(200, json, currentView(showHidden));
+      }
       if (pathname === '/ignore-check') {
         // Checkbox of the debug view: toggles a job in the repo blocklist,
         // persists, then RECOMPUTES LOCALLY the ci of all the rows (0 GitHub call:
@@ -513,6 +530,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       ignoredChecks,
       favModes,
       stacks,
+      cols,
     });
     send(status, type, body);
   });

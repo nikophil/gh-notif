@@ -750,6 +750,33 @@ sequenceDiagram
     when no click follows (release outside the window). `dblclick` is a separate event, not
     stopped by it → double-click on a grip still resets the table to auto layout.
 
+24. **Column selector (⚙ per table, hidden columns persisted).** Each PR table has its own
+    view: a discreet gear in the section `<h2>` (next to the stacks toggle, revealed on h2
+    hover — NOT in the table: the header must stay reachable even with the ✕ column hidden)
+    opens a checkbox popover listing the columns; unchecking hides the column in THAT table
+    only. Persisted in
+    `prefs-v1.json` as `cols` (« others ») / `colsMine` (« Your PRs ») — arrays of **hidden**
+    column keys (the sort keys of §15), absent by default like `stacks` (no migration; accessors
+    `hiddenColsOf`/`toggleHiddenCol`, key deleted when the list empties). `POST /cols?key=…
+    (&table=mine)` = toggle + savePrefs + local re-render, **0 GitHub call** (same philosophy as
+    /sort §15); valid keys = the table's sort keys **minus `title`** (the pivot column that
+    absorbs the leftover width §23 — hiding it would break the layout) **plus `act`** (the ✕
+    hide-button column, hideable like any other since the gear lives in the h2). Rendering: `MINE_COL_KEYS`/`OTHERS_COL_KEYS` (html.js) are ALIGNED with
+    the headers AND cells arrays, and `dropHidden` filters both through the same list — the
+    single-source guarantee that headers/cells/colgroup cannot desynchronize (same spirit as
+    the §15 colgroup). ⚠️ `renderFragment` only renders the gear when `opts.cols` is provided —
+    without it, output byte-identical (compat, same contract as `sort`). Interactions: a sort on
+    a hidden column keeps applying to the data (display state ≠ sort state); the resize widths
+    (§23, localStorage) are already invalidated when the column count changes. Popover mechanics
+    shared with the CI popover (§17: `showPop`, position:fixed, one open at a time) — plus two
+    twists: checking a box re-injects `#content`, so `setContent` **re-opens** the menu that was
+    open (`openColsTable`, captured before the close) — without it the menu would shut after
+    every single toggle, making multi-column changes painful; and a fixed popover does not
+    follow the page on scroll (it stays glued to the viewport while the table moves under it),
+    so a capture-phase `scroll` listener re-anchors the open popover to its button
+    (`popAnchor`, kept by `showPop` — covers the CI popover too). The issues table has no selector
+    (minimal columns by design, §18).
+
 ## Test conventions
 
 - Pure logic (`filter`, `render` helpers, `state`, `collect`, `ciRollup`, `scope`): fixtures, no
