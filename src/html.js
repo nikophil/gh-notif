@@ -212,6 +212,71 @@ const branchCell = (r) => {
     + copyBtn(r.branch, 'Copy branch name');
 };
 
+// GitHub label colors — the Primer formulas of GitHub's own IssueLabel.
+// Light mode: the label color as background, black/white text picked on the
+// perceived lightness (threshold 0.453). Dark mode: alpha-tinted background
+// (0.18) + text/border lightened toward the 0.6 threshold (a dark color gets a
+// readable pastel of the SAME hue; an already-light color stays as-is). Pure
+// and exported (tests). `hex` = 6-digit color WITHOUT '#' (the GitHub API
+// shape); invalid/absent → null, the chip falls back on the theme's muted
+// colors (neutral pill).
+export function labelColors(hex) {
+  if (!/^[0-9a-f]{6}$/i.test(hex ?? '')) return null;
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  const lum = (r * 0.2126 + g * 0.7152 + b * 0.0722) / 255; // perceived lightness 0..1
+  // rgb → hsl (the dark-mode lightening keeps the hue)
+  const rn = r / 255, gn = g / 255, bn = b / 255;
+  const max = Math.max(rn, gn, bn), min = Math.min(rn, gn, bn), d = max - min;
+  const l = (max + min) / 2;
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  let h = 0;
+  if (d !== 0) {
+    if (max === rn) h = ((gn - bn) / d + 6) % 6;
+    else if (max === gn) h = (bn - rn) / d + 2;
+    else h = (rn - gn) / d + 4;
+    h = Math.round(h * 60) % 360;
+  }
+  const sPct = Math.round(s * 100);
+  const lPct = Math.round(l * 100);
+  const lightened = Math.min(100, lPct + (lum < 0.6 ? Math.round((0.6 - lum) * 100) : 0));
+  return {
+    bgLight: `#${hex.toLowerCase()}`,
+    fgLight: lum < 0.453 ? '#ffffff' : '#000000',
+    bgDark: `rgba(${r},${g},${b},0.18)`,
+    fgDark: `hsl(${h},${sPct}%,${lightened}%)`,
+    bdDark: `hsla(${h},${sPct}%,${lightened}%,0.3)`,
+  };
+}
+
+// Labels cell: GitHub-look pill chips. Each chip carries its computed colors
+// as inline custom props; the light/dark pick happens in CSS with
+// light-dark() — the page already forces `color-scheme` per theme (auto
+// included), so the chips follow the theme switcher for free, without
+// duplicating the 4 theme selectors. No label → empty cell.
+const labelsCell = (labels) => {
+  if (!labels?.length) return '';
+  const chips = labels.map((l) => {
+    const c = labelColors(l.color);
+    const style = c
+      ? ` style="--lbl-bg-l:${c.bgLight};--lbl-fg-l:${c.fgLight};--lbl-bg-d:${c.bgDark};--lbl-fg-d:${c.fgDark};--lbl-bd-d:${c.bdDark}"`
+      : '';
+    return `<span class="lbl"${style} title="${escapeHtml(l.name)}">${escapeHtml(l.name)}</span>`;
+  });
+  return `<span class="labels">${chips.join('')}</span>`;
+};
+
+// The Labels column only renders when at least one row of the table carries a
+// label (same spirit as the stacks toggle §20 or the Issues section §18: no
+// data → page unchanged). Implemented by adding `labels` to the table's hidden
+// columns at render — the gear pref is untouched, the column comes back on its
+// own with the first labeled PR.
+const dropLabelsIfEmpty = (rows, hiddenCols) =>
+  rows.some((r) => r.labels?.length) || hiddenCols.includes('labels')
+    ? hiddenCols
+    : [...hiddenCols, 'labels'];
+
 // « ⤷ stacks » toggle in a section title: offered ONLY when the table's visible
 // rows contain at least one parent/child link (hasStacks) — no stack, no button.
 // One global state for both tables (POST /stacks, delegated on #content).
@@ -270,10 +335,10 @@ export function partyWorthy(r, now) {
 // (same single-source guarantee as the colgroup: filtering both through the
 // same list cannot desynchronize them). 'act' = the ✕/⚙ column. Title is the
 // pivot column (absorbs the leftover width, §23) → never hideable.
-const MINE_COL_KEYS = ['repo', 'number', 'title', 'branch', 'date', 'updated', 'diff', 'status', 'approvals', 'triggers', 'ci', 'act'];
-const OTHERS_COL_KEYS = ['repo', 'number', 'title', 'branch', 'author', 'date', 'updated', 'diff', 'status', 'approvals', 'triggers', 'ci', 'act'];
+const MINE_COL_KEYS = ['repo', 'number', 'title', 'labels', 'branch', 'date', 'updated', 'diff', 'status', 'approvals', 'triggers', 'ci', 'act'];
+const OTHERS_COL_KEYS = ['repo', 'number', 'title', 'labels', 'branch', 'author', 'date', 'updated', 'diff', 'status', 'approvals', 'triggers', 'ci', 'act'];
 const COL_LABELS = {
-  repo: 'Repository', number: 'PR', branch: 'Branch', author: 'Author',
+  repo: 'Repository', number: 'PR', labels: 'Labels', branch: 'Branch', author: 'Author',
   date: 'Opened', updated: 'Updated', diff: 'Diff', status: 'Status',
   approvals: 'Approvals', triggers: 'Triggers', ci: 'CI', act: 'Hide button',
 };
@@ -343,6 +408,7 @@ function mineRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
     link(r.url, r.repo, r.repo),
     link(r.url, `#${r.number}`),
     titleCell(r),
+    labelsCell(r.labels),
     branchCell(r),
     dateCell('Opened', r.createdAt, now),
     dateCell('Updated', r.updatedAt, now),
@@ -361,10 +427,12 @@ function mineRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
 }
 
 function mineTable(rows, hiddenRows, now, showHidden, sort = null, ignoredChecks = {}, hiddenCols = []) {
+  hiddenCols = dropLabelsIfEmpty([...rows, ...(showHidden ? hiddenRows : [])], hiddenCols);
   const headers = dropHidden([
     sortableTh('Repository', 'repo', sort, 'mine'),
     sortableTh('PR', 'number', sort, 'mine'),
     sortableTh('Title', 'title', sort, 'mine'),
+    sortableTh('Labels', 'labels', sort, 'mine'),
     sortableTh('Branch', 'branch', sort, 'mine'),
     sortableTh('Opened', 'date', sort, 'mine'),
     sortableTh('Updated', 'updated', sort, 'mine'),
@@ -395,6 +463,7 @@ function otherRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
     link(r.url, r.repo, r.repo),
     link(r.url, `#${r.number}`),
     titleCell(r),
+    labelsCell(r.labels),
     branchCell(r),
     r.author ? titled(`@${r.author}`, `@${escapeHtml(r.author)}`) : '?',
     dateCell('Opened', r.createdAt, now),
@@ -413,10 +482,12 @@ function otherRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
 }
 
 function othersTable(others, hiddenRows, now, showHidden, sort = null, ignoredChecks = {}, hiddenCols = []) {
+  hiddenCols = dropLabelsIfEmpty([...others, ...(showHidden ? hiddenRows : [])], hiddenCols);
   const headers = dropHidden([
     sortableTh('Repository', 'repo', sort),
     sortableTh('PR', 'number', sort),
     sortableTh('Title', 'title', sort),
+    sortableTh('Labels', 'labels', sort),
     sortableTh('Branch', 'branch', sort),
     sortableTh('Author', 'author', sort),
     sortableTh('Opened', 'date', sort),
@@ -743,6 +814,17 @@ ${FAVICON}
   code.branch { display: inline-block; max-width: 9rem; overflow: hidden; text-overflow: ellipsis;
                 vertical-align: middle; background: color-mix(in srgb, var(--accent) 10%, transparent);
                 color: var(--accent); padding: .1em .35em; border-radius: 4px; font-size: .625rem; }
+  /* PR labels, GitHub-look pills: each chip carries its Primer-computed colors
+     (labelColors) as inline custom props; light-dark() follows the page's
+     forced color-scheme, so the 4 theme cases need no extra selector. The
+     fallbacks (no/invalid color) give a neutral muted pill. */
+  .labels { display: inline-flex; flex-wrap: wrap; gap: 2px; max-width: 11rem; vertical-align: middle; }
+  .lbl { display: inline-block; max-width: 10rem; overflow: hidden; text-overflow: ellipsis;
+         white-space: nowrap; padding: 0 7px; border-radius: 2em; font-size: .625rem;
+         font-weight: 500; line-height: 1.6;
+         background: light-dark(var(--lbl-bg-l, var(--canvas-subtle)), var(--lbl-bg-d, var(--canvas-subtle)));
+         color: light-dark(var(--lbl-fg-l, var(--fg-muted)), var(--lbl-fg-d, var(--fg-muted)));
+         border: 1px solid light-dark(transparent, var(--lbl-bd-d, var(--border-muted))); }
   /* Stacked PRs: ⤷ marker of a child row (indent carried inline, per depth)
      and « base: … » chip of a stacked row whose parent is not in the table —
      both muted and tiny, GitHub-like discretion. */

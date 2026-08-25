@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { escapeHtml, isMergeable, addBusinessDays, partyWorthy, renderFragment, renderShell, renderLoading, renderDebug, renderDebugShell, renderFavorites } from '../src/html.js';
+import { escapeHtml, isMergeable, addBusinessDays, partyWorthy, labelColors, renderFragment, renderShell, renderLoading, renderDebug, renderDebugShell, renderFavorites } from '../src/html.js';
 
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
 
@@ -273,6 +273,64 @@ test('renderFragment: branch link falls back on the base repo, URL-encodes the r
     { now: NOW },
   );
   assert.ok(out.includes('href="https://github.com/symfony/web/tree/feat/a%23b"'));
+});
+
+test('labelColors: Primer formulas — dark color → white text (light) / lightened pastel (dark)', () => {
+  // « bug » red: perceived lightness < 0.453 → white text on the full color in
+  // light mode; alpha-tinted bg + same-hue pastel text/border in dark mode.
+  assert.deepEqual(labelColors('d73a4a'), {
+    bgLight: '#d73a4a', fgLight: '#ffffff',
+    bgDark: 'rgba(215,58,74,0.18)', fgDark: 'hsl(354,66%,78%)', bdDark: 'hsla(354,66%,78%,0.3)',
+  });
+  // light grey (« duplicate »): black text in light mode; already above the 0.6
+  // threshold → dark mode keeps its lightness untouched.
+  assert.deepEqual(labelColors('EDEDED'), {
+    bgLight: '#ededed', fgLight: '#000000',
+    bgDark: 'rgba(237,237,237,0.18)', fgDark: 'hsl(0,0%,93%)', bdDark: 'hsla(0,0%,93%,0.3)',
+  });
+});
+
+test('labelColors: invalid/absent color → null (neutral chip fallback)', () => {
+  assert.equal(labelColors(null), null);
+  assert.equal(labelColors(undefined), null);
+  assert.equal(labelColors('fff'), null);
+  assert.equal(labelColors('xyz123'), null);
+  assert.equal(labelColors('#d73a4a'), null); // the API ships WITHOUT '#'
+});
+
+test('renderFragment: Labels column — GitHub-look chips with per-label colors (both tables)', () => {
+  const labels = [{ name: 'bug', color: 'd73a4a' }, { name: 'help wanted', color: '008672' }];
+  const out = renderFragment({ mine: [myRow({ labels })], others: [otherRow({ labels })] }, { now: NOW });
+  assert.match(out, /<th>Labels<\/th>/);
+  const chips = out.match(/<span class="lbl"[^>]*>bug<\/span>/g);
+  assert.equal(chips.length, 2); // one per table
+  assert.match(out, /--lbl-bg-l:#d73a4a;--lbl-fg-l:#ffffff;--lbl-bg-d:rgba\(215,58,74,0\.18\)/);
+  assert.match(out, /<span class="lbl"[^>]*title="help wanted">help wanted<\/span>/);
+});
+
+test('renderFragment: Labels column dropped when NO row of the table has a label (per table)', () => {
+  // no label anywhere → no Labels header at all (page as before the feature)
+  const none = renderFragment({ mine: [myRow()], others: [otherRow()] }, { now: NOW });
+  assert.doesNotMatch(none, /Labels/);
+  // per-table: only others has a labeled PR → its table shows the column, mine doesn't
+  const mixed = renderFragment({ mine: [myRow()], others: [otherRow({ labels: [{ name: 'bug', color: 'd73a4a' }] })] }, { now: NOW });
+  assert.equal(mixed.match(/<th>Labels<\/th>/g).length, 1);
+  const mineSection = mixed.slice(0, mixed.indexOf("others' PRs"));
+  assert.doesNotMatch(mineSection, /Labels/);
+});
+
+test('renderFragment: no label → empty Labels cell; invalid color → chip without inline style', () => {
+  const empty = renderFragment({ mine: [myRow({ labels: [] })], others: [otherRow()] }, { now: NOW });
+  assert.doesNotMatch(empty, /class="labels"/); // no labels anywhere → no chip wrap at all
+  const plain = renderFragment({ mine: [], others: [otherRow({ labels: [{ name: 'plain', color: null }] })] }, { now: NOW });
+  assert.match(plain, /<span class="lbl" title="plain">plain<\/span>/); // neutral pill, CSS fallbacks
+});
+
+test('renderFragment: label name escaped (anti-injection)', () => {
+  const labels = [{ name: '<img src=x>&"quote"', color: 'd73a4a' }];
+  const out = renderFragment({ mine: [myRow({ labels })], others: [] }, { now: NOW });
+  assert.doesNotMatch(out, /<img src=x>/);
+  assert.match(out, /&lt;img src=x&gt;&amp;&quot;quote&quot;/);
 });
 
 test('renderFragment: Status/Triggers headers are icon-only (label in the tooltip)', () => {

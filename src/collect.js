@@ -347,6 +347,7 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
       branchRepo: d?.branchRepo ?? null,
       base: d?.base ?? null,
       defaultBranch: d?.defaultBranch ?? null,
+      labels: d?.labels ?? [], // GitHub labels ({name, color}), Labels column of the web tables
       createdAt: d?.createdAt ?? null,
       readyAt: d?.readyAt ?? null, // draft → ready date (easter-egg gate, cf. html.js)
       updatedAt: d?.updatedAt ?? null,

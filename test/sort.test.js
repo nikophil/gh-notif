@@ -18,7 +18,7 @@ test('normalizeSort: valid passes, invalid/absent → default', () => {
   assert.deepEqual(normalizeSort({ key: 'nope', dir: 'asc' }), DEFAULT_SORT);
   assert.deepEqual(normalizeSort({ key: 'date', dir: 'sideways' }), DEFAULT_SORT);
   assert.deepEqual(DEFAULT_SORT, { key: 'updated', dir: 'desc' });
-  assert.deepEqual(SORT_KEYS, ['repo', 'number', 'title', 'branch', 'date', 'updated', 'approvals', 'author', 'diff', 'status', 'triggers', 'ci']);
+  assert.deepEqual(SORT_KEYS, ['repo', 'number', 'title', 'labels', 'branch', 'date', 'updated', 'approvals', 'author', 'diff', 'status', 'triggers', 'ci']);
 });
 
 test('normalizeSort with MINE_SORT_KEYS: every column except author, the rest → default', () => {
@@ -76,6 +76,18 @@ test('sortRows: repo/title/branch alphabetical, case-insensitive; missing at the
   assert.deepEqual(order(sortRows(withText, { key: 'repo', dir: 'asc' })), [2, 1, 3]);
   assert.deepEqual(order(sortRows(withText, { key: 'title', dir: 'asc' })), [2, 3, 1]);
   assert.deepEqual(order(sortRows(withText, { key: 'branch', dir: 'asc' })), [3, 1, 2]);
+});
+
+test('sortRows: labels alphabetical on the names (case-insensitive), no label → missing at the end', () => {
+  const withLabels = [
+    { number: 1, labels: [{ name: 'Zebra', color: 'ededed' }] },
+    { number: 2, labels: [] },
+    { number: 3, labels: [{ name: 'bug', color: 'd73a4a' }, { name: 'urgent', color: 'ff0000' }] },
+    { number: 4, labels: [{ name: 'bug', color: 'd73a4a' }] }, // same 1st label as #3: joined names break the tie
+  ];
+  assert.deepEqual(order(sortRows(withLabels, { key: 'labels', dir: 'asc' })), [4, 3, 1, 2]);
+  assert.deepEqual(order(sortRows(withLabels, { key: 'labels', dir: 'desc' })), [1, 3, 4, 2]);
+  assert.deepEqual(toggleSort({ key: 'date', dir: 'asc' }, 'labels'), { key: 'labels', dir: 'asc' });
 });
 
 test('sortRows: number desc (default) → highest PR number first', () => {

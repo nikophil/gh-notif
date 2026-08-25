@@ -206,6 +206,27 @@ test('getPullDetailsBatch: base/default branch absent from the response → null
   assert.equal(out[0].defaultBranch, null);
 });
 
+test('getPullDetailsBatch: exposes the labels ({name, color}), skips nameless nodes', async () => {
+  const gqlResponse = JSON.stringify({ data: { p0: { pullRequest: {
+    number: 42, title: 'A', author: { login: 'alice' }, createdAt: 'd1', additions: 1, deletions: 0,
+    isDraft: false, state: 'OPEN', latestOpinionatedReviews: { nodes: [] },
+    labels: { nodes: [{ name: 'bug', color: 'd73a4a' }, { name: 'no color' }, null, { color: 'ffffff' }] },
+  } } } });
+  const runner = fakeRunner([['api graphql', gqlResponse]]);
+  const out = await makeGh(runner).getPullDetailsBatch([{ repo: 'o/r', number: 42 }]);
+  assert.deepEqual(out[0].labels, [{ name: 'bug', color: 'd73a4a' }, { name: 'no color', color: null }]);
+  assert.ok(runner.calls[0].join(' ').includes('labels(first: 20)'));
+});
+
+test('getPullDetailsBatch: labels absent from the response → []', async () => {
+  const gqlResponse = JSON.stringify({ data: { p0: { pullRequest: {
+    number: 42, title: 'A', author: { login: 'alice' }, createdAt: 'd1', additions: 1, deletions: 0,
+    isDraft: false, state: 'OPEN', latestOpinionatedReviews: { nodes: [] },
+  } } } });
+  const out = await makeGh(fakeRunner([['api graphql', gqlResponse]])).getPullDetailsBatch([{ repo: 'o/r', number: 42 }]);
+  assert.deepEqual(out[0].labels, []);
+});
+
 test('getPullDetailsBatch: normalizes the checks (CheckRun + StatusContext) to {name,state}', async () => {
   const gqlResponse = JSON.stringify({ data: {
     p0: { pullRequest: {

@@ -5,7 +5,7 @@
 // has its own key set and its own persisted state (`sort` for « others »,
 // `sortMine` for « Your PRs »).
 
-export const SORT_KEYS = ['repo', 'number', 'title', 'branch', 'date', 'updated', 'approvals', 'author', 'diff', 'status', 'triggers', 'ci'];
+export const SORT_KEYS = ['repo', 'number', 'title', 'labels', 'branch', 'date', 'updated', 'approvals', 'author', 'diff', 'status', 'triggers', 'ci'];
 // « Your PRs »: every column except Author (always me).
 export const MINE_SORT_KEYS = SORT_KEYS.filter((k) => k !== 'author');
 
@@ -16,7 +16,7 @@ export const MINE_SORT_KEYS = SORT_KEYS.filter((k) => k !== 'author');
 // (the quick reviews), status/triggers/ci → actionable first (open, review,
 // failing CI…).
 const DEFAULT_DIR = {
-  repo: 'asc', number: 'desc', title: 'asc', branch: 'asc',
+  repo: 'asc', number: 'desc', title: 'asc', labels: 'asc', branch: 'asc',
   date: 'desc', updated: 'desc', approvals: 'asc', author: 'asc',
   diff: 'asc', status: 'asc', triggers: 'asc', ci: 'asc',
 };
@@ -58,6 +58,12 @@ function valueOf(row, key) {
   if (key === 'repo') return lower(row.repo);
   if (key === 'number') return row.number ?? null;
   if (key === 'title') return lower(row.title);
+  if (key === 'labels') {
+    // Alphabetical on the label names (already GitHub-ordered on the row);
+    // joined so rows sharing a first label still order deterministically.
+    const names = (row.labels ?? []).map((l) => l?.name).filter(Boolean);
+    return names.length ? names.join(',').toLowerCase() : null;
+  }
   if (key === 'branch') return lower(row.branch);
   if (key === 'approvals') return row.approvals ?? null; // 0 is a real value
   if (key === 'author') return lower(row.author);

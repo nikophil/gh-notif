@@ -19,6 +19,7 @@ const PR_FRAGMENT = `fragment pr on PullRequest {
   number title author { login } createdAt updatedAt additions deletions isDraft state mergeable headRefName
   headRepository { nameWithOwner }
   baseRefName baseRepository { defaultBranchRef { name } }
+  labels(first: 20) { nodes { name color } }
   latestOpinionatedReviews(first: 100) { nodes { author { login } state submittedAt } }
   timelineItems(itemTypes: READY_FOR_REVIEW_EVENT, last: 1) { nodes { ... on ReadyForReviewEvent { createdAt } } }
   commits(last: 1) { nodes { commit { statusCheckRollup {
@@ -84,6 +85,11 @@ function normalizePull(pr) {
     // whose parent is another PR's head → stacked-PR detection (sort.js).
     base: pr.baseRefName ?? null,
     defaultBranch: pr.baseRepository?.defaultBranchRef?.name ?? null,
+    // GitHub labels ({ name, color } — color = 6-digit hex WITHOUT '#'), same
+    // request → zero cost. Rendered as GitHub-like chips in the Labels column.
+    labels: (pr.labels?.nodes ?? [])
+      .filter((l) => l?.name)
+      .map((l) => ({ name: l.name, color: l.color ?? null })),
     // latestOpinionatedReviews = latest APPROVED/CHANGES_REQUESTED review per
     // author (ignores COMMENTED): a comment does not cancel an approval.
     reviews: (pr.latestOpinionatedReviews?.nodes ?? []).map((r) => ({
