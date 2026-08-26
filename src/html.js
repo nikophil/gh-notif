@@ -82,8 +82,28 @@ export function escapeHtml(s) {
 const link = (url, text, tip = null) =>
   `<a href="${escapeHtml(url)}"${tip ? ` title="${escapeHtml(tip)}"` : ''} target="_blank" rel="noopener">${escapeHtml(text)}</a>`;
 
-const diffCell = (additions, deletions) =>
+const diffTotals = (additions, deletions) =>
   `<span class="add">+${additions || 0}</span> <span class="del">−${deletions || 0}</span>`;
+
+// One line of the diff popover: file type + its own diff. `moreFiles` (> 100
+// changed files, cf. github.js) gets a closing « … N files not listed » line.
+function diffPopover(types, moreFiles) {
+  const lines = types.map((t) =>
+    `<li class="diff-type"><span class="diff-ext">${escapeHtml(t.ext)}</span>${diffTotals(t.additions, t.deletions)}</li>`);
+  const more = moreFiles > 0
+    ? `<li class="diff-more">… ${moreFiles} file${moreFiles > 1 ? 's' : ''} not listed</li>` : '';
+  return `<div class="diff-pop" hidden><ul>${lines.join('')}${more}</ul></div>`;
+}
+
+// Diff cell: plain +X −Y — but as soon as the per-type breakdown is known
+// (row.diffTypes), the numbers themselves become a chrome-less button opening
+// a popover listing each file type with its own diff (same mechanics as the
+// CI checks popover). The displayed figure stays the raw PR total.
+const diffCell = (r) => {
+  const types = r?.diffTypes ?? [];
+  if (types.length === 0) return diffTotals(r?.additions, r?.deletions);
+  return `<span class="diff-wrap"><button class="diff-btn" title="Diff by file type">${diffTotals(r.additions, r.deletions)}</button>${diffPopover(types, r.moreFiles ?? 0)}</span>`;
+};
 
 // « icon » cells with an explanatory title="" on hover.
 const titled = (title, content) => `<span title="${escapeHtml(title)}">${content}</span>`;
@@ -424,7 +444,7 @@ function mineRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
     dateCell('Opened', r.createdAt, now),
     reviewCell(r, now),
     dateCell('Updated', r.updatedAt, now),
-    diffCell(r.additions, r.deletions),
+    diffCell(r),
     stateCell(r.state, r.conflicting),
     approvalsCell(r.approvals, r.state === 'open' && isReady(r.approvals), r.changesRequested),
     triggersCell(r.triggers),
@@ -482,7 +502,7 @@ function otherRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
     dateCell('Opened', r.createdAt, now),
     reviewCell(r, now),
     dateCell('Updated', r.updatedAt, now),
-    diffCell(r.additions, r.deletions),
+    diffCell(r),
     stateCell(r.state, r.conflicting),
     approvalsCell(r.approvals, false, r.changesRequested),
     triggersCell(r.triggers),
@@ -882,6 +902,22 @@ ${FAVICON}
   .ci-pop .ci-check a { color: var(--fg); }
   .ci-pop .ci-check a:hover { color: var(--accent); text-decoration: none; }
   .ci-pop .ci-check.ignored { opacity: .5; }
+  /* Per-type diff popover: the +X −Y figures are themselves the button (no
+     visible chrome), opening a panel listing each file type with its diff.
+     Same fixed positioning as the CI popover (sections clip their overflow). */
+  button.diff-btn { border: 0; background: transparent; box-shadow: none; padding: 0 .1rem;
+                    border-radius: 4px; line-height: 1; font: inherit; cursor: pointer; }
+  button.diff-btn:hover { background: var(--btn-hover); }
+  .diff-pop { position: fixed; z-index: 30; min-width: 9rem; max-height: 60vh;
+              overflow-y: auto; background: var(--canvas); border: 1px solid var(--border);
+              border-radius: 6px; box-shadow: 0 8px 24px rgba(1,4,9,.3); padding: .3rem 0;
+              font-size: .75rem; font-weight: 400; text-align: left; }
+  .diff-pop ul { list-style: none; margin: 0; padding: 0; }
+  .diff-pop .diff-type { display: flex; align-items: center; gap: .6rem; padding: .25rem .75rem;
+                         white-space: nowrap; }
+  .diff-pop .diff-type:hover { background: var(--canvas-subtle); }
+  .diff-pop .diff-ext { flex: 1; color: var(--fg); }
+  .diff-pop .diff-more { padding: .25rem .75rem; color: var(--fg-muted); }
   /* Column selector (§24): tiny gear in the ✕-column th, revealed on hover
      (GitHub-discreet), opening a checkbox popover — same fixed positioning as
      the CI popover (the sections clip their overflow). */
@@ -1007,7 +1043,7 @@ ${FAVICON}
     openPop = pop;
   }
   document.addEventListener('click', function (e) {
-    if (openPop && !e.target.closest('.ci-pop, .cols-pop') && !e.target.closest('button.ci-btn, button.cols-btn')) closeCiPop();
+    if (openPop && !e.target.closest('.ci-pop, .cols-pop, .diff-pop') && !e.target.closest('button.ci-btn, button.cols-btn, button.diff-btn')) closeCiPop();
   });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeCiPop(); });
   // position:fixed popovers don't follow the page: re-anchor them on scroll
@@ -1549,6 +1585,16 @@ ${FAVICON}
       var wasOpen = (pop === openPop);
       closeCiPop();
       if (!wasOpen && pop) showPop(cib, pop);
+      return;
+    }
+    // Per-type diff popover: the +X −Y figures toggle the panel of their row
+    // (same mechanics as the CI popover above).
+    var dfb = e.target.closest('button.diff-btn');
+    if (dfb) {
+      var dpop = dfb.nextElementSibling;
+      var dWasOpen = (dpop === openPop);
+      closeCiPop();
+      if (!dWasOpen && dpop) showPop(dfb, dpop);
       return;
     }
     // Column selector: the ⚙ of a table header toggles its checkbox menu.

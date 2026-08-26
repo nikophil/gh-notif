@@ -1098,3 +1098,31 @@ test('renderFragment: hidden author column on others', () => {
   assert.doesNotMatch(out, /data-sort-key="author"/);
   assert.doesNotMatch(out, /@alice/);
 });
+
+test('renderFragment: with diffTypes the diff becomes a button opening a per-type popover', () => {
+  const out = renderFragment({ mine: [myRow({ diffTypes: [{ ext: '.php', additions: 15, deletions: 5 }, { ext: '.yaml', additions: 2, deletions: 0 }] })], others: [] }, { now: NOW });
+  assert.ok(out.includes('diff-btn'), 'clickable diff');
+  assert.ok(out.includes('diff-pop'), 'inline hidden popover');
+  assert.ok(out.includes('.php'));
+  assert.ok(out.includes('.yaml'));
+  // the displayed number stays the raw total
+  assert.ok(out.includes('+17'));
+  assert.ok(out.includes('−4'));
+});
+
+test('renderFragment: without diffTypes the diff cell stays plain (compat)', () => {
+  const out = renderFragment({ mine: [myRow()], others: [otherRow()] }, { now: NOW });
+  assert.ok(!out.includes('diff-btn'));
+  assert.ok(!out.includes('diff-pop'));
+});
+
+test('renderFragment: moreFiles → « not listed » line in the diff popover', () => {
+  const out = renderFragment({ mine: [myRow({ diffTypes: [{ ext: '.php', additions: 1, deletions: 0 }], moreFiles: 7 })], others: [] }, { now: NOW });
+  assert.ok(/7 files not listed/.test(out));
+});
+
+test('renderFragment: diff popover escapes the extension (anti-injection)', () => {
+  const out = renderFragment({ mine: [myRow({ diffTypes: [{ ext: '.<script>', additions: 1, deletions: 0 }] })], others: [] }, { now: NOW });
+  assert.ok(!out.includes('.<script>'));
+  assert.ok(out.includes('.&lt;script&gt;'));
+});

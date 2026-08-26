@@ -313,3 +313,27 @@ test('setRepoSubscription watches the repo (PUT subscription), best-effort', asy
   // failure (network, 404…) → null, never throws
   assert.equal(await makeGh(fakeRunner([])).setRepoSubscription('o/r'), null);
 });
+
+test('getPullDetailsBatch: exposes the changed files (path/additions/deletions) and moreFiles', async () => {
+  const gqlResponse = JSON.stringify({ data: { p0: { pullRequest: {
+    number: 42, title: 'A', author: { login: 'alice' }, createdAt: 'd1', additions: 3, deletions: 1,
+    isDraft: false, state: 'OPEN', latestOpinionatedReviews: { nodes: [] },
+    files: { totalCount: 102, pageInfo: { hasNextPage: true }, nodes: [{ path: 'src/A.php', additions: 3, deletions: 1 }] },
+  } } } });
+  const runner = fakeRunner([['api graphql', gqlResponse]]);
+  const out = await makeGh(runner).getPullDetailsBatch([{ repo: 'o/r', number: 42 }]);
+  assert.deepEqual(out[0].files, [{ path: 'src/A.php', additions: 3, deletions: 1 }]);
+  assert.equal(out[0].moreFiles, 101); // totalCount − fetched page
+  const q = runner.calls[0].join(' ');
+  assert.ok(q.includes('files(first: 100)'));
+});
+
+test('getPullDetailsBatch: files absent from the response → [] and moreFiles 0 (compat)', async () => {
+  const gqlResponse = JSON.stringify({ data: { p0: { pullRequest: {
+    number: 42, title: 'A', author: { login: 'alice' }, createdAt: 'd1', additions: 1, deletions: 0,
+    isDraft: false, state: 'OPEN', latestOpinionatedReviews: { nodes: [] },
+  } } } });
+  const out = await makeGh(fakeRunner([['api graphql', gqlResponse]])).getPullDetailsBatch([{ repo: 'o/r', number: 42 }]);
+  assert.deepEqual(out[0].files, []);
+  assert.equal(out[0].moreFiles, 0);
+});

@@ -280,6 +280,28 @@ export function prState(d) {
   return 'open';
 }
 
+// Aggregates a PR's changed files by extension for the per-type diff popover:
+// [{ ext: '.php', additions, deletions }] sorted by volume (adds + dels)
+// descending — the heaviest type first (alphabetical tie-break). `ext` is the
+// display label — lowercased suffix after the last dot (so a dotfile keeps its
+// dot: '.gitignore'), or the bare lowercased filename when there is none
+// ('makefile'). '.yml' is folded into '.yaml' (same format, two spellings).
+export function diffByType(files) {
+  const byExt = new Map();
+  for (const f of files ?? []) {
+    const base = String(f.path).split('/').pop().toLowerCase();
+    const dot = base.lastIndexOf('.');
+    let ext = dot > 0 ? base.slice(dot) : base;
+    if (ext === '.yml') ext = '.yaml';
+    const acc = byExt.get(ext) ?? { ext, additions: 0, deletions: 0 };
+    acc.additions += f.additions || 0;
+    acc.deletions += f.deletions || 0;
+    byExt.set(ext, acc);
+  }
+  return [...byExt.values()].sort((a, b) =>
+    (b.additions + b.deletions) - (a.additions + a.deletions) || a.ext.localeCompare(b.ext));
+}
+
 // Groups notifications + pending reviews by PR, aggregates the triggers,
 // fetches the details of each PR (author / date / diff / CI) in parallel,
 // then splits according to whether the PR is mine or someone else's.
@@ -353,6 +375,8 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
       updatedAt: d?.updatedAt ?? null,
       additions: d?.additions ?? 0,
       deletions: d?.deletions ?? 0,
+      diffTypes: diffByType(d?.files), // per-extension diff (popover of the Diff cell)
+      moreFiles: d?.moreFiles ?? 0, // files beyond the fetched page of 100
       ci: ciOf(d, ignoredForRepo), // recompute if the repo has a blocklist, otherwise GitHub rollup
       checks: d?.checks ?? [], // raw list (debug view + local recompute; zero cost)
       statusCheckRollupState: d?.statusCheckRollupState ?? null, // basis of ciFromState for recomputeCi

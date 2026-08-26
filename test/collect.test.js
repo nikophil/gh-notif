@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { collectNotifications, collectPending, collectPRs, ciFromState, ciFromChecks, ciOf, recomputeCi, prState, countApprovals, scopeMatches, scopeQualifier, toScopeList, matchesAnyScope, scopesQualifier, mergeReviewComments, watermarkOf } from '../src/collect.js';
+import { collectNotifications, collectPending, collectPRs, diffByType, ciFromState, ciFromChecks, ciOf, recomputeCi, prState, countApprovals, scopeMatches, scopeQualifier, toScopeList, matchesAnyScope, scopesQualifier, mergeReviewComments, watermarkOf } from '../src/collect.js';
 
 const ME = 'nikophil';
 
@@ -969,4 +969,82 @@ test('collectPRs: without watchAll, issues stays empty and nothing changes (comp
   assert.deepEqual(issues, []);
   assert.equal(others.length, 0);
   assert.equal(notifications.length, 0);
+});
+
+test('diffByType: aggregates by extension, heaviest volume (adds+dels) first', () => {
+  const files = [
+    { path: 'src/Foo.php', additions: 10, deletions: 2 },
+    { path: 'features/bar.feature', additions: 9, deletions: 1 },
+    { path: 'src/Sub/Baz.php', additions: 5, deletions: 3 },
+  ];
+  assert.deepEqual(diffByType(files), [
+    { ext: '.php', additions: 15, deletions: 5 },
+    { ext: '.feature', additions: 9, deletions: 1 },
+  ]);
+});
+
+test('diffByType: equal volume → alphabetical tie-break', () => {
+  const files = [
+    { path: 'a.php', additions: 2, deletions: 0 },
+    { path: 'b.md', additions: 1, deletions: 1 },
+  ];
+  assert.deepEqual(diffByType(files), [
+    { ext: '.md', additions: 1, deletions: 1 },
+    { ext: '.php', additions: 2, deletions: 0 },
+  ]);
+});
+
+test('diffByType: merges .yml into .yaml, case-insensitive extension', () => {
+  const files = [
+    { path: 'a.YML', additions: 1, deletions: 0 },
+    { path: 'config/b.yaml', additions: 2, deletions: 1 },
+  ];
+  assert.deepEqual(diffByType(files), [{ ext: '.yaml', additions: 3, deletions: 1 }]);
+});
+
+test('diffByType: extensionless file → its lowercased name; a dotfile keeps its dot', () => {
+  const files = [
+    { path: 'Makefile', additions: 4, deletions: 0 },
+    { path: '.gitignore', additions: 1, deletions: 1 },
+  ];
+  assert.deepEqual(diffByType(files), [
+    { ext: 'makefile', additions: 4, deletions: 0 },
+    { ext: '.gitignore', additions: 1, deletions: 1 },
+  ]);
+});
+
+test('diffByType: null/absent/empty → []', () => {
+  assert.deepEqual(diffByType(null), []);
+  assert.deepEqual(diffByType(undefined), []);
+  assert.deepEqual(diffByType([]), []);
+});
+
+test('collectPRs: rows carry diffTypes (aggregated) and moreFiles', async () => {
+  const gh = fakeGh({
+    search: [{ number: 42, title: 'PR A', html_url: 'https://github.com/o/r/pull/42', updated_at: '2026-06-24T12:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
+    details: () => ({
+      number: 42, title: 'PR A', author: { login: 'alice' }, additions: 10, deletions: 2,
+      files: [
+        { path: 'src/A.php', additions: 8, deletions: 2 },
+        { path: 'README.md', additions: 2, deletions: 0 },
+      ],
+      moreFiles: 3,
+    }),
+  });
+  const { others } = await collectPRs(gh, ME, {});
+  assert.deepEqual(others[0].diffTypes, [
+    { ext: '.php', additions: 8, deletions: 2 },
+    { ext: '.md', additions: 2, deletions: 0 },
+  ]);
+  assert.equal(others[0].moreFiles, 3);
+});
+
+test('collectPRs: detail without files → diffTypes [] and moreFiles 0 (compat)', async () => {
+  const gh = fakeGh({
+    search: [{ number: 42, title: 'PR A', html_url: 'https://github.com/o/r/pull/42', updated_at: '2026-06-24T12:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
+    details: () => ({ number: 42, title: 'PR A', author: { login: 'alice' }, additions: 1, deletions: 0 }),
+  });
+  const { others } = await collectPRs(gh, ME, {});
+  assert.deepEqual(others[0].diffTypes, []);
+  assert.equal(others[0].moreFiles, 0);
 });

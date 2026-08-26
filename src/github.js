@@ -20,6 +20,7 @@ const PR_FRAGMENT = `fragment pr on PullRequest {
   headRepository { nameWithOwner }
   baseRefName baseRepository { defaultBranchRef { name } }
   labels(first: 20) { nodes { name color } }
+  files(first: 100) { totalCount pageInfo { hasNextPage } nodes { path additions deletions } }
   latestOpinionatedReviews(first: 100) { nodes { author { login } state submittedAt } }
   timelineItems(itemTypes: READY_FOR_REVIEW_EVENT, last: 1) { nodes { ... on ReadyForReviewEvent { createdAt } } }
   commits(last: 1) { nodes { commit { statusCheckRollup {
@@ -90,6 +91,13 @@ function normalizePull(pr) {
     labels: (pr.labels?.nodes ?? [])
       .filter((l) => l?.name)
       .map((l) => ({ name: l.name, color: l.color ?? null })),
+    // Changed files ({ path, additions, deletions }), same request → zero cost.
+    // Feeds the per-type diff popover. `files` is capped at one page of 100:
+    // `moreFiles` counts what the page left out (0 for the usual PR).
+    files: (pr.files?.nodes ?? []).filter((f) => f?.path)
+      .map((f) => ({ path: f.path, additions: f.additions ?? 0, deletions: f.deletions ?? 0 })),
+    moreFiles: pr.files?.pageInfo?.hasNextPage
+      ? Math.max(0, (pr.files.totalCount ?? 0) - (pr.files.nodes?.length ?? 0)) : 0,
     // latestOpinionatedReviews = latest APPROVED/CHANGES_REQUESTED review per
     // author (ignores COMMENTED): a comment does not cancel an approval.
     reviews: (pr.latestOpinionatedReviews?.nodes ?? []).map((r) => ({
