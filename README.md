@@ -6,7 +6,7 @@
 A [`gh`](https://cli.github.com/) extension that gives you **finely filtered** GitHub notifications
 in a **local, auto-refreshing web dashboard**, where the native GitHub inbox is too noisy.
 
-Running `gh notif` starts a tiny local web server and opens a page presenting **two tables**:
+Running `gh notif` starts a tiny local web server and opens the dashboard:
 
 ![gh-notif dashboard](docs/screenshot.png)
 
@@ -21,14 +21,39 @@ The dashboard shows **two tables**:
 - **👥 Activity on others' PRs** — others' PRs that concern you (requested reviews, mentions,
   replies to your threads), with author, opening date, diff size, status, number of reviews, CI.
 
-Common columns: **Status** (📝 draft · 🟢 open · 🟣 merged · 🔴 closed) and **✅** (number of
-**approvals** — distinct users whose last review approves, `·` if none).
+A third **📋 Issues** table appears only if a favorite is in « all » mode (see below).
+
+### The columns
+
+- **Labels** — the PR's GitHub labels as pills (the column hides itself when no row has any);
+- **Branch** — the head branch as a GitHub-like ref chip (links to the branch tree, with a
+  **copy** button);
+- **Opened / In review / Updated** — opening date, time since the PR left draft
+  (« ready for review »), last activity;
+- **Diff** — `+additions −deletions`; **click the figures** to open a **per-file-type
+  breakdown** popover;
+- **Status** — 📝 draft · 🟢 open · 🟣 merged · 🔴 closed, plus a **⚠️ if the PR conflicts**
+  with its base branch;
+- **✅** — number of **approvals** (distinct users whose last review approves, `·` if none); a
+  red diff icon is appended when someone **requested changes**;
+- **CI** — aggregated verdict; **click the icon** to open a GitHub-like popover listing every
+  check (failing / pending / successful) with a link to each run.
 
 On **your** open PRs, from **2 approvals** the ✅ column shows **`2 🎉`**: the PR is
 **ready to merge**. Each new approval also pushes a **desktop notification** (`@bob approved your
 PR`, suffixed with `🎉 ready to merge` beyond 2).
 
-The **repository / PR / title are clickable** and open in a new tab.
+The **repository / PR / title / branch are clickable** and open in a new tab; the last row you
+clicked stays **discreetly highlighted** when you come back from the opened tab.
+
+Each table has a **⚙️ column selector** in its header (untick what you don't use; persisted),
+and each section title carries an **external GitHub link**: « **closed ↗** » on « Your open PRs »
+(your merged/closed PRs history), « **my reviews ↗** » on « Activity on others' PRs » (the PRs
+you reviewed) — both restricted to the displayed scope.
+
+**Stacked PRs**: when a table contains PRs based on one another (same repo, base = another row's
+head branch), a « **⤷ stacks** » toggle appears and regroups each stack, children indented under
+their root with a `base: …` chip. Clicking a column header exits stacks mode and sorting resumes.
 
 ### What triggers a row (the « triggers »)
 
@@ -38,6 +63,8 @@ The **repository / PR / title are clickable** and open in a new tab.
 | 💬 | mention | you were `@`-mentioned |
 | ↩️ | reply | someone replied in a review thread you took part in |
 | 🗨️ | comment | someone commented on **your** PR |
+| 🆕 | new | a PR/issue was opened (favorites in « all » mode only) |
+| 👀 | activity | third-party activity (favorites in « all » mode only) |
 
 In the tables, only the emoji is shown (to save space); this legend gives its meaning (also on hover).
 A single PR can accumulate several triggers.
@@ -48,7 +75,8 @@ A single PR can accumulate several triggers.
 - third-party activity on a PR where you are a **mere reviewer** (unless someone replies to your
   thread or mentions you);
 - **others' draft PRs** (your own drafts stay shown in « Your open PRs »);
-- anything that is not a Pull Request (issues, releases, discussions).
+- anything that is not a Pull Request (issues, releases, discussions) — except issues of the
+  favorites switched to « all » mode (see below).
 
 ### Favorites — follow several scopes without mixing them
 
@@ -65,9 +93,9 @@ with a clear message instead of pinning a dead favorite.
 
 As soon as a favorite exists, `gh notif` no longer looks at all of GitHub but at **the union of
 your favorites**, presented as **chips in the page header** — an org is shown as `symfony/*` (all its
-repositories), a repository as-is. Each chip carries a counter `(n)` = the **activity on others'
-PRs** in that scope (your own PRs and the hidden ones don't count) — including on the favorites you're
-not looking at, to see at a glance where things are moving.
+repositories), a repository as-is. Each chip carries **one counter per panel** (📥 your open PRs ·
+👥 others' activity · 📋 issues, this last one only when non-zero) — including on the favorites
+you're not looking at, to see at a glance where things are moving.
 
 Click a chip to switch, the cross removes it, and the **⭐** button pins the content of the scope
 field (the chip appears immediately, the tables follow as soon as the re-poll ends). The choice is
@@ -78,6 +106,15 @@ greyed out) until you click a chip again.
 The key point: **desktop notifications always cover *all* your favorites**, even those you're not
 looking at. The active favorite only filters the display — that's why switching favorite is instant
 and **costs no GitHub request**.
+
+### « All » mode — watch everything in a favorite
+
+By default gh-notif only surfaces what concerns *you*. The **👁 eye button** on a chip switches
+that favorite to **« all » mode**: it then also surfaces **new PRs and issues** (🆕) and
+**third-party activity** (👀) in that scope. Issues get their own **📋 Issues** table; an issue
+row disappears once you've read the thread on GitHub. Requires the repos to be **watched** on
+GitHub (a repo favorite is auto-watched when you enable the mode); the existing backlog is seeded
+silently — you're only notified of what happens afterwards.
 
 You can also list/manage favorites from the terminal:
 
@@ -125,8 +162,10 @@ From the page, you can:
 - **choose the theme**: the **🌗 auto / ☀️ light / 🌙 dark** switcher in the header. `auto` follows
   your system (default); `light`/`dark` force it. Applied immediately (without reloading) and
   **persisted** in the same preferences file.
-- **sort « others' PRs »**: click a column header (date / approvals / author) to sort; click again
-  to reverse. Persisted.
+- **sort the tables**: click any column header to sort (each table keeps its own criterion);
+  click again to reverse. By default: last updated first. Persisted.
+- **choose the columns**: the **⚙️** in each section header unticks the columns you don't use
+  (per-table, persisted).
 
 The **look & feel** picks up the GitHub colors (Primer, light/dark depending on your system). Zero
 dependency: served by Node's native HTTP module, everything is inline (no external asset).
