@@ -143,6 +143,12 @@ export function closedPRsUrl(scopes) {
   return `https://github.com/pulls?q=${encodeURIComponent(`is:pr author:@me is:closed${scopesQualifier(scopes)}`)}`;
 }
 
+// External link to the PRs I reviewed (others' — hence -author:@me) on GitHub,
+// same contract as closedPRsUrl: contextualized, no collection on our side.
+export function reviewedPRsUrl(scopes) {
+  return `https://github.com/pulls?q=${encodeURIComponent(`is:pr reviewed-by:@me -author:@me${scopesQualifier(scopes)}`)}`;
+}
+
 // DISPLAY filter: restricts already-collected data to a scope.
 // ⚠️ Apply only downstream of collectPRs AND notifyNew — filtering upstream
 // would break the desktop notifs of inactive favorites, the pruning of `hidden`

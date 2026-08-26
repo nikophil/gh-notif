@@ -14,7 +14,7 @@ import { statePath, loadState, saveState, isNew, markSeen } from './state.js';
 import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, hiddenColsOf, toggleHiddenCol } from './prefs.js';
 import {
   parseScope, normalizeFavorites, addFavorite, removeFavorite,
-  favoriteScopes, activeFavoriteOf, filterDataByScope, favoriteCounts, closedPRsUrl, repoInAllMode,
+  favoriteScopes, activeFavoriteOf, filterDataByScope, favoriteCounts, closedPRsUrl, reviewedPRsUrl, repoInAllMode,
 } from './favorites.js';
 import { diffApprovals } from './approvals.js';
 import { normalizeSort, toggleSort, sortRows, groupStacks, SORT_KEYS, MINE_SORT_KEYS, DEFAULT_SORT } from './sort.js';
@@ -62,7 +62,7 @@ function recompute(data, hidden) {
 // no data yet (1st poll in progress) → spinner; otherwise → the tables.
 // ⚠️ The snapshot contains the data of the UNION of favorites; the active
 // favorite filter is applied HERE, at render time — never at collection (cf. §14).
-function fragmentBody(snapshot, { now, showHidden, viewScope = null, closedUrl = null, sort = null, sortMine = null, ignoredChecks = {}, stacks = false, cols = null } = {}) {
+function fragmentBody(snapshot, { now, showHidden, viewScope = null, closedUrl = null, reviewedUrl = null, sort = null, sortMine = null, ignoredChecks = {}, stacks = false, cols = null } = {}) {
   if (snapshot.error) return `<p class="empty offline">⚠️ Error: ${escapeHtml(snapshot.error)}</p>`;
   if (!snapshot.updatedAt) return renderLoading(viewScope?.value ?? '');
   let data = filterDataByScope(snapshot.data ?? { mine: [], others: [] }, viewScope);
@@ -85,13 +85,13 @@ function fragmentBody(snapshot, { now, showHidden, viewScope = null, closedUrl =
       hiddenMine: sortRows(data.hiddenMine, DEFAULT_SORT, MINE_SORT_KEYS),
     };
     const NO_SORT = { key: null, dir: null };
-    return renderFragment(data, { now, showHidden, closedUrl, sort: NO_SORT, sortMine: NO_SORT, ignoredChecks, stacks, cols });
+    return renderFragment(data, { now, showHidden, closedUrl, reviewedUrl, sort: NO_SORT, sortMine: NO_SORT, ignoredChecks, stacks, cols });
   }
   if (sort) data = { ...data, others: sortRows(data.others, sort), hidden: sortRows(data.hidden, sort) };
   if (sortMine) data = { ...data, mine: sortRows(data.mine, sortMine, MINE_SORT_KEYS), hiddenMine: sortRows(data.hiddenMine, sortMine, MINE_SORT_KEYS) };
   // `ignoredChecks` only affects the popover display (struck checks) — the CI
   // verdict itself was already recomputed at collection (§16).
-  return renderFragment(data, { now, showHidden, closedUrl, sort, sortMine, ignoredChecks, stacks, cols });
+  return renderFragment(data, { now, showHidden, closedUrl, reviewedUrl, sort, sortMine, ignoredChecks, stacks, cols });
 }
 
 // Scope(s) that the view DISPLAYS, to contextualize the « closed ↗ » link:
@@ -122,22 +122,24 @@ export function handleRequest(pathname, snapshot, opts = {}) {
   // Display filter: the active favorite, except in ad-hoc mode (the entered scope
   // already drives the collection, re-filtering would be redundant).
   const viewScope = adhoc ? null : parseScope(activeFav);
-  // « closed ↗ » link contextualized on what the view displays.
-  const closedUrl = closedPRsUrl(linkScopes({ scope, activeFav, favorites }));
+  // « closed ↗ » / « my reviews ↗ » links contextualized on what the view displays.
+  const links = linkScopes({ scope, activeFav, favorites });
+  const closedUrl = closedPRsUrl(links);
+  const reviewedUrl = reviewedPRsUrl(links);
   // Chip counters = others' activity per scope, on the raw UNION.
   const counts = favoriteCounts(favorites, snapshot.data);
   if (pathname === '/') {
     return { status: 200, type: 'text/html; charset=utf-8', body: renderShell({ intervalMs, scopeLabel: scopeLabel(scope), notifyEnabled, theme, favorites, activeFav, adhoc, counts, favModes }) };
   }
   if (pathname === '/fragment') {
-    return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, sort, sortMine, ignoredChecks, stacks, cols }) };
+    return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, reviewedUrl, sort, sortMine, ignoredChecks, stacks, cols }) };
   }
   // Unified poll of the client: filtered tables + favorites bar (up-to-date counters)
   // + updatedAt (the client probes until it changes after an add/remove).
   if (pathname === '/view') {
     return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify({
       chips: renderFavorites(favorites, activeFav, { adhoc, counts, favModes }),
-      fragment: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, sort, sortMine, ignoredChecks, stacks, cols }),
+      fragment: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, reviewedUrl, sort, sortMine, ignoredChecks, stacks, cols }),
       updatedAt: snapshot.updatedAt,
     }) };
   }
@@ -312,6 +314,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         now: Date.now(), showHidden,
         viewScope: scope ? null : parseScope(activeFav),
         closedUrl: closedPRsUrl(linkScopes({ scope, activeFav, favorites })),
+        reviewedUrl: reviewedPRsUrl(linkScopes({ scope, activeFav, favorites })),
         sort,
         sortMine,
         ignoredChecks,

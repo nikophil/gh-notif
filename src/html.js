@@ -567,6 +567,8 @@ function issuesTable(rows, now) {
 // `closedUrl` (optional): external « closed ↗ » link to my closed PRs on
 // GitHub, contextualized on the view (computed upstream, cf. closedPRsUrl). If it
 // is provided, the « Your PRs » section is rendered even empty (access to history).
+// `reviewedUrl` (optional): same contract for the « others » section — external
+// « my reviews ↗ » link to the PRs I reviewed (cf. reviewedPRsUrl).
 // `sort` (optional) = sort state `{key,dir}` of the « others » table — clickable
 // headers + indicator; absent → bare th (compat). `sortMine` (optional) = same
 // for « Your PRs » (Opened/Updated columns only), independent state.
@@ -576,6 +578,7 @@ export function renderFragment(data, opts = {}) {
   const now = opts.now ?? Date.now();
   const showHidden = !!opts.showHidden;
   const closedUrl = opts.closedUrl ?? null;
+  const reviewedUrl = opts.reviewedUrl ?? null;
   const sort = opts.sort ?? null;
   const sortMine = opts.sortMine ?? null;
   const ignoredChecks = opts.ignoredChecks ?? {};
@@ -606,13 +609,20 @@ export function renderFragment(data, opts = {}) {
     const gear = cols && rows ? colsMenu('mine', MINE_COL_KEYS, cols.mine ?? []) : '';
     blocks.push(`<section><h2>📥 Your open PRs ${count}${hist}${stacksBtn(mine, stacks)}${gear}</h2>${rows}</section>`);
   }
-  if (others.length > 0 || (showHidden && hiddenCount > 0)) {
+  if (others.length > 0 || reviewedUrl || (showHidden && hiddenCount > 0)) {
+    const hist = reviewedUrl
+      ? ` <a class="hist" href="${escapeHtml(reviewedUrl)}" target="_blank" rel="noopener">my reviews ↗</a>`
+      : '';
     const count =
       hiddenCount > 0
         ? `(${others.length}, ${hiddenCount} hidden)`
         : `(${others.length})`;
+    const rows = others.length > 0 || (showHidden && hiddenCount > 0)
+      ? othersTable(others, hiddenRows, now, showHidden, sort, ignoredChecks, cols?.others ?? [])
+      : '';
+    const gear = cols && rows ? colsMenu('others', OTHERS_COL_KEYS, cols.others ?? []) : '';
     blocks.push(
-      `<section><h2>👥 Activity on others' PRs ${count}${stacksBtn(others, stacks)}${cols ? colsMenu('others', OTHERS_COL_KEYS, cols.others ?? []) : ''}</h2>${othersTable(others, hiddenRows, now, showHidden, sort, ignoredChecks, cols?.others ?? [])}</section>`,
+      `<section><h2>👥 Activity on others' PRs ${count}${hist}${stacksBtn(others, stacks)}${gear}</h2>${rows}</section>`,
     );
   }
   // Watched issues (« all » mode): their own section, rendered only when it has

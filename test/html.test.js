@@ -806,6 +806,26 @@ test('renderFragment: mine empty without closedUrl → unchanged behavior', () =
   assert.match(out, /Nothing to report/);
 });
 
+test('renderFragment: « my reviews ↗ » link in the « others » title when reviewedUrl is provided', () => {
+  const out = renderFragment({ mine: [], others: [otherRow()] }, { now: NOW, reviewedUrl: 'https://github.com/pulls?q=r%20%26%20s' });
+  assert.match(out, /Activity on others' PRs \(1\)/);
+  assert.ok(out.includes('href="https://github.com/pulls?q=r%20%26%20s"'), 'href of the reviews link');
+  assert.match(out, /my reviews ↗/);
+});
+
+test('renderFragment: without reviewedUrl → no link (compat)', () => {
+  const out = renderFragment({ mine: [], others: [otherRow()] }, { now: NOW });
+  assert.ok(!out.includes('my reviews ↗'));
+});
+
+test('renderFragment: others empty + reviewedUrl → section (0) with link, without table', () => {
+  const out = renderFragment({ mine: [], others: [] }, { now: NOW, reviewedUrl: 'https://github.com/pulls?q=r' });
+  assert.match(out, /Activity on others' PRs \(0\)/);
+  assert.ok(out.includes('href="https://github.com/pulls?q=r"'));
+  assert.ok(!out.includes('<table'), 'no empty table');
+  assert.ok(!out.includes('Nothing to report'));
+});
+
 // ── Sortable headers (« others » column) ───────────────────────────────────
 
 test('renderFragment with opts.sort: clickable th + indicator on the active column', () => {

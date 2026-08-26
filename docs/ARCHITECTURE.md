@@ -483,6 +483,9 @@ sequenceDiagram
     `viewScope` (null in ad-hoc and on « all »). If `closedUrl` is provided, the « Your PRs » section
     is rendered even empty (`(0)`, without a table) to keep the access to the history; without it
     (compat), behavior unchanged. Web (`--serve`) only.
+    Same contract for the **« my reviews ↗ » link** on « activity on others' PRs »
+    (`reviewedPRsUrl` → `github.com/pulls?q=is:pr reviewed-by:@me -author:@me + qualifiers`,
+    opt `reviewedUrl` of `renderFragment`).
 
     **Favorites UI.** (a) **One counter per web panel** on each chip (`favoriteCounts` returns a
     `{ mine, others, issues }` triplet per favorite + `total` for « ⭐ all »), each with the

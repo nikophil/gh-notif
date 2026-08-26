@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   MAX_QUALIFIER_LENGTH, parseScope, normalizeFavorites, addFavorite, removeFavorite,
   favoriteScopes, activeFavoriteOf, cycleFavorite, filterDataByScope, favoriteLabel, favoriteCounts,
-  closedPRsUrl, repoInAllMode,
+  closedPRsUrl, reviewedPRsUrl, repoInAllMode,
 } from '../src/favorites.js';
 import { scopesQualifier } from '../src/collect.js';
 
@@ -236,4 +236,12 @@ test('closedPRsUrl: union of scopes → all qualifiers (OR-ed by GitHub)', () =>
   const url = closedPRsUrl([{ type: 'org', value: 'symfony' }, { type: 'repo', value: 'a/b' }]);
   assert.ok(url.includes('org%3Asymfony'));
   assert.ok(url.includes('repo%3Aa%2Fb'));
+});
+
+test('reviewedPRsUrl: GitHub search reviewed-by:@me -author:@me, contextualized', () => {
+  assert.equal(
+    reviewedPRsUrl(null),
+    'https://github.com/pulls?q=is%3Apr%20reviewed-by%3A%40me%20-author%3A%40me',
+  );
+  assert.ok(reviewedPRsUrl({ type: 'org', value: 'symfony' }).endsWith('%20org%3Asymfony'));
 });
