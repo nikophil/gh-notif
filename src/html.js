@@ -856,7 +856,7 @@ ${FAVICON}
   button.copy:hover { color: var(--accent); background: var(--btn-hover); }
   /* Branch chip, GitHub-like (the ref shown on a PR page): tiny monospace on
      an accent-tinted background, truncated, full name in the tooltip. */
-  code.branch { display: inline-block; max-width: 9rem; overflow: hidden; text-overflow: ellipsis;
+  code.branch { display: inline-block; max-width: 18rem; overflow: hidden; text-overflow: ellipsis;
                 vertical-align: middle; background: color-mix(in srgb, var(--accent) 10%, transparent);
                 color: var(--accent); padding: .1em .35em; border-radius: 4px; font-size: .625rem; }
   /* PR labels, GitHub-look pills: each chip carries its Primer-computed colors
