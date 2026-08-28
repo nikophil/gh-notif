@@ -1449,6 +1449,18 @@ ${FAVICON}
       markLastClicked();
     }
   }
+  // Clicking anywhere else (page background, header, buttons…) clears the mark.
+  function forgetClick() {
+    if (!lastClicked) return;
+    lastClicked = null;
+    sessionStorage.removeItem('ghn-last-clicked');
+    var prev = content.querySelector('tr.clicked');
+    if (prev) prev.classList.remove('clicked');
+  }
+  document.addEventListener('click', function (e) {
+    var lk = e.target.closest('a[href]');
+    if (!(lk && lk.closest('tbody tr'))) forgetClick();
+  });
   // ── Resizable columns (drag on a header edge) ────────────────────────────
   // Client-only display state, like the last-clicked row: #content is
   // re-injected at every poll (innerHTML wipes the grips AND any inline

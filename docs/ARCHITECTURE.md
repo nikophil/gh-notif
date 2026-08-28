@@ -620,7 +620,8 @@ sequenceDiagram
     (`innerHTML`) at every poll/action, which wipes classes AND focus — a pure CSS
     `:focus` cannot work. The client therefore keeps the clicked link's `href` (unique
     per row; also in `sessionStorage`, survives Ctrl+R) and `setContent` re-applies the
-    class after each injection (`markLastClicked`). Nothing persisted server-side.
+    class after each injection (`markLastClicked`). A click anywhere else on the page
+    (not a row link) clears the mark (`forgetClick`). Nothing persisted server-side.
     ⚠️ Middle-click (open in a background tab) fires **`auxclick`**, not `click` → both
     events are listened to (`rememberClick`).
 
