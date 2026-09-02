@@ -992,11 +992,22 @@ test('renderFragment: a stacked child row gets a single fixed indent marker, wha
   assert.ok(!out.includes('padding-left'), 'no per-depth offset: one fixed indent');
 });
 
-test('renderFragment: orphanBase → discreet « base: » chip, branch escaped', () => {
-  const out = renderFragment({ mine: [], others: [otherRow({ orphanBase: 'feat/<x>' })] }, { now: NOW });
+test('renderFragment: base ≠ default branch → discreet « base: » chip in the FLAT view too, branch escaped', () => {
+  const out = renderFragment({ mine: [], others: [otherRow({ base: 'feat/<x>', defaultBranch: 'main' })] }, { now: NOW });
   assert.ok(out.includes('class="stack-base"'));
   assert.ok(out.includes('base: feat/&lt;x&gt;'));
   assert.ok(!out.includes('feat/<x>'));
+  // base = default branch, or unknown default (old data) → no chip
+  assert.ok(!renderFragment({ mine: [], others: [otherRow({ base: 'main', defaultBranch: 'main' })] }, { now: NOW }).includes('stack-base'));
+  assert.ok(!renderFragment({ mine: [], others: [otherRow({ base: 'feat/x', defaultBranch: null })] }, { now: NOW }).includes('stack-base'));
+});
+
+test('renderFragment: a stacked CHILD row gets the indent, not the chip (the order already tells its base)', () => {
+  const child = otherRow({ number: 2, branch: 'c', base: 'p', defaultBranch: 'main', stackDepth: 1 });
+  const grouped = renderFragment({ mine: [], others: [child] }, { now: NOW });
+  assert.ok(grouped.includes('stack-indent') && !grouped.includes('stack-base'));
+  const flat = renderFragment({ mine: [], others: [otherRow({ number: 2, branch: 'c', base: 'p', defaultBranch: 'main' })] }, { now: NOW });
+  assert.ok(!flat.includes('stack-indent') && flat.includes('base: p'), 'same PR in the flat view → chip');
 });
 
 test('renderFragment: no stack annotation → no marker nor chip (compat)', () => {

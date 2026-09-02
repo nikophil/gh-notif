@@ -636,14 +636,21 @@ sequenceDiagram
     pulled under its parent depth-first, annotated `stackDepth`; **every row of a stack,
     parent included, is annotated `inStack` + `stackIndex`** (block number) → `tr.stack
     stack-a|b` background (two alternating subtle veils — accent / success — so adjacent
-    blocks read as separate units; declared before `tr:hover` so the hover still wins); a
-    stacked row whose parent is NOT in the table gets `orphanBase`; input rows **never
-    mutated** — the raw snapshot is shared; defensive on base cycles). Display: `titleCell`
+    blocks read as separate units; declared before `tr:hover` so the hover still wins);
+    input rows **never mutated** — the raw snapshot is shared; defensive on base cycles).
+    Display: `titleCell`
     (html.js) renders a **single fixed `↳` indent marker** on a LINEAR chain (the grouped
     order already tells the nesting; root always on top so the marker never mirrors), but a
     **branched** block (a member with 2+ children — DFS order alone no longer tells the
-    tree) switches to a **per-depth indent** (`stackBranched` on its children); plus the
-    discreet « base: … » chip. The « ⤷ » glyph only remains on the toggle button.
+    tree) switches to a **per-depth indent** (`stackBranched` on its children). The
+    discreet « base: … » chip is a **pure render rule on the raw row** (`titleCell`): any row
+    whose `base` ≠ `defaultBranch` (both known — an old snapshot without the default branch
+    gets no chip, so no badge on every base:main PR) shows it, **flat view included** — a PR
+    not targeting the default branch must always be visible as such; the only exception is a
+    child row in stacks mode (the indent already tells its base). ⚠️ A first version derived it
+    from an `orphanBase` annotation of `groupStacks` — stacks mode only, so the same PR was
+    indistinguishable from a base:main one in the flat view (reported as a bug). The « ⤷ »
+    glyph only remains on the toggle button and the chip.
     ⚠️ **Stacks mode DROPS that table's column sort** (`fragmentBody`): the stacked view is
     **canonical** — the stacks first, one block under the other (freshest block first: the
     rows are pre-ordered `DEFAULT_SORT` updated-desc before grouping), each block

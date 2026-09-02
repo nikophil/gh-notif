@@ -325,17 +325,19 @@ const stacksBtn = (table, rows, on) =>
     ? ` <button class="stacks-toggle${on ? ' on' : ''}" data-stacks-table="${table}" title="Group stacked PRs under their parent">⤷ stacks</button>`
     : '';
 
-// Title cell, stacked-PR aware (sort.js#groupStacks annotations): a child row
-// (`stackDepth`) gets a SINGLE fixed ⤷ indent whatever its depth (the grouped
-// order already tells the nesting; per-depth offsets just wasted title width);
-// a stacked row whose parent is NOT in the table (`orphanBase`) gets a discreet
-// « base: … » chip instead. No annotation → the bare link (byte-identical compat).
+// Title cell, stacked-PR aware: a child row (`stackDepth`, sort.js#groupStacks
+// annotation) gets a SINGLE fixed ⤷ indent whatever its depth (the grouped
+// order already tells the nesting; per-depth offsets just wasted title width).
+// Any OTHER row whose base is not the repo's default branch (both known) gets a
+// discreet « base: … » chip — a pure render rule on the raw row, so a PR not
+// targeting the default branch is always visible as such, flat view included
+// (§20). Neither → the bare link (byte-identical compat).
 const titleCell = (r) => {
   const mark = r.stackDepth
     ? `<span class="stack-indent"${r.stackBranched ? ` style="padding-left:${(r.stackDepth - 1) * 14}px"` : ''} title="Stacked on the PR above">↳</span> `
     : '';
-  const chip = r.orphanBase
-    ? ` <span class="stack-base" title="Stacked PR — its base branch is not in this table">⤷ base: ${escapeHtml(r.orphanBase)}</span>`
+  const chip = !r.stackDepth && r.base && r.defaultBranch && r.base !== r.defaultBranch
+    ? ` <span class="stack-base" title="Base branch — not the repo's default branch">⤷ base: ${escapeHtml(r.base)}</span>`
     : '';
   return mark + link(r.url, r.title, r.title) + chip;
 };

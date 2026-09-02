@@ -92,9 +92,9 @@ function valueOf(row, key) {
 // the roots; a child is pulled right under its parent). A child is a row whose
 // `base` is the head branch of another row of the SAME repo — a fork-hosted
 // head cannot be a base ref, so forks are excluded from the parent map. Rows
-// are never mutated: children are re-emitted as copies carrying `stackDepth`,
-// and a stacked row whose parent is NOT in the table gets `orphanBase` (only
-// when the default branch is known, to avoid a badge on every base:main PR).
+// are never mutated: children are re-emitted as copies carrying `stackDepth`.
+// (The « base: … » chip is NOT decided here: html.js#titleCell derives it from
+// the raw `base`/`defaultBranch`, so it shows in the flat view too.)
 function stackLinks(list) {
   const byBranch = new Map();
   for (const r of list) {
@@ -153,21 +153,16 @@ export function groupStacks(rows) {
   const emit = (r, depth, block, branched) => {
     if (visited.has(r)) return;
     visited.add(r);
-    const orphan = depth === 0 && r.base && r.defaultBranch && r.base !== r.defaultBranch;
     out.push({
       ...r, inStack: true, stackIndex: block,
       ...(depth > 0 ? { stackDepth: depth } : {}),
       ...(depth > 0 && branched ? { stackBranched: true } : {}),
-      ...(orphan ? { orphanBase: r.base } : {}),
     });
     for (const c of childrenOf.get(r) ?? []) emit(c, depth + 1, block, branched);
   };
   for (const r of list) {
-    if (!inStack.has(r)) {
-      // solo row; `orphanBase` if it is stacked on something not in the table.
-      const orphan = r.base && r.defaultBranch && r.base !== r.defaultBranch;
-      solos.push(orphan ? { ...r, orphanBase: r.base } : r);
-    } else if (!parentOf.has(r)) emit(r, 0, nextBlock++, isBranched(r));
+    if (!inStack.has(r)) solos.push(r);
+    else if (!parentOf.has(r)) emit(r, 0, nextBlock++, isBranched(r));
   }
   // base cycle (defensive): a component without a root, emit it as its own block
   for (const r of list) if (inStack.has(r) && !visited.has(r)) emit(r, 0, nextBlock++, false);

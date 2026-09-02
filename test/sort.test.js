@@ -254,7 +254,7 @@ test('groupStacks: no stack → order unchanged, no annotation', () => {
   ];
   const out = groupStacks(input);
   assert.deepEqual(order(out), [1, 2]);
-  assert.ok(out.every((r) => r.stackDepth === undefined && r.orphanBase === undefined));
+  assert.ok(out.every((r) => r.stackDepth === undefined));
 });
 
 test('groupStacks: stacks come FIRST (root on top), the non-stacked rows below', () => {
@@ -270,7 +270,7 @@ test('groupStacks: stacks come FIRST (root on top), the non-stacked rows below',
 test('groupStacks: does not mutate the input rows', () => {
   const input = stackRows();
   groupStacks(input);
-  assert.ok(input.every((r) => r.stackDepth === undefined && r.orphanBase === undefined));
+  assert.ok(input.every((r) => r.stackDepth === undefined));
 });
 
 test('groupStacks: 3-level stack → chain order root → leaf, whatever the incoming order', () => {
@@ -295,21 +295,15 @@ test('groupStacks: two siblings keep their incoming order under their root', () 
   assert.deepEqual(order(out), [30, 31, 32]);
 });
 
-test('groupStacks: parent absent from the table → orphan badge, no reordering', () => {
-  const out = groupStacks([
+test('groupStacks: parent absent from the table → no link, no reordering, no annotation (the base chip is a render rule)', () => {
+  const rows = [
     { repo: 'o/a', number: 40, branch: 'f', base: 'feat/gone', defaultBranch: 'main' },
     { repo: 'o/a', number: 41, branch: 'g', base: 'main', defaultBranch: 'main' },
-  ]);
+  ];
+  const out = groupStacks(rows);
   assert.deepEqual(order(out), [40, 41]);
-  assert.equal(out[0].orphanBase, 'feat/gone');
-  assert.equal(out[1].orphanBase, undefined);
-});
-
-test('groupStacks: unknown default branch (old data) → never an orphan badge', () => {
-  const out = groupStacks([
-    { repo: 'o/a', number: 50, branch: 'f', base: 'feat/x', defaultBranch: null },
-  ]);
-  assert.equal(out[0].orphanBase, undefined);
+  assert.ok(out.every((r) => r.stackDepth === undefined && r.inStack === undefined && !('orphanBase' in r)));
+  assert.equal(hasStacks(rows), false);
 });
 
 test('groupStacks: same branch name in another repo does not match', () => {
@@ -319,7 +313,6 @@ test('groupStacks: same branch name in another repo does not match', () => {
   ]);
   assert.deepEqual(order(out), [60, 61]);
   assert.equal(out[1].stackDepth, undefined);
-  assert.equal(out[1].orphanBase, 'feat/parent');
 });
 
 test('groupStacks: a fork-hosted head branch is not a stack parent', () => {
