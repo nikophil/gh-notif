@@ -11,7 +11,7 @@ import { collectPRs, recomputeCi } from './collect.js';
 import { CATEGORY } from './filter.js';
 import { hiddenPath, loadHidden, saveHidden, toggleHidden, isHidden, keyOf } from './hidden.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './state.js';
-import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, hiddenColsOf, toggleHiddenCol } from './prefs.js';
+import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, setStacks, hiddenColsOf, toggleHiddenCol } from './prefs.js';
 import {
   parseScope, normalizeFavorites, addFavorite, removeFavorite,
   favoriteScopes, activeFavoriteOf, filterDataByScope, favoriteCounts, closedPRsUrl, reviewedPRsUrl, repoInAllMode,
@@ -62,36 +62,39 @@ function recompute(data, hidden) {
 // no data yet (1st poll in progress) → spinner; otherwise → the tables.
 // ⚠️ The snapshot contains the data of the UNION of favorites; the active
 // favorite filter is applied HERE, at render time — never at collection (cf. §14).
-function fragmentBody(snapshot, { now, showHidden, viewScope = null, closedUrl = null, reviewedUrl = null, sort = null, sortMine = null, ignoredChecks = {}, stacks = false, cols = null } = {}) {
+function fragmentBody(snapshot, { now, showHidden, viewScope = null, closedUrl = null, reviewedUrl = null, sort = null, sortMine = null, ignoredChecks = {}, stacks = null, cols = null } = {}) {
   if (snapshot.error) return `<p class="empty offline">⚠️ Error: ${escapeHtml(snapshot.error)}</p>`;
   if (!snapshot.updatedAt) return renderLoading(viewScope?.value ?? '');
   let data = filterDataByScope(snapshot.data ?? { mine: [], others: [] }, viewScope);
   // Display sort of the « others » table (the hidden ones follow, consistency in
   // ?hidden=1 mode) and of « Your PRs » (independent state, its own key set).
   // `sort`/`sortMine` absent → collection order unchanged (compat).
-  if (stacks) {
-    // Stacks mode DROPS the column sorts (§20): canonical view — the stacks
-    // first (root on top, children below), the non-stacked rows after. The
-    // incoming rows are pre-ordered updated-desc so the freshest block comes
-    // first, deterministically. The persisted sort states survive untouched
-    // but are neutralized at render: NO_SORT keeps the headers clickable
-    // (clicking a column exits stacks mode, POST /sort) with no active
-    // column/arrow. The hidden rows (?hidden=1) keep a flat updated-desc order.
-    data = {
-      ...data,
-      mine: groupStacks(sortRows(data.mine, DEFAULT_SORT, MINE_SORT_KEYS)),
-      others: groupStacks(sortRows(data.others, DEFAULT_SORT)),
-      hidden: sortRows(data.hidden, DEFAULT_SORT),
-      hiddenMine: sortRows(data.hiddenMine, DEFAULT_SORT, MINE_SORT_KEYS),
-    };
-    const NO_SORT = { key: null, dir: null };
-    return renderFragment(data, { now, showHidden, closedUrl, reviewedUrl, sort: NO_SORT, sortMine: NO_SORT, ignoredChecks, stacks, cols });
+  // Stacks mode is PER TABLE (`stacks` = { mine, others }, §20) and DROPS
+  // that table's column sort: canonical view — the stacks first (root on top,
+  // children below), the non-stacked rows after. The incoming rows are
+  // pre-ordered updated-desc so the freshest block comes first,
+  // deterministically. The persisted sort state survives untouched but is
+  // neutralized at render: NO_SORT keeps the headers clickable (clicking a
+  // column exits THAT table's stacks mode, POST /sort) with no active
+  // column/arrow. The hidden rows (?hidden=1) keep a flat updated-desc order.
+  // The other table is untouched: its own sort (or stacks) applies as usual.
+  const NO_SORT = { key: null, dir: null };
+  const stk = { mine: !!stacks?.mine, others: !!stacks?.others };
+  if (stk.others) {
+    data = { ...data, others: groupStacks(sortRows(data.others, DEFAULT_SORT)), hidden: sortRows(data.hidden, DEFAULT_SORT) };
+    sort = NO_SORT;
+  } else if (sort) {
+    data = { ...data, others: sortRows(data.others, sort), hidden: sortRows(data.hidden, sort) };
   }
-  if (sort) data = { ...data, others: sortRows(data.others, sort), hidden: sortRows(data.hidden, sort) };
-  if (sortMine) data = { ...data, mine: sortRows(data.mine, sortMine, MINE_SORT_KEYS), hiddenMine: sortRows(data.hiddenMine, sortMine, MINE_SORT_KEYS) };
+  if (stk.mine) {
+    data = { ...data, mine: groupStacks(sortRows(data.mine, DEFAULT_SORT, MINE_SORT_KEYS)), hiddenMine: sortRows(data.hiddenMine, DEFAULT_SORT, MINE_SORT_KEYS) };
+    sortMine = NO_SORT;
+  } else if (sortMine) {
+    data = { ...data, mine: sortRows(data.mine, sortMine, MINE_SORT_KEYS), hiddenMine: sortRows(data.hiddenMine, sortMine, MINE_SORT_KEYS) };
+  }
   // `ignoredChecks` only affects the popover display (struck checks) — the CI
   // verdict itself was already recomputed at collection (§16).
-  return renderFragment(data, { now, showHidden, closedUrl, reviewedUrl, sort, sortMine, ignoredChecks, stacks, cols });
+  return renderFragment(data, { now, showHidden, closedUrl, reviewedUrl, sort, sortMine, ignoredChecks, stacks: stk, cols });
 }
 
 // Scope(s) that the view DISPLAYS, to contextualize the « closed ↗ » link:
@@ -117,7 +120,7 @@ export function handleRequest(pathname, snapshot, opts = {}) {
   const {
     now, intervalMs, showHidden, scope, notifyEnabled = true, theme = 'auto',
     favorites = [], activeFav = null, adhoc = false, sort = null, sortMine = null, ignoredChecks = {},
-    favModes = null, stacks = false, cols = null,
+    favModes = null, stacks = null, cols = null,
   } = opts;
   // Display filter: the active favorite, except in ad-hoc mode (the entered scope
   // already drives the collection, re-filtering would be redundant).
@@ -207,7 +210,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   let theme = themeOf(prefs);
   let sort = normalizeSort(prefs.sort); // sort of the « others » table (persisted)
   let sortMine = normalizeSort(prefs.sortMine, MINE_SORT_KEYS); // sort of « Your PRs » (persisted, Opened/Updated only)
-  let stacks = stacksOf(prefs); // stacked-PRs grouping (persisted, POST /stacks toggles it)
+  let stacks = stacksOf(prefs); // stacked-PRs grouping { mine, others } (persisted per table, POST /stacks?table=… toggles one)
   // favorites: pinned scopes (persisted). activeFav: the one we are looking at
   // (null = all). collectScope: what we actually request from GitHub.
   let favorites = normalizeFavorites(prefs.favorites);
@@ -444,10 +447,11 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         const mine = url.searchParams.get('table') === 'mine';
         const keys = mine ? MINE_SORT_KEYS : SORT_KEYS;
         if (!keys.includes(key)) return send(400, 'text/plain; charset=utf-8', `unknown sort key: ${key ?? ''}`);
-        // Sorting a column exits the stacks mode (§20): the stacked view has
-        // no sort semantics, asking for a column order means leaving it.
-        stacks = false;
-        prefs.stacks = false; // ⚠️ same full-rewrite rule as below
+        // Sorting a column exits THAT table's stacks mode (§20): the stacked
+        // view has no sort semantics, asking for a column order means leaving
+        // it. The other table's stacks state is untouched (independent).
+        setStacks(prefs, mine ? 'mine' : 'others', false); // ⚠️ mutates prefs (rewritten IN FULL below)
+        stacks = stacksOf(prefs);
         if (mine) {
           sortMine = toggleSort(sortMine, key, MINE_SORT_KEYS);
           prefs.sortMine = sortMine; // ⚠️ mutate + rewrite IN FULL (otherwise notify/theme lost)
@@ -459,11 +463,13 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         return send(200, json, currentView(showHidden));
       }
       if (pathname === '/stacks') {
-        // Stacked-PRs grouping = pure display state: local recompute, NO
-        // GitHub call (same philosophy as /sort).
-        stacks = !stacks;
-        prefs.stacks = stacks; // ⚠️ mutate + rewrite IN FULL (otherwise notify/theme lost)
+        // Stacked-PRs grouping = pure display state, ONE flag per table
+        // (`table=mine` targets « Your PRs », anything else « others »):
+        // local recompute, NO GitHub call (same philosophy as /sort).
+        const table = url.searchParams.get('table') === 'mine' ? 'mine' : 'others';
+        setStacks(prefs, table, !stacks[table]); // ⚠️ mutates prefs (rewritten IN FULL)
         savePrefs(prefsFile, prefs);
+        stacks = stacksOf(prefs);
         return send(200, json, currentView(showHidden));
       }
       if (pathname === '/cols') {

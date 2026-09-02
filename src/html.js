@@ -317,10 +317,12 @@ const dropLabelsIfEmpty = (rows, hiddenCols) =>
 
 // « ⤷ stacks » toggle in a section title: offered ONLY when the table's visible
 // rows contain at least one parent/child link (hasStacks) — no stack, no button.
-// One global state for both tables (POST /stacks, delegated on #content).
-const stacksBtn = (rows, on) =>
+// One state PER TABLE (POST /stacks?table=…, delegated on #content): the
+// button carries `data-stacks-table`, forwarded by the client like the th's
+// `data-sort-table`.
+const stacksBtn = (table, rows, on) =>
   hasStacks(rows)
-    ? ` <button class="stacks-toggle${on ? ' on' : ''}" title="Group stacked PRs under their parent">⤷ stacks</button>`
+    ? ` <button class="stacks-toggle${on ? ' on' : ''}" data-stacks-table="${table}" title="Group stacked PRs under their parent">⤷ stacks</button>`
     : '';
 
 // Title cell, stacked-PR aware (sort.js#groupStacks annotations): a child row
@@ -604,7 +606,9 @@ export function renderFragment(data, opts = {}) {
   const sort = opts.sort ?? null;
   const sortMine = opts.sortMine ?? null;
   const ignoredChecks = opts.ignoredChecks ?? {};
-  const stacks = !!opts.stacks;
+  // `stacks` (optional) = per-table stacked-PRs mode { mine, others } (§20):
+  // marks that table's toggle active. Absent → both off.
+  const stacks = opts.stacks ?? {};
   // `cols` (optional) = per-table hidden columns { mine: [...], others: [...] }
   // (column selector, §24). Absent → no gear button, output strictly unchanged
   // (compat, same contract as `sort`).
@@ -629,7 +633,7 @@ export function renderFragment(data, opts = {}) {
       ? mineTable(mine, hiddenMine, now, showHidden, sortMine, ignoredChecks, cols?.mine ?? [])
       : '';
     const gear = cols && rows ? colsMenu('mine', MINE_COL_KEYS, cols.mine ?? []) : '';
-    blocks.push(`<section><h2>📥 Your open PRs ${count}${hist}${stacksBtn(mine, stacks)}${gear}</h2>${rows}</section>`);
+    blocks.push(`<section><h2>📥 Your open PRs ${count}${hist}${stacksBtn('mine', mine, !!stacks.mine)}${gear}</h2>${rows}</section>`);
   }
   if (others.length > 0 || reviewedUrl || (showHidden && hiddenCount > 0)) {
     const hist = reviewedUrl
@@ -644,7 +648,7 @@ export function renderFragment(data, opts = {}) {
       : '';
     const gear = cols && rows ? colsMenu('others', OTHERS_COL_KEYS, cols.others ?? []) : '';
     blocks.push(
-      `<section><h2>👥 Activity on others' PRs ${count}${hist}${stacksBtn(others, stacks)}${gear}</h2>${rows}</section>`,
+      `<section><h2>👥 Activity on others' PRs ${count}${hist}${stacksBtn('others', others, !!stacks.others)}${gear}</h2>${rows}</section>`,
     );
   }
   // Watched issues (« all » mode): their own section, rendered only when it has
@@ -1672,9 +1676,12 @@ ${FAVICON}
       act('/sort', sq);
       return;
     }
-    // Stacked-PRs grouping: one global toggle (both tables), server-persisted.
+    // Stacked-PRs grouping: one toggle PER TABLE (data-stacks-table), server-persisted.
     var stk = e.target.closest('button.stacks-toggle');
-    if (stk) { act('/stacks'); return; }
+    if (stk) {
+      act('/stacks', 'table=' + encodeURIComponent(stk.getAttribute('data-stacks-table')));
+      return;
+    }
     var btn = e.target.closest('.act');
     if (!btn) return;
     act('/hide', 'key=' + encodeURIComponent(btn.getAttribute('data-key')));

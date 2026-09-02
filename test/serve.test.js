@@ -834,7 +834,7 @@ const stackSnapshot = () => {
 };
 
 test('GET /fragment + stacks enabled: stacks first (root on top), solo rows below', () => {
-  const res = handleRequest('/fragment', stackSnapshot(), { ...OPTS, stacks: true });
+  const res = handleRequest('/fragment', stackSnapshot(), { ...OPTS, stacks: { others: true } });
   const idx = (s) => res.body.indexOf(s);
   assert.ok(idx('PARENT-PR') >= 0 && idx('CHILD-PR') >= 0);
   assert.ok(idx('PARENT-PR') < idx('CHILD-PR') && idx('CHILD-PR') < idx('SOLO-PR'), 'root, child, then solo');
@@ -881,15 +881,17 @@ test('POST /stacks groups the stacked PRs, a second POST flattens back', async (
     assert.ok(!flat.includes('stack-indent'), 'flat by default');
     assert.ok(flat.indexOf('CHILD-PR') < flat.indexOf('PARENT-PR'), 'sorted updated desc: child first');
 
-    await fetch(`http://localhost:${PORT}/stacks`, { method: 'POST' });
+    await fetch(`http://localhost:${PORT}/stacks?table=mine`, { method: 'POST' });
     const grouped = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
     assert.ok(grouped.includes('stack-indent'), 'grouped after the toggle');
     assert.ok(grouped.indexOf('PARENT-PR') < grouped.indexOf('CHILD-PR'), 'canonical stacked view: root on top');
     assert.ok(grouped.includes('stacks-toggle on'), 'the button stays marked selected');
+    assert.equal(loadPrefs(prefsPath()).stacksMine, true, 'persisted under the table\'s own key');
 
-    await fetch(`http://localhost:${PORT}/stacks`, { method: 'POST' });
+    await fetch(`http://localhost:${PORT}/stacks?table=mine`, { method: 'POST' });
     const flat2 = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
     assert.ok(!flat2.includes('stack-indent'), 'second POST → flat again');
+    assert.ok(!('stacksMine' in loadPrefs(prefsPath())), 'key deleted when off (clean file)');
   } finally {
     server.close();
   }
@@ -905,7 +907,7 @@ test('GET /fragment + stacks: the column sorts are DROPPED (no arrow, headers st
   };
   // whatever sort was active: the stacked view ignores it — root-first blocks,
   // solos below, no active column (clicking a column exits stacks mode).
-  const res = handleRequest('/fragment', snap(), { ...OPTS, stacks: true, sort: { key: 'date', dir: 'desc' } });
+  const res = handleRequest('/fragment', snap(), { ...OPTS, stacks: { others: true }, sort: { key: 'date', dir: 'desc' } });
   const idx = (s) => res.body.indexOf(s);
   assert.ok(idx('PARENT-PR') < idx('CHILD-PR') && idx('CHILD-PR') < idx('SOLO-PR'), 'root, child, then solo');
   assert.ok(!res.body.includes('▾') && !res.body.includes('▴'), 'no sort arrow');
@@ -913,8 +915,31 @@ test('GET /fragment + stacks: the column sorts are DROPPED (no arrow, headers st
   assert.ok(res.body.includes('data-sort-key'), 'headers stay clickable (clicking exits stacks mode)');
 });
 
+test('GET /fragment + stacks per table: « Your PRs » stacked while « others » keeps its own sort', () => {
+  const s = stackSnapshot(); // stack in « others » (child, parent, solo)
+  s.data.others[0].createdAt = '2026-06-24T00:00:00Z'; // CHILD-PR
+  s.data.others[1].createdAt = '2026-06-23T00:00:00Z'; // PARENT-PR
+  s.data.others[2].createdAt = '2026-06-22T00:00:00Z'; // SOLO-PR
+  const myParent = { repo: 'o/r', number: 20, url: 'u20', title: 'MY-PARENT', triggers: [], ci: 'pass', state: 'open', approvals: 0, branch: 'feat/mp', base: 'main', defaultBranch: 'main', createdAt: '2026-06-23T00:00:00Z' };
+  const myChild = { repo: 'o/r', number: 21, url: 'u21', title: 'MY-CHILD', triggers: [], ci: 'pass', state: 'open', approvals: 0, branch: 'feat/mc', base: 'feat/mp', defaultBranch: 'main', createdAt: '2026-06-24T00:00:00Z' };
+  s.data.mine = [myChild, myParent];
+  const res = handleRequest('/fragment', s, { ...OPTS, stacks: { mine: true }, sort: { key: 'date', dir: 'desc' }, sortMine: { key: 'date', dir: 'desc' } });
+  const [mineHtml, othersHtml] = res.body.split('👥');
+  const idx = (h, x) => h.indexOf(x);
+  // « Your PRs »: canonical stacked view (root on top), its sort neutralized (no arrow).
+  assert.ok(idx(mineHtml, 'MY-PARENT') < idx(mineHtml, 'MY-CHILD'), 'mine grouped: root first');
+  assert.ok(mineHtml.includes('stack-indent'));
+  assert.ok(!mineHtml.includes('▾') && !mineHtml.includes('▴'), 'mine: no sort arrow');
+  assert.ok(mineHtml.includes('class="stacks-toggle on" data-stacks-table="mine"'));
+  // « others »: untouched by the other table's stacks mode — flat, date desc, arrow shown.
+  assert.ok(idx(othersHtml, 'CHILD-PR') < idx(othersHtml, 'PARENT-PR') && idx(othersHtml, 'PARENT-PR') < idx(othersHtml, 'SOLO-PR'), 'others sorted date desc');
+  assert.ok(!othersHtml.includes('stack-indent'));
+  assert.ok(othersHtml.includes('▾'), 'others: its sort arrow stays');
+  assert.ok(othersHtml.includes('class="stacks-toggle" data-stacks-table="others"'));
+});
+
 // ── integration: clicking a sort column exits the stacks mode ───────────────
-test('POST /sort while stacks is on → stacks turns off, the sort applies', async () => {
+test('POST /sort while stacks is on → THAT table\'s stacks turns off, the other table is untouched', async () => {
   const gh = {
     getCurrentUser: async () => 'me',
     listNotifications: async () => [],
@@ -941,9 +966,15 @@ test('POST /sort while stacks is on → stacks turns off, the sort applies', asy
   const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false });
   try {
     await new Promise((r) => setTimeout(r, 250)); // 1st poll
-    await fetch(`http://localhost:${PORT}/stacks`, { method: 'POST' });
+    await fetch(`http://localhost:${PORT}/stacks?table=mine`, { method: 'POST' });
     const grouped = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
     assert.ok(grouped.includes('stack-indent'), 'stacks mode on');
+
+    // Sorting the « others » table leaves « Your PRs » stacked (independent states).
+    await fetch(`http://localhost:${PORT}/sort?key=date`, { method: 'POST' });
+    const still = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
+    assert.ok(still.includes('stack-indent'), 'a sort on the other table keeps this one stacked');
+    assert.ok(still.includes('stacks-toggle on'), 'the button stays selected');
 
     await fetch(`http://localhost:${PORT}/sort?key=date&table=mine`, { method: 'POST' });
     const flat = await (await fetch(`http://localhost:${PORT}/fragment`)).text();

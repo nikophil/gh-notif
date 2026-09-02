@@ -644,24 +644,30 @@ sequenceDiagram
     **branched** block (a member with 2+ children — DFS order alone no longer tells the
     tree) switches to a **per-depth indent** (`stackBranched` on its children); plus the
     discreet « base: … » chip. The « ⤷ » glyph only remains on the toggle button.
-    ⚠️ **Stacks mode DROPS the column sorts** (`fragmentBody`): the stacked view is
+    ⚠️ **Stacks mode DROPS that table's column sort** (`fragmentBody`): the stacked view is
     **canonical** — the stacks first, one block under the other (freshest block first: the
     rows are pre-ordered `DEFAULT_SORT` updated-desc before grouping), each block
     **root-first** then its children depth-first, the non-stacked rows below. The persisted
     `sort`/`sortMine` survive untouched but are **neutralized at render** (a `NO_SORT`
-    sentinel keeps the headers clickable, no active column/arrow); **clicking any column
-    exits stacks mode** (`POST /sort` sets `stacks = false`, persisted) and the previous
-    sort reapplies. (Two rejected iterations, kept for the record: composing the grouping
+    sentinel keeps the headers clickable, no active column/arrow); **clicking a column of
+    that table exits ITS stacks mode** (`POST /sort` clears that table's flag, persisted)
+    and the previous sort reapplies — the other table is untouched. (Two rejected iterations, kept for the record: composing the grouping
     with the active sort scrambles the chain on non-monotonic keys — a diff sort mixed the
     blocks and flipped the ↳/↱ markers row by row, unreadable; and a forced root-first
     order UNDER active sort arrows made the arrows lie.) Visible tables only — the hidden
     rows (`?hidden=1`) keep a flat updated-desc order.
-    **Opt-in**: `prefs-v1.json` `stacks` (default false, accessor `stacksOf` — absent/tampered
-    → false), toggled by `POST /stacks` (local recompute, 0 GitHub call) via the « ⤷ stacks »
-    button in the section `<h2>`s, rendered **only if `hasStacks`** on that table's visible
-    rows (no stack anywhere → page byte-identical to before the feature). One global flag
-    for both tables. Collection, hiding, notifs and favorite counters see no change (the
-    §14 order is untouched: grouping is pure rendering).
+    **Opt-in, ONE FLAG PER TABLE**: `prefs-v1.json` `stacks` (« others ») / `stacksMine`
+    (« Your PRs »), the same split as `sort`/`sortMine` and `cols`/`colsMine` (accessor
+    `stacksOf` → `{mine, others}`, absent/tampered → false; `setStacks(prefs, table, on)`,
+    key **deleted** when off — clean file), toggled by `POST /stacks?table=mine|others`
+    (local recompute, 0 GitHub call) via the « ⤷ stacks » button in the section `<h2>`s
+    (it carries `data-stacks-table`, forwarded by the client like `data-sort-table`),
+    rendered **only if `hasStacks`** on that table's visible rows (no stack anywhere → page
+    byte-identical to before the feature). ⚠️ The two tables are **independent**: a first
+    version shared one global flag, and toggling stacks on one table silently reordered the
+    other while sorting the other kicked the first out of stacks mode — reported as a bug.
+    Collection, hiding, notifs and favorite counters see no change (the §14 order is
+    untouched: grouping is pure rendering).
 
 21. **Easter egg 🚀 (confetti when a PR of mine becomes mergeable).** « Mergeable » is a
     derived display state (`isMergeable`, html.js, exported/tested): open + `ci === 'pass'` +

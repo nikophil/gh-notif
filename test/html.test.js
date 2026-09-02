@@ -1017,13 +1017,17 @@ test('renderFragment: no stack anywhere → no toggle (compat)', () => {
   assert.ok(!out.includes('stacks-toggle'));
 });
 
-test('renderFragment: opts.stacks marks the toggle active', () => {
+test('renderFragment: opts.stacks marks the toggle active PER TABLE (data-stacks-table targets the POST)', () => {
   const parent = otherRow({ number: 1, branch: 'p', base: 'main', defaultBranch: 'main' });
   const child = otherRow({ number: 2, branch: 'c', base: 'p', defaultBranch: 'main' });
-  const on = renderFragment({ mine: [], others: [parent, child] }, { now: NOW, stacks: true });
-  assert.ok(on.includes('class="stacks-toggle on"'));
-  const off = renderFragment({ mine: [], others: [parent, child] }, { now: NOW });
-  assert.ok(off.includes('class="stacks-toggle"'));
+  const myParent = myRow({ number: 3, branch: 'mp', base: 'main', defaultBranch: 'main' });
+  const myChild = myRow({ number: 4, branch: 'mc', base: 'mp', defaultBranch: 'main' });
+  const data = { mine: [myParent, myChild], others: [parent, child] };
+  const on = renderFragment(data, { now: NOW, stacks: { others: true } });
+  assert.ok(on.includes('class="stacks-toggle on" data-stacks-table="others"'));
+  assert.ok(on.includes('class="stacks-toggle" data-stacks-table="mine"'));
+  const off = renderFragment(data, { now: NOW });
+  assert.ok(off.includes('class="stacks-toggle" data-stacks-table="others"'));
   assert.ok(!off.includes('stacks-toggle on'));
 });
 

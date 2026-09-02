@@ -55,7 +55,8 @@ you reviewed) — both restricted to the displayed scope.
 
 **Stacked PRs**: when a table contains PRs based on one another (same repo, base = another row's
 head branch), a « **⤷ stacks** » toggle appears and regroups each stack, children indented under
-their root with a `base: …` chip. Clicking a column header exits stacks mode and sorting resumes.
+their root with a `base: …` chip. Each table has its own toggle: clicking one of its column
+headers exits that table's stacks mode and sorting resumes there, the other table is untouched.
 
 ### What triggers a row (the « triggers »)
 

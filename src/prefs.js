@@ -47,10 +47,22 @@ export function isNotifyEnabled(prefs) {
   return prefs?.notify !== false;
 }
 
-// Stacked-PRs grouping enabled? False by default (opt-in toggle): only an
-// explicit `stacks: true` groups — robust against a tampered file.
+// Stacked-PRs grouping, ONE flag per table (§20): `stacks` (« others ») and
+// `stacksMine` (« Your PRs »), same split as sort/sortMine and cols/colsMine.
+// False by default (opt-in toggle): only an explicit `true` groups — robust
+// against a tampered file.
+const stacksKey = (table) => (table === 'mine' ? 'stacksMine' : 'stacks');
 export function stacksOf(prefs) {
-  return prefs?.stacks === true;
+  return { mine: prefs?.stacksMine === true, others: prefs?.stacks === true };
+}
+
+// Sets one table's stacks flag; off → the key is DELETED (clean file, same
+// spirit as toggleHiddenCol). Mutates `prefs` IN PLACE — cf. pitfall §14: the
+// caller then re-writes it IN FULL via savePrefs.
+export function setStacks(prefs, table, on) {
+  if (on) prefs[stacksKey(table)] = true;
+  else delete prefs[stacksKey(table)];
+  return prefs;
 }
 
 // Chosen CSS theme: 'light' | 'dark' | 'auto'. Any unknown/absent value falls

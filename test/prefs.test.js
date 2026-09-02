@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync, mkdtempSync } from 'node:fs';
-import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, ignoredChecksFor, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, hiddenColsOf, toggleHiddenCol } from '../src/prefs.js';
+import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, ignoredChecksFor, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, setStacks, hiddenColsOf, toggleHiddenCol } from '../src/prefs.js';
 
 test('prefsPath respects XDG_STATE_HOME', () => {
   const prev = process.env.XDG_STATE_HOME;
@@ -213,11 +213,21 @@ test('toggleIgnoredCheck: tolerates absent ignoredChecks and trims the name', ()
   assert.deepEqual(prefs.ignoredChecks, {});
 });
 
-test('stacksOf: false by default, true only if explicitly enabled', () => {
-  assert.equal(stacksOf({ stacks: true }), true);
-  assert.equal(stacksOf({ stacks: false }), false);
-  assert.equal(stacksOf({}), false);
-  assert.equal(stacksOf({ stacks: 'yes' }), false); // tampered file → default
+test('stacksOf: one flag per table (stacks / stacksMine), false unless explicitly enabled', () => {
+  assert.deepEqual(stacksOf({}), { mine: false, others: false });
+  assert.deepEqual(stacksOf({ stacks: true }), { mine: false, others: true });
+  assert.deepEqual(stacksOf({ stacksMine: true }), { mine: true, others: false });
+  assert.deepEqual(stacksOf({ stacks: 'yes', stacksMine: 1 }), { mine: false, others: false }); // tampered file → default
+});
+
+test('setStacks: touches one table only, the key is DELETED when off (clean file)', () => {
+  const prefs = { notify: false };
+  setStacks(prefs, 'mine', true);
+  assert.deepEqual(prefs, { notify: false, stacksMine: true });
+  setStacks(prefs, 'others', true);
+  assert.deepEqual(prefs, { notify: false, stacksMine: true, stacks: true });
+  setStacks(prefs, 'mine', false);
+  assert.deepEqual(prefs, { notify: false, stacks: true });
 });
 
 test('hiddenColsOf: empty lists by default, tolerates absent/malformed', () => {
