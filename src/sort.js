@@ -174,6 +174,13 @@ export function groupStacks(rows) {
   return [...out, ...solos];
 }
 
+// Keys (repo#number) of the CHILD rows — the PRs whose parent is in the same
+// table (an orphan alone is not a stack, cf. hasStacks) — root-first order.
+// Feeds the auto-surfacing of never-seen stacks at poll time (§28).
+export function stackChildKeys(rows) {
+  return groupStacks(rows).filter((r) => r.stackDepth).map((r) => `${r.repo}#${r.number}`);
+}
+
 // Sorted copy (does not mutate the input). Missing always at the end whatever
 // the direction; equality → arrival order preserved (the native sort is stable).
 export function sortRows(rows, sort, keys = SORT_KEYS) {

@@ -65,6 +65,14 @@ export function setStacks(prefs, table, on) {
   return prefs;
 }
 
+// Child PRs (repo#number) already surfaced as stacks (§28): a never-seen one
+// turns its table's stacks mode on by itself at poll time. Replaced at every
+// poll (self-pruning). Robust against a tampered file: non-array → [],
+// non-string entries dropped.
+export function stacksSeenOf(prefs) {
+  return Array.isArray(prefs?.stacksSeen) ? prefs.stacksSeen.filter((x) => typeof x === 'string') : [];
+}
+
 // Chosen CSS theme: 'light' | 'dark' | 'auto'. Any unknown/absent value falls
 // back to 'auto' (follows the system) — robust against a tampered file.
 export function themeOf(prefs) {

@@ -11,13 +11,13 @@ import { collectPRs, recomputeCi } from './collect.js';
 import { CATEGORY } from './filter.js';
 import { hiddenPath, loadHidden, saveHidden, toggleHidden, isHidden, keyOf } from './hidden.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './state.js';
-import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, setStacks, hiddenColsOf, toggleHiddenCol } from './prefs.js';
+import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, setStacks, stacksSeenOf, hiddenColsOf, toggleHiddenCol } from './prefs.js';
 import {
   parseScope, normalizeFavorites, addFavorite, removeFavorite,
   favoriteScopes, activeFavoriteOf, filterDataByScope, favoriteCounts, closedPRsUrl, reviewedPRsUrl, repoInAllMode,
 } from './favorites.js';
 import { diffApprovals } from './approvals.js';
-import { normalizeSort, toggleSort, sortRows, groupStacks, SORT_KEYS, MINE_SORT_KEYS, DEFAULT_SORT } from './sort.js';
+import { normalizeSort, toggleSort, sortRows, groupStacks, stackChildKeys, SORT_KEYS, MINE_SORT_KEYS, DEFAULT_SORT } from './sort.js';
 import { sendNotification } from './notify.js';
 import { isRateLimitError, nextBackoffSeconds } from './ratelimit.js';
 import { startSpinner } from './spinner.js';
@@ -271,6 +271,25 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
     if (fresh.length > 0) saveState(sPath, state);
   };
 
+  // Never-seen stack → surfaced by itself (§28): a child PR (its parent in the
+  // same table) absent from `prefs.stacksSeen` turns THAT table's stacks mode
+  // on, exactly like a click on the button (persisted). The user then does as
+  // they please: toggle off or sort → stays off until the NEXT never-seen child.
+  // `stacksSeen` is REPLACED by the current child keys (self-pruning) and the
+  // file is only rewritten when it changed (no write at every poll).
+  const surfaceNewStacks = (data) => {
+    const seen = stacksSeenOf(prefs);
+    const keys = { mine: stackChildKeys(data.mine), others: stackChildKeys(data.others) };
+    const next = [...keys.mine, ...keys.others].sort();
+    if (JSON.stringify(next) === JSON.stringify([...seen].sort())) return;
+    for (const table of ['mine', 'others']) {
+      if (keys[table].some((k) => !seen.includes(k))) setStacks(prefs, table, true); // ⚠️ mutates prefs (rewritten IN FULL below)
+    }
+    if (next.length > 0) prefs.stacksSeen = next; else delete prefs.stacksSeen;
+    stacks = stacksOf(prefs);
+    savePrefs(prefsFile, prefs);
+  };
+
   const refresh = async () => {
     const stop = startSpinner('Updating…'); // terminal spinner (no-op outside TTY)
     try {
@@ -281,6 +300,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       if (data.hiddenChanged) saveHidden(hiddenFile, hidden);
       notifyNew(data);
       snapshot.data = data;
+      surfaceNewStacks(data);
       snapshot.updatedAt = Date.now();
       snapshot.error = null;
       backoff = 0; // success: we restart at the normal interval

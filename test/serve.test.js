@@ -849,8 +849,8 @@ test('GET /fragment without stacks (default): flat order, no marker', () => {
   assert.ok(!res.body.includes('stack-indent'));
 });
 
-// ── integration: POST /stacks toggles the stacked-PRs grouping ──────────────
-test('POST /stacks groups the stacked PRs, a second POST flattens back', async () => {
+// ── integration: a never-seen child PR turns stacks on by itself; POST /stacks toggles ──
+test('1st poll with a stack → « Your PRs » stacked by itself; POST /stacks?table=mine flattens, a second POST regroups', async () => {
   const gh = {
     getCurrentUser: async () => 'me',
     listNotifications: async () => [],
@@ -876,22 +876,21 @@ test('POST /stacks groups the stacked PRs, a second POST flattens back', async (
   const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false });
   try {
     await new Promise((r) => setTimeout(r, 250)); // 1st poll
+    const auto = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
+    assert.ok(auto.includes('stacks-toggle on'), 'a never-seen child PR turns the stacks mode on by itself');
+    assert.ok(auto.includes('stack-indent') && auto.indexOf('PARENT-PR') < auto.indexOf('CHILD-PR'), 'canonical stacked view: root on top');
+    assert.equal(loadPrefs(prefsPath()).stacksMine, true, 'persisted under the table\'s own key');
+    assert.deepEqual(loadPrefs(prefsPath()).stacksSeen, ['o/r#2'], 'the child PR is now seen');
+
+    await fetch(`http://localhost:${PORT}/stacks?table=mine`, { method: 'POST' });
     const flat = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
-    assert.ok(flat.includes('stacks-toggle'), 'the toggle is offered (a stack exists)');
-    assert.ok(!flat.includes('stack-indent'), 'flat by default');
+    assert.ok(!flat.includes('stack-indent'), 'the toggle flattens');
     assert.ok(flat.indexOf('CHILD-PR') < flat.indexOf('PARENT-PR'), 'sorted updated desc: child first');
+    assert.ok(!('stacksMine' in loadPrefs(prefsPath())), 'key deleted when off (clean file)');
 
     await fetch(`http://localhost:${PORT}/stacks?table=mine`, { method: 'POST' });
     const grouped = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
-    assert.ok(grouped.includes('stack-indent'), 'grouped after the toggle');
-    assert.ok(grouped.indexOf('PARENT-PR') < grouped.indexOf('CHILD-PR'), 'canonical stacked view: root on top');
-    assert.ok(grouped.includes('stacks-toggle on'), 'the button stays marked selected');
-    assert.equal(loadPrefs(prefsPath()).stacksMine, true, 'persisted under the table\'s own key');
-
-    await fetch(`http://localhost:${PORT}/stacks?table=mine`, { method: 'POST' });
-    const flat2 = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
-    assert.ok(!flat2.includes('stack-indent'), 'second POST → flat again');
-    assert.ok(!('stacksMine' in loadPrefs(prefsPath())), 'key deleted when off (clean file)');
+    assert.ok(grouped.includes('stack-indent'), 'second POST → grouped again');
   } finally {
     server.close();
   }
@@ -966,9 +965,8 @@ test('POST /sort while stacks is on → THAT table\'s stacks turns off, the othe
   const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false });
   try {
     await new Promise((r) => setTimeout(r, 250)); // 1st poll
-    await fetch(`http://localhost:${PORT}/stacks?table=mine`, { method: 'POST' });
     const grouped = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
-    assert.ok(grouped.includes('stack-indent'), 'stacks mode on');
+    assert.ok(grouped.includes('stack-indent'), 'stacks mode on by itself (never-seen child PR)');
 
     // Sorting the « others » table leaves « Your PRs » stacked (independent states).
     await fetch(`http://localhost:${PORT}/sort?key=date`, { method: 'POST' });
@@ -983,6 +981,51 @@ test('POST /sort while stacks is on → THAT table\'s stacks turns off, the othe
     assert.ok(flat.indexOf('CHILD-PR') < flat.indexOf('PARENT-PR'), 'the clicked sort applies (date desc)');
   } finally {
     server.close();
+  }
+});
+
+// ── integration: auto-surfaced stacks leave the user in charge afterwards ──
+test('auto-surfaced stacks: toggled off → stays off on the next poll; a NEW child PR turns it back on', async () => {
+  let prs = [1, 2]; // chain 1 ← 2 (mine)
+  const detail = (n) => ({
+    number: n, title: `PR-${n}`, author: { login: 'me' },
+    createdAt: `2026-06-2${n}T00:00:00Z`, updatedAt: `2026-06-2${n}T00:00:00Z`,
+    additions: 1, deletions: 0, isDraft: false, state: 'OPEN', reviews: [], statusCheckRollupState: 'SUCCESS',
+    branch: `feat/${n}`, base: n === 1 ? 'main' : `feat/${n - 1}`, defaultBranch: 'main',
+  });
+  const gh = {
+    getCurrentUser: async () => 'me',
+    listNotifications: async () => [],
+    searchReviewRequested: async () => [],
+    searchAuthored: async () => prs.map((n) => ({ repository_url: 'https://api.github.com/repos/o/r', number: n, title: `PR-${n}`, html_url: `u${n}`, updated_at: `2026-06-2${n}T00:00:00Z` })),
+    getPullDetailsBatch: async (list) => list.map((p) => detail(p.number)),
+    getComment: async () => null,
+    getReviewComments: async () => [],
+  };
+  const tmp = `/tmp/gh-notif-test-stacks-auto-${process.pid}`;
+  process.env.XDG_STATE_HOME = tmp;
+  rmSync(tmp, { recursive: true, force: true });
+
+  const PORT = 7811;
+  const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false });
+  const post = async (p) => (await fetch(`http://localhost:${PORT}${p}`, { method: 'POST' })).json();
+  const repoll = () => post('/scope?value='); // forces a synchronous refresh (empty scope = favorites mode)
+  try {
+    await new Promise((r) => setTimeout(r, 250)); // 1st poll
+    assert.ok((await post('/stacks?table=mine')).fragment.includes('class="stacks-toggle" data-stacks-table="mine"'), 'auto-on, the toggle turns it off');
+    assert.ok(!(await repoll()).fragment.includes('stack-indent'), 'same PRs on the next poll → the user\'s choice is respected');
+
+    prs = [1, 2, 3]; // a never-seen child on top of the known stack
+    const again = (await repoll()).fragment;
+    assert.ok(again.includes('stack-indent') && again.includes('stacks-toggle on'), 'a new child PR turns the stacks mode back on');
+    assert.deepEqual(loadPrefs(prefsPath()).stacksSeen, ['o/r#2', 'o/r#3']);
+
+    // Sorting the table also leaves stacks mode, and the next poll respects it too.
+    assert.ok(!(await post('/sort?key=date&table=mine')).fragment.includes('stack-indent'));
+    assert.ok(!(await repoll()).fragment.includes('stack-indent'), 'still off after a sort');
+  } finally {
+    server.close();
+    rmSync(tmp, { recursive: true, force: true });
   }
 });
 

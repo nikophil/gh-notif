@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync, mkdtempSync } from 'node:fs';
-import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, ignoredChecksFor, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, setStacks, hiddenColsOf, toggleHiddenCol } from '../src/prefs.js';
+import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, ignoredChecksFor, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, setStacks, stacksSeenOf, hiddenColsOf, toggleHiddenCol } from '../src/prefs.js';
 
 test('prefsPath respects XDG_STATE_HOME', () => {
   const prev = process.env.XDG_STATE_HOME;
@@ -218,6 +218,12 @@ test('stacksOf: one flag per table (stacks / stacksMine), false unless explicitl
   assert.deepEqual(stacksOf({ stacks: true }), { mine: false, others: true });
   assert.deepEqual(stacksOf({ stacksMine: true }), { mine: true, others: false });
   assert.deepEqual(stacksOf({ stacks: 'yes', stacksMine: 1 }), { mine: false, others: false }); // tampered file → default
+});
+
+test('stacksSeenOf: [] by default, non-array or non-string entries dropped (tampered file)', () => {
+  assert.deepEqual(stacksSeenOf({}), []);
+  assert.deepEqual(stacksSeenOf({ stacksSeen: ['o/r#2', 3, null] }), ['o/r#2']);
+  assert.deepEqual(stacksSeenOf({ stacksSeen: 'o/r#2' }), []);
 });
 
 test('setStacks: touches one table only, the key is DELETED when off (clean file)', () => {

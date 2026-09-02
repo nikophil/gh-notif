@@ -57,6 +57,8 @@ you reviewed) — both restricted to the displayed scope.
 head branch), a « **⤷ stacks** » toggle appears and regroups each stack, children indented under
 their root with a `base: …` chip. Each table has its own toggle: clicking one of its column
 headers exits that table's stacks mode and sorting resumes there, the other table is untouched.
+A never-seen stacked PR turns its table's stacks mode on by itself, so a new stack gets noticed;
+switch it off (toggle or sort) and it stays off until the next new one.
 
 ### What triggers a row (the « triggers »)
 

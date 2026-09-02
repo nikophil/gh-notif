@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SORT_KEYS, MINE_SORT_KEYS, DEFAULT_SORT, normalizeSort, toggleSort, sortRows, groupStacks, hasStacks } from '../src/sort.js';
+import { SORT_KEYS, MINE_SORT_KEYS, DEFAULT_SORT, normalizeSort, toggleSort, sortRows, groupStacks, hasStacks, stackChildKeys } from '../src/sort.js';
 
 // Fixtures: 3 PRs with all-distinct values (author deliberately with mixed case
 // to test case-insensitivity; updatedAt deliberately in an order ≠ createdAt).
@@ -420,4 +420,16 @@ test('sortRows: files = changedFiles (asc → fewest first), missing at the END 
   assert.deepEqual(order(sortRows(rows, { key: 'files', dir: 'asc' })), [3, 4, 1, 2]);
   assert.deepEqual(order(sortRows(rows, { key: 'files', dir: 'desc' })), [1, 4, 3, 2]);
   assert.deepEqual(order(sortRows(rows, { key: 'files', dir: 'asc' }, MINE_SORT_KEYS)), [3, 4, 1, 2]);
+});
+
+test('stackChildKeys: keys (repo#number) of the rows whose parent is in the table, depth-first', () => {
+  const parent = { repo: 'o/r', number: 1, branch: 'p', base: 'main', defaultBranch: 'main' };
+  const child = { repo: 'o/r', number: 2, branch: 'c', base: 'p', defaultBranch: 'main' };
+  const grandchild = { repo: 'o/r', number: 3, branch: 'g', base: 'c', defaultBranch: 'main' };
+  const solo = { repo: 'o/r', number: 4, branch: 's', base: 'main', defaultBranch: 'main' };
+  const orphan = { repo: 'o/r', number: 5, branch: 'x', base: 'gone', defaultBranch: 'main' };
+  assert.deepEqual(stackChildKeys([grandchild, solo, child, parent, orphan]), ['o/r#2', 'o/r#3']);
+  assert.deepEqual(stackChildKeys([solo, orphan]), []); // an orphan alone is not a stack
+  assert.deepEqual(stackChildKeys([]), []);
+  assert.deepEqual(stackChildKeys(undefined), []);
 });

@@ -851,6 +851,25 @@ sequenceDiagram
     same compat contract as the CI popover. Extensions are escaped like every GitHub datum
     (a file path is attacker-controlled).
 
+28. **Never-seen stack → stacks mode turns on by itself (per table).** The « ⤷ stacks »
+    view is opt-in (§20), but a stack nobody knows about is easy to miss in a flat table. So at
+    every successful poll (`surfaceNewStacks`, serve.js, right after `snapshot.data = data`) the
+    child PRs of each table (`stackChildKeys`, sort.js: rows whose parent is in the same table,
+    `repo#number`, root-first) are compared with `prefs-v1.json` `stacksSeen`; a never-seen
+    child → `setStacks(prefs, table, true)`, exactly like a click on that table's button
+    (persisted). **Then the user is in charge**: toggling off or sorting a column (§20) leaves
+    stacks mode and it STAYS off on the next polls — the same PRs are all seen — until the
+    NEXT never-seen child (a PR added on top of a known stack counts: it is new too).
+    `stacksSeen` is **replaced** by the current child keys at every poll (self-pruning, no
+    growth; a merged-then-reopened child re-surfaces, acceptable) and the file is only
+    rewritten when the list changed (no write per poll). Accessor `stacksSeenOf` (absent /
+    tampered → []). Computed on the raw UNION snapshot (visible rows of each table, hidden
+    rows excluded like `hasStacks` at render): a stack in a favorite not being looked at flips
+    the flag too, and shows grouped when that favorite is opened. First run after the upgrade:
+    every existing child is new → both tables surface once (one click to leave). ⚠️ Tests:
+    a stack present at the 1st poll is grouped BY DEFAULT — a `POST /stacks` right after
+    startup turns it OFF, not on.
+
 ## Test conventions
 
 - Pure logic (`filter`, `render` helpers, `state`, `collect`, `ciRollup`, `scope`): fixtures, no
