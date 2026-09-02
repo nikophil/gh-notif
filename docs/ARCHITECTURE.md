@@ -510,9 +510,9 @@ sequenceDiagram
     defaults desc (higher = more recent within a repo); `ci` sorts on a semantic rank
     (fail 0 → pending 1 → pass 2, `none`/absent → missing) and `triggers` on the rank of
     the row's MOST important trigger (same order as `TRIGGER_META`, review first — not
-    alphabetical, like `STATE_RANK`). `diff` sorts on the size `additions + deletions` (both counters
-    absent → missing, at the end; a lone 0 is a real value); `files` on `changedFiles` (null →
-    missing, 0 is a real value). `status` sorts the 🚦 column on a
+    alphabetical, like `STATE_RANK`). `diff` sorts on **`additions` only** — deletions are not reading effort, so
+    `+100 −1000` ranks below `+500 −10` (no additions counter → missing, at the end; 0 is a
+    real value); `files` on `changedFiles` (null → missing, 0 is a real value). `status` sorts the 🚦 column on a
     **semantic rank, not alphabetical** (`STATE_RANK`: open 0 → draft 1 → merged 2 → closed 3,
     « actionable first »; unknown/absent state → missing, at the end). Both `null` by default — `normalizeSort(raw, keys)` applies
     **`{updated, desc}`** at usage (the PRs that moved last come first; the shared

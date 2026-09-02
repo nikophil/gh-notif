@@ -118,21 +118,21 @@ test('sortRows: triggers ranked semantically (most important trigger of the row)
   assert.deepEqual(order(sortRows(withTriggers, { key: 'triggers', dir: 'asc' })), [2, 3, 1, 4]);
 });
 
-test('sortRows: diff = additions + deletions (asc → smallest first)', () => {
+test('sortRows: diff = additions ONLY (deletions ignored; asc → fewest added lines first)', () => {
   const withDiff = [
-    { number: 1, additions: 100, deletions: 50 },  // 150
-    { number: 2, additions: 0, deletions: 0 },     // 0: a real value, not missing
-    { number: 3, additions: 3, deletions: 40 },    // 43
+    { number: 1, additions: 500, deletions: 10 },   // bigger than #3 despite a smaller total
+    { number: 2, additions: 0, deletions: 0 },      // 0: a real value, not missing
+    { number: 3, additions: 100, deletions: 1000 }, // a big deletion is not a big review
   ];
   assert.deepEqual(order(sortRows(withDiff, { key: 'diff', dir: 'asc' })), [2, 3, 1]);
   assert.deepEqual(order(sortRows(withDiff, { key: 'diff', dir: 'desc' })), [1, 3, 2]);
 });
 
-test('sortRows: diff missing (both counters absent) at the END whatever the direction', () => {
+test('sortRows: diff missing (no additions counter) at the END whatever the direction', () => {
   const withNulls = [
-    { number: 1 },                                  // no additions/deletions → missing
+    { number: 1, deletions: 9 },                    // no additions → missing
     { number: 2, additions: 10, deletions: 0 },
-    { number: 3, additions: 0, deletions: 5 },      // a lone counter counts as 0
+    { number: 3, additions: 0, deletions: 5 },      // 0 added lines is a real value
   ];
   assert.deepEqual(order(sortRows(withNulls, { key: 'diff', dir: 'asc' })), [3, 2, 1]);
   assert.deepEqual(order(sortRows(withNulls, { key: 'diff', dir: 'desc' })), [2, 3, 1]);

@@ -14,7 +14,7 @@ export const MINE_SORT_KEYS = SORT_KEYS.filter((k) => k !== 'author');
 // approvals → least approved first (the ones that most need a review),
 // review → longest in review first (the ones waiting the most), text
 // columns (repo/title/branch/author) → alphabetical, diff/files → smallest
-// first (the quick reviews), status/triggers/ci → actionable first (open, review,
+// first (the quick reviews — diff counts added lines only), status/triggers/ci → actionable first (open, review,
 // failing CI…).
 const DEFAULT_DIR = {
   repo: 'asc', number: 'desc', title: 'asc', labels: 'asc', branch: 'asc',
@@ -81,12 +81,9 @@ function valueOf(row, key) {
     const ranks = (row.triggers ?? []).map((t) => TRIGGER_RANK[t]).filter((r) => r != null);
     return ranks.length ? Math.min(...ranks) : null;
   }
-  if (key === 'diff') {
-    // Size = additions + deletions (the two cells of the Diff column). Both
-    // absent → missing; a lone 0 is a real value (empty diff).
-    if (row.additions == null && row.deletions == null) return null;
-    return (row.additions ?? 0) + (row.deletions ?? 0);
-  }
+  // Diff = ADDED lines only: deletions are not reading effort (+100 −1000 is a
+  // smaller review than +500 −10). Missing counter → missing; 0 is a real value.
+  if (key === 'diff') return row.additions ?? null;
   if (key === 'files') return row.changedFiles ?? null; // 0 is a real value; older snapshot → missing
   return row.createdAt ?? null;
 }
