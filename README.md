@@ -31,7 +31,9 @@ A third **📋 Issues** table appears only if a favorite is in « all » mode (s
 - **Opened / In review / Updated** — opening date, time since the PR left draft
   (« ready for review »), last activity;
 - **Diff** — `+additions −deletions`; **click the figures** to open a **per-file-type
-  breakdown** popover;
+  breakdown** popover (file count and diff of each type);
+- **Files** — number of changed files (GitHub's `file-diff` icon as header); **click the
+  count** to open the same per-type popover;
 - **Status** — 📝 draft · 🟢 open · 🟣 merged · 🔴 closed, plus a **⚠️ if the PR conflicts**
   with its base branch;
 - **✅** — number of **approvals** (distinct users whose last review approves, `·` if none); a

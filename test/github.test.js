@@ -337,3 +337,16 @@ test('getPullDetailsBatch: files absent from the response → [] and moreFiles 0
   assert.deepEqual(out[0].files, []);
   assert.equal(out[0].moreFiles, 0);
 });
+
+test('getPullDetailsBatch: exposes changedFiles (GraphQL PR field), null when absent', async () => {
+  const pr = (extra) => JSON.stringify({ data: { p0: { pullRequest: {
+    number: 42, title: 'A', author: { login: 'alice' }, createdAt: 'd1', additions: 1, deletions: 0,
+    isDraft: false, state: 'OPEN', latestOpinionatedReviews: { nodes: [] }, ...extra,
+  } } } });
+  const runner = fakeRunner([['api graphql', pr({ changedFiles: 7 })]]);
+  const out = await makeGh(runner).getPullDetailsBatch([{ repo: 'o/r', number: 42 }]);
+  assert.equal(out[0].changedFiles, 7);
+  assert.ok(runner.calls[0].join(' ').includes('changedFiles'), 'the field is requested');
+  const old = await makeGh(fakeRunner([['api graphql', pr({})]])).getPullDetailsBatch([{ repo: 'o/r', number: 42 }]);
+  assert.equal(old[0].changedFiles, null);
+});

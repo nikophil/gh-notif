@@ -16,7 +16,7 @@ function parseJson(stdout) {
 
 // PR fields fetched all at once via GraphQL (cf. getPullDetailsBatch).
 const PR_FRAGMENT = `fragment pr on PullRequest {
-  number title author { login } createdAt updatedAt additions deletions isDraft state mergeable headRefName
+  number title author { login } createdAt updatedAt additions deletions changedFiles isDraft state mergeable headRefName
   headRepository { nameWithOwner }
   baseRefName baseRepository { defaultBranchRef { name } }
   labels(first: 20) { nodes { name color } }
@@ -70,6 +70,9 @@ function normalizePull(pr) {
     updatedAt: pr.updatedAt,
     additions: pr.additions,
     deletions: pr.deletions,
+    // GitHub's own changed-file total (Files column) — independent of the
+    // 100-file cap of `files` below. null on an older response.
+    changedFiles: pr.changedFiles ?? null,
     isDraft: pr.isDraft,
     state: pr.state,
     // MERGEABLE | CONFLICTING | UNKNOWN. ⚠️ GitHub computes the merge commit

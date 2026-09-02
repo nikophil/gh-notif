@@ -225,7 +225,7 @@ sequenceDiagram
 - **Thread** (`/notifications`): `{ id, reason, updated_at, subject:{title,url,latest_comment_url,type}, repository:{full_name} }`
 - **Item** (output of `classify`): `{ category, actor, url, repo, number, title, threadId, updatedAt }` — the watch items (« all » mode, §18) also carry `subjectType` (`'issue' | 'pull'`) and `createdAt` (creation date, null for an activity)
 - **Issue row** (`data.issues`, « all » mode only, §18): `{ repo, number, title, url, actor, createdAt, updatedAt, triggers:[…] }` — no CI/diff/approvals (meaningless for an issue), no hiding in v1
-- **Row** (output of `collectPRs`): `{ repo, number, url, title, triggers:[…], author, branch, branchRepo, base, defaultBranch, createdAt, readyAt, updatedAt, additions, deletions, diffTypes, moreFiles, ci, checks:[{name,state}], statusCheckRollupState, state, conflicting, approvals, changesRequested }` — `readyAt` = date of the last draft → « ready for review » transition (GraphQL `timelineItems`, same batch; null if never draft), consumed by the easter-egg business-days gate (§21) and by the « In review » column (§26) — `branch` = the PR's `headRefName` and `branchRepo` = `headRepository.nameWithOwner` (same GraphQL batch, zero extra cost; null if missing), shown in the web « Branch » column as a small GitHub-like ref chip linking to the branch tree on the head repo (the fork for external PRs; fallback on `repo` if the fork is gone) with a copy button — `state` ∈ {draft,open,merged,closed} (via `prState`), `approvals` = number of **approvals** (via `countApprovals`: distinct users whose last review is APPROVED — not `reviews.length`), `changesRequested` = number of distinct users whose **last review is CHANGES_REQUESTED** (via `changesRequestedOf`, mirror of `approvalsOf`; zero cost, same GraphQL `reviews`). In the ✅ column, a non-zero `changesRequested` appends the GitHub `file-diff` octicon in red (`--danger`) — shown **even at 0 approvals** (a request-changes with no approval is exactly the signal to surface), tooltip « N change(s) requested ». `labels` = the PR's GitHub labels (`[{name, color}]`, `color` = 6-digit hex **without** `#`, same GraphQL batch, zero extra cost) — shown in the « Labels » column as GitHub-look pills (§25). `checks` = individual CI jobs normalized (`{name, state, url}`, `state` ∈ {pass,fail,pending}, `url` = run page — CheckRun `detailsUrl` / StatusContext `targetUrl`, null if absent), consumed by the debug view, the CI recompute (cf. §16) and the CI checks popover (cf. §17). `ci` = aggregated verdict (`ciOf`: `ciFromState` by default; `ciFromChecks` if the repo has a blocklist). `statusCheckRollupState` = raw rollup, kept for the **local recompute** (`recomputeCi`) after a web toggle — allows falling back on `ciFromState` if the repo's blocklist becomes empty again. `conflicting` = the PR conflicts with its base branch: it comes from the GraphQL field `mergeable` (same batch, zero extra cost) and is true **only** for an explicit `CONFLICTING`. ⚠️ GitHub computes the merge commit **lazily**: the first read after a push returns `UNKNOWN` and merely *triggers* the computation — the next poll gives the verdict. Testing `mergeable !== 'MERGEABLE'` would therefore flash a false conflict on every fresh push. Shown in the 🚦 column, next to the state icon: a ⚠️, tooltip « Merge conflicts » — no column of its own (both tables would widen for a rare case). ⚠️ An **emoji**, not an octicon: the state icon is itself an emoji (📝🟢🟣🔴) and an inline SVG never lines up next to one (an emoji carries its own metrics and sits low in its box — neither `vertical-align` nor an `inline-flex` centring the boxes fixes it; both were tried and shipped visibly off).
+- **Row** (output of `collectPRs`): `{ repo, number, url, title, triggers:[…], author, branch, branchRepo, base, defaultBranch, createdAt, readyAt, updatedAt, additions, deletions, changedFiles, diffTypes, moreFiles, ci, checks:[{name,state}], statusCheckRollupState, state, conflicting, approvals, changesRequested }` — `readyAt` = date of the last draft → « ready for review » transition (GraphQL `timelineItems`, same batch; null if never draft), consumed by the easter-egg business-days gate (§21) and by the « In review » column (§26) — `branch` = the PR's `headRefName` and `branchRepo` = `headRepository.nameWithOwner` (same GraphQL batch, zero extra cost; null if missing), shown in the web « Branch » column as a small GitHub-like ref chip linking to the branch tree on the head repo (the fork for external PRs; fallback on `repo` if the fork is gone) with a copy button — `state` ∈ {draft,open,merged,closed} (via `prState`), `approvals` = number of **approvals** (via `countApprovals`: distinct users whose last review is APPROVED — not `reviews.length`), `changesRequested` = number of distinct users whose **last review is CHANGES_REQUESTED** (via `changesRequestedOf`, mirror of `approvalsOf`; zero cost, same GraphQL `reviews`). In the ✅ column, a non-zero `changesRequested` appends the GitHub `file-diff` octicon in red (`--danger`) — shown **even at 0 approvals** (a request-changes with no approval is exactly the signal to surface), tooltip « N change(s) requested ». `labels` = the PR's GitHub labels (`[{name, color}]`, `color` = 6-digit hex **without** `#`, same GraphQL batch, zero extra cost) — shown in the « Labels » column as GitHub-look pills (§25). `checks` = individual CI jobs normalized (`{name, state, url}`, `state` ∈ {pass,fail,pending}, `url` = run page — CheckRun `detailsUrl` / StatusContext `targetUrl`, null if absent), consumed by the debug view, the CI recompute (cf. §16) and the CI checks popover (cf. §17). `ci` = aggregated verdict (`ciOf`: `ciFromState` by default; `ciFromChecks` if the repo has a blocklist). `statusCheckRollupState` = raw rollup, kept for the **local recompute** (`recomputeCi`) after a web toggle — allows falling back on `ciFromState` if the repo's blocklist becomes empty again. `conflicting` = the PR conflicts with its base branch: it comes from the GraphQL field `mergeable` (same batch, zero extra cost) and is true **only** for an explicit `CONFLICTING`. ⚠️ GitHub computes the merge commit **lazily**: the first read after a push returns `UNKNOWN` and merely *triggers* the computation — the next poll gives the verdict. Testing `mergeable !== 'MERGEABLE'` would therefore flash a false conflict on every fresh push. Shown in the 🚦 column, next to the state icon: a ⚠️, tooltip « Merge conflicts » — no column of its own (both tables would widen for a rare case). ⚠️ An **emoji**, not an octicon: the state icon is itself an emoji (📝🟢🟣🔴) and an inline SVG never lines up next to one (an emoji carries its own metrics and sits low in its box — neither `vertical-align` nor an `inline-flex` centring the boxes fixes it; both were tried and shipped visibly off).
 - **scope**: `null` (everything) | `{ type:'org', value }` | `{ type:'repo', value:'owner/name' }` | **array** of these objects (union of favorites, cf. §14)
 
 ## Non-obvious decisions (⚠️ traps)
@@ -504,14 +504,15 @@ sequenceDiagram
 15. **Sorting of the tables (`--serve`) = display state, like the active favorite.** ONE
     criterion per table (never a multi-column cumulation), each with its own persisted state
     in `prefs-v1.json`: `sort` for « others » (`{key, dir}`, every column — `SORT_KEYS`:
-    repo|number|title|branch|date|review|updated|approvals|author|diff|status|triggers|ci) and
+    repo|number|title|branch|date|review|updated|approvals|author|diff|files|status|triggers|ci) and
     `sortMine` for « Your PRs » (`MINE_SORT_KEYS` = the same minus `author`, always me).
     Text keys (repo/title/branch/author) compare lowercased, missing at the end; `number`
     defaults desc (higher = more recent within a repo); `ci` sorts on a semantic rank
     (fail 0 → pending 1 → pass 2, `none`/absent → missing) and `triggers` on the rank of
     the row's MOST important trigger (same order as `TRIGGER_META`, review first — not
     alphabetical, like `STATE_RANK`). `diff` sorts on the size `additions + deletions` (both counters
-    absent → missing, at the end; a lone 0 is a real value). `status` sorts the 🚦 column on a
+    absent → missing, at the end; a lone 0 is a real value); `files` on `changedFiles` (null →
+    missing, 0 is a real value). `status` sorts the 🚦 column on a
     **semantic rank, not alphabetical** (`STATE_RANK`: open 0 → draft 1 → merged 2 → closed 3,
     « actionable first »; unknown/absent state → missing, at the end). Both `null` by default — `normalizeSort(raw, keys)` applies
     **`{updated, desc}`** at usage (the PRs that moved last come first; the shared
@@ -521,7 +522,7 @@ sequenceDiagram
     change). The hidden rows (`?hidden=1`) follow the « others » sort. `POST /sort?key=…`
     (+ **`&table=mine`** to target « Your PRs »; the th carries `data-sort-table`, forwarded by
     the client) = `toggleSort` (same column → reverse; other → default direction: date/updated
-    `desc`, approvals `asc` — the least approved first —, author `asc`, diff `asc` — the
+    `desc`, approvals `asc` — the least approved first —, author `asc`, diff/files `asc` — the
     quick reviews first —, status `asc` — open first) + local recompute,
     **0 GitHub call**. Clickable headers rendered by `sortableTh` (html.js) **only if
     `opts.sort` (others) / `opts.sortMine` (mine) is provided** to `renderFragment` — without
@@ -817,17 +818,25 @@ sequenceDiagram
     **asc** = longest in review first, the ones waiting the most) and hideable via the
     §24 gear. Zero cost: `readyAt`/`createdAt`/`state` were already on the row.
 
-27. **Per-type diff popover (click on the Diff figures).** A big diff is often scary for
+27. **Per-type diff popover (click on the Diff figures or the Files count).** A big diff is often scary for
     nothing (mostly `.feature`/`.md`): the `+X −Y` figures of the Diff column are themselves
     a chrome-less button (no visible chrome — just the numbers, clickable) opening a popover
-    listing each file type with its own diff. Data: `files(first: 100) { path additions
+    listing each file type with its file count and its own diff. Data: `files(first: 100) { path additions
     deletions }` added to the GraphQL `PR_FRAGMENT` (§8 — measured: a batch of 30 PRs with
     their files costs **1 rate-limit point**); `diffByType(files)` (pure, collect.js)
-    aggregates by extension → `row.diffTypes` (`[{ext, additions, deletions}]`, sorted by
+    aggregates by extension → `row.diffTypes` (`[{ext, files, additions, deletions}]`, sorted by
     **volume — adds + dels — descending**, the heaviest type first; alphabetical tie-break). `ext` is the display label: lowercased suffix after the last dot
     (a dotfile keeps its dot: `.gitignore`), bare lowercased filename when there is none
     (`makefile`); `.yml` is folded into `.yaml` (same format, two spellings). The displayed
-    cell figure stays the **raw PR total** — the breakdown only lives in the popover. ⚠️
+    cell figure stays the **raw PR total** — the breakdown only lives in the popover.
+    **Files column** (key `files`, right after Diff, both tables; header = the GitHub
+    `file-diff` octicon, tooltip « Changed files »): `row.changedFiles` = the GraphQL
+    `changedFiles` PR field (same batch, zero cost — GitHub's own total, independent of the
+    100-file cap below; null on an older snapshot → empty cell, sorts as missing). Its count
+    is the same chrome-less button opening the SAME popover — rendered **again** in that cell
+    (its own copy, ~10 lines of HTML): the two cells stay independent so hiding either column
+    via the ⚙ selector (§24) leaves the other's popover alive, and the client keeps a single
+    `button.diff-btn` → `nextElementSibling` rule (zero JS change). ⚠️
     `files` is capped at one page of 100: `row.moreFiles` counts the surplus
     (GraphQL `totalCount − nodes`, github.js) and renders a closing « … N files not listed »
     line — never paginate for this (a >100-file PR is rare and the popover is a hint, not an

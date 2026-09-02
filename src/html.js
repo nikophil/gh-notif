@@ -24,6 +24,13 @@ const iconTh = (emoji, label) => `<abbr title="${label}" style="text-decoration:
 const APPROVALS_TH = iconTh('✅', 'Approvals');
 const STATUS_TH = iconTh('🚦', 'Status');
 const TRIGGERS_TH = iconTh('⚡', 'Triggers');
+// GitHub `file-diff` octicon (the « Files changed » tab glyph), header of the
+// Files column — inline SVG like the other octicons, current text color.
+const FILES_ICON =
+  '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" style="fill:currentColor;vertical-align:text-bottom">' +
+  '<path d="M1 1.75C1 .784 1.784 0 2.75 0h7.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16H2.75A1.75 1.75 0 0 1 1 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25V4.664a.25.25 0 0 0-.073-.177l-2.914-2.914a.25.25 0 0 0-.177-.073ZM8 3.25a.75.75 0 0 1 .75.75v1.5h1.5a.75.75 0 0 1 0 1.5h-1.5v1.5a.75.75 0 0 1-1.5 0V7h-1.5a.75.75 0 0 1 0-1.5h1.5V4A.75.75 0 0 1 8 3.25Zm-3 8a.75.75 0 0 1 .75-.75h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1-.75-.75Z"></path>' +
+  '</svg>';
+const FILES_TH = iconTh(FILES_ICON, 'Changed files');
 
 // Sort indicator on the active column (▴ asc / ▾ desc).
 const SORT_ARROW = { asc: ' ▴', desc: ' ▾' };
@@ -85,11 +92,11 @@ const link = (url, text, tip = null) =>
 const diffTotals = (additions, deletions) =>
   `<span class="add">+${additions || 0}</span> <span class="del">−${deletions || 0}</span>`;
 
-// One line of the diff popover: file type + its own diff. `moreFiles` (> 100
+// One line of the diff popover: file type, how many files of it, its own diff. `moreFiles` (> 100
 // changed files, cf. github.js) gets a closing « … N files not listed » line.
 function diffPopover(types, moreFiles) {
   const lines = types.map((t) =>
-    `<li class="diff-type"><span class="diff-ext">${escapeHtml(t.ext)}</span>${diffTotals(t.additions, t.deletions)}</li>`);
+    `<li class="diff-type"><span class="diff-ext">${escapeHtml(t.ext)}</span><span class="diff-n">${t.files} file${t.files > 1 ? 's' : ''}</span>${diffTotals(t.additions, t.deletions)}</li>`);
   const more = moreFiles > 0
     ? `<li class="diff-more">… ${moreFiles} file${moreFiles > 1 ? 's' : ''} not listed</li>` : '';
   return `<div class="diff-pop" hidden><ul>${lines.join('')}${more}</ul></div>`;
@@ -103,6 +110,17 @@ const diffCell = (r) => {
   const types = r?.diffTypes ?? [];
   if (types.length === 0) return diffTotals(r?.additions, r?.deletions);
   return `<span class="diff-wrap"><button class="diff-btn" title="Diff by file type">${diffTotals(r.additions, r.deletions)}</button>${diffPopover(types, r.moreFiles ?? 0)}</span>`;
+};
+
+// Files cell: GitHub's changed-file total (independent of the 100-file cap of
+// the breakdown; null on an older snapshot → empty cell). With a breakdown it
+// opens the SAME per-type popover as the Diff figures — rendered again here,
+// its own copy, so hiding either column (§24) leaves the other's popover alive.
+const filesCell = (r) => {
+  if (r?.changedFiles == null) return '';
+  const types = r.diffTypes ?? [];
+  if (types.length === 0) return String(r.changedFiles);
+  return `<span class="diff-wrap"><button class="diff-btn" title="Files by type">${r.changedFiles}</button>${diffPopover(types, r.moreFiles ?? 0)}</span>`;
 };
 
 // « icon » cells with an explanatory title="" on hover.
@@ -355,11 +373,11 @@ export function partyWorthy(r, now) {
 // (same single-source guarantee as the colgroup: filtering both through the
 // same list cannot desynchronize them). 'act' = the ✕/⚙ column. Title is the
 // pivot column (absorbs the leftover width, §23) → never hideable.
-const MINE_COL_KEYS = ['repo', 'number', 'title', 'labels', 'branch', 'date', 'review', 'updated', 'diff', 'status', 'approvals', 'triggers', 'ci', 'act'];
-const OTHERS_COL_KEYS = ['repo', 'number', 'title', 'labels', 'branch', 'author', 'date', 'review', 'updated', 'diff', 'status', 'approvals', 'triggers', 'ci', 'act'];
+const MINE_COL_KEYS = ['repo', 'number', 'title', 'labels', 'branch', 'date', 'review', 'updated', 'diff', 'files', 'status', 'approvals', 'triggers', 'ci', 'act'];
+const OTHERS_COL_KEYS = ['repo', 'number', 'title', 'labels', 'branch', 'author', 'date', 'review', 'updated', 'diff', 'files', 'status', 'approvals', 'triggers', 'ci', 'act'];
 const COL_LABELS = {
   repo: 'Repository', number: 'PR', labels: 'Labels', branch: 'Branch', author: 'Author',
-  date: 'Opened', review: 'In review', updated: 'Updated', diff: 'Diff', status: 'Status',
+  date: 'Opened', review: 'In review', updated: 'Updated', diff: 'Diff', files: 'Files', status: 'Status',
   approvals: 'Approvals', triggers: 'Triggers', ci: 'CI', act: 'Hide button',
 };
 const NEVER_HIDDEN = new Set(['title']);
@@ -445,6 +463,7 @@ function mineRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
     reviewCell(r, now),
     dateCell('Updated', r.updatedAt, now),
     diffCell(r),
+    filesCell(r),
     stateCell(r.state, r.conflicting),
     approvalsCell(r.approvals, r.state === 'open' && isReady(r.approvals), r.changesRequested),
     triggersCell(r.triggers),
@@ -470,6 +489,7 @@ function mineTable(rows, hiddenRows, now, showHidden, sort = null, ignoredChecks
     sortableTh('In review', 'review', sort, 'mine'),
     sortableTh('Updated', 'updated', sort, 'mine'),
     sortableTh('Diff', 'diff', sort, 'mine'),
+    sortableTh(FILES_TH, 'files', sort, 'mine'),
     sortableTh(STATUS_TH, 'status', sort, 'mine'),
     sortableTh(APPROVALS_TH, 'approvals', sort, 'mine'),
     sortableTh(TRIGGERS_TH, 'triggers', sort, 'mine'),
@@ -503,6 +523,7 @@ function otherRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
     reviewCell(r, now),
     dateCell('Updated', r.updatedAt, now),
     diffCell(r),
+    filesCell(r),
     stateCell(r.state, r.conflicting),
     approvalsCell(r.approvals, false, r.changesRequested),
     triggersCell(r.triggers),
@@ -528,6 +549,7 @@ function othersTable(others, hiddenRows, now, showHidden, sort = null, ignoredCh
     sortableTh('In review', 'review', sort),
     sortableTh('Updated', 'updated', sort),
     sortableTh('Diff', 'diff', sort),
+    sortableTh(FILES_TH, 'files', sort),
     sortableTh(STATUS_TH, 'status', sort),
     sortableTh(APPROVALS_TH, 'approvals', sort),
     sortableTh(TRIGGERS_TH, 'triggers', sort),
@@ -922,12 +944,18 @@ ${FAVICON}
               overflow-y: auto; background: var(--canvas); border: 1px solid var(--border);
               border-radius: 6px; box-shadow: 0 8px 24px rgba(1,4,9,.3); padding: .3rem 0;
               font-size: .75rem; font-weight: 400; text-align: left; }
-  .diff-pop ul { list-style: none; margin: 0; padding: 0; }
-  .diff-pop .diff-type { display: flex; align-items: center; gap: .6rem; padding: .25rem .75rem;
+  /* One shared 4-column grid (type · files · +adds · −dels): each line is a
+     subgrid row so the columns line up across lines, numbers right-aligned. */
+  .diff-pop ul { list-style: none; margin: 0; padding: 0; display: grid;
+                 grid-template-columns: 1fr auto auto auto; }
+  .diff-pop .diff-type { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1;
+                         align-items: center; column-gap: .6rem; padding: .25rem .75rem;
                          white-space: nowrap; }
   .diff-pop .diff-type:hover { background: var(--canvas-subtle); }
-  .diff-pop .diff-ext { flex: 1; color: var(--fg); }
-  .diff-pop .diff-more { padding: .25rem .75rem; color: var(--fg-muted); }
+  .diff-pop .diff-ext { color: var(--fg); }
+  .diff-pop .diff-n { color: var(--fg-muted); }
+  .diff-pop .diff-n, .diff-pop .add, .diff-pop .del { text-align: right; }
+  .diff-pop .diff-more { grid-column: 1 / -1; padding: .25rem .75rem; color: var(--fg-muted); }
   /* Column selector (§24): tiny gear in the ✕-column th, revealed on hover
      (GitHub-discreet), opening a checkbox popover — same fixed positioning as
      the CI popover (the sections clip their overflow). */

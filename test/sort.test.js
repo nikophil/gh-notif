@@ -18,7 +18,7 @@ test('normalizeSort: valid passes, invalid/absent → default', () => {
   assert.deepEqual(normalizeSort({ key: 'nope', dir: 'asc' }), DEFAULT_SORT);
   assert.deepEqual(normalizeSort({ key: 'date', dir: 'sideways' }), DEFAULT_SORT);
   assert.deepEqual(DEFAULT_SORT, { key: 'updated', dir: 'desc' });
-  assert.deepEqual(SORT_KEYS, ['repo', 'number', 'title', 'labels', 'branch', 'date', 'review', 'updated', 'approvals', 'author', 'diff', 'status', 'triggers', 'ci']);
+  assert.deepEqual(SORT_KEYS, ['repo', 'number', 'title', 'labels', 'branch', 'date', 'review', 'updated', 'approvals', 'author', 'diff', 'files', 'status', 'triggers', 'ci']);
 });
 
 test('normalizeSort with MINE_SORT_KEYS: every column except author, the rest → default', () => {
@@ -47,6 +47,8 @@ test('toggleSort: other column → REPLACES, with the column default direction',
   assert.deepEqual(toggleSort({ key: 'approvals', dir: 'desc' }, 'author'), { key: 'author', dir: 'asc' });
   assert.deepEqual(toggleSort({ key: 'author', dir: 'desc' }, 'date'), { key: 'date', dir: 'desc' });
   assert.deepEqual(toggleSort({ key: 'date', dir: 'asc' }, 'diff'), { key: 'diff', dir: 'asc' });
+  // files → fewest changed files first (the quick reviews, like diff)
+  assert.deepEqual(toggleSort({ key: 'date', dir: 'asc' }, 'files'), { key: 'files', dir: 'asc' });
   // status → actionable first (open before draft before merged/closed)
   assert.deepEqual(toggleSort({ key: 'date', dir: 'asc' }, 'status'), { key: 'status', dir: 'asc' });
   assert.deepEqual(toggleSort({ key: 'status', dir: 'asc' }, 'status'), { key: 'status', dir: 'desc' });
@@ -406,4 +408,16 @@ test('groupStacks: a LINEAR chain is never flagged stackBranched (single indent 
     { repo: 'o/a', number: 3, branch: 'c', base: 'b', defaultBranch: 'main' },
   ]);
   assert.ok(out.every((r) => r.stackBranched === undefined));
+});
+
+test('sortRows: files = changedFiles (asc → fewest first), missing at the END whatever the direction', () => {
+  const rows = [
+    { number: 1, changedFiles: 12 },
+    { number: 2 },                    // older snapshot: no count → missing
+    { number: 3, changedFiles: 0 },   // 0 is a real value
+    { number: 4, changedFiles: 3 },
+  ];
+  assert.deepEqual(order(sortRows(rows, { key: 'files', dir: 'asc' })), [3, 4, 1, 2]);
+  assert.deepEqual(order(sortRows(rows, { key: 'files', dir: 'desc' })), [1, 4, 3, 2]);
+  assert.deepEqual(order(sortRows(rows, { key: 'files', dir: 'asc' }, MINE_SORT_KEYS)), [3, 4, 1, 2]);
 });

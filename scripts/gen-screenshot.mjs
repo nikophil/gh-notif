@@ -25,8 +25,8 @@ const mine = [
     labels: [{ name: 'React 19', color: '0e8a16' }],
     triggers: ['comment'], ci: 'pass', state: 'open', approvals: 2,
     createdAt: ago(80), readyAt: ago(52), updatedAt: ago(2),
-    additions: 240, deletions: 12,
-    diffTypes: [{ ext: '.js', additions: 214, deletions: 10 }, { ext: '.md', additions: 26, deletions: 2 }],
+    additions: 240, deletions: 12, changedFiles: 8,
+    diffTypes: [{ ext: '.js', files: 6, additions: 214, deletions: 10 }, { ext: '.md', files: 2, additions: 26, deletions: 2 }],
   },
   {
     repo: 'nodejs/node', number: 52012, url: 'https://github.com/x',
@@ -34,8 +34,8 @@ const mine = [
     labels: [{ name: 'stream', color: 'bfd4f2' }],
     triggers: ['reply'], ci: 'pass', state: 'open', approvals: 3,
     createdAt: ago(200), readyAt: ago(120), updatedAt: ago(7),
-    additions: 58, deletions: 21,
-    diffTypes: [{ ext: '.js', additions: 40, deletions: 18 }, { ext: '.mjs', additions: 18, deletions: 3 }],
+    additions: 58, deletions: 21, changedFiles: 4,
+    diffTypes: [{ ext: '.js', files: 3, additions: 40, deletions: 18 }, { ext: '.mjs', files: 1, additions: 18, deletions: 3 }],
   },
   {
     repo: 'vercel/next.js', number: 64210, url: 'https://github.com/x',
@@ -43,8 +43,8 @@ const mine = [
     labels: [],
     triggers: [], ci: 'pending', state: 'draft', approvals: 0, conflicting: true,
     createdAt: ago(30), updatedAt: ago(20),
-    additions: 96, deletions: 33,
-    diffTypes: [{ ext: '.ts', additions: 90, deletions: 30 }, { ext: '.json', additions: 6, deletions: 3 }],
+    additions: 96, deletions: 33, changedFiles: 6,
+    diffTypes: [{ ext: '.ts', files: 5, additions: 90, deletions: 30 }, { ext: '.json', files: 1, additions: 6, deletions: 3 }],
   },
 ];
 
@@ -56,8 +56,8 @@ const others = [
     labels: [{ name: 'DX', color: '5319e7' }, { name: 'Serializer', color: 'fbca04' }],
     triggers: ['review'], ci: 'pass', state: 'open', approvals: 1,
     createdAt: ago(2), readyAt: ago(2), updatedAt: ago(1),
-    additions: 451, deletions: 10,
-    diffTypes: [{ ext: '.php', additions: 402, deletions: 8 }, { ext: '.xml', additions: 49, deletions: 2 }],
+    additions: 451, deletions: 10, changedFiles: 11,
+    diffTypes: [{ ext: '.php', files: 9, additions: 402, deletions: 8 }, { ext: '.xml', files: 2, additions: 49, deletions: 2 }],
   },
   {
     repo: 'laravel/framework', number: 50123, url: 'https://github.com/x',
@@ -66,8 +66,8 @@ const others = [
     labels: [{ name: 'enhancement', color: 'a2eeef' }],
     triggers: ['reply'], ci: 'pass', state: 'open', approvals: 4,
     createdAt: ago(5), readyAt: ago(5), updatedAt: ago(3),
-    additions: 88, deletions: 4,
-    diffTypes: [{ ext: '.php', additions: 88, deletions: 4 }],
+    additions: 88, deletions: 4, changedFiles: 2,
+    diffTypes: [{ ext: '.php', files: 2, additions: 88, deletions: 4 }],
   },
   {
     repo: 'vuejs/core', number: 10456, url: 'https://github.com/x',
@@ -76,8 +76,8 @@ const others = [
     labels: [],
     triggers: ['review', 'mention'], ci: 'fail', state: 'open', approvals: 0, changesRequested: 1,
     createdAt: ago(26), readyAt: ago(26), updatedAt: ago(4),
-    additions: 230, deletions: 180,
-    diffTypes: [{ ext: '.ts', additions: 230, deletions: 180 }],
+    additions: 230, deletions: 180, changedFiles: 7,
+    diffTypes: [{ ext: '.ts', files: 7, additions: 230, deletions: 180 }],
   },
   {
     repo: 'rust-lang/rust', number: 121987, url: 'https://github.com/x',
@@ -86,8 +86,8 @@ const others = [
     labels: [{ name: 'T-lang', color: 'd4c5f9' }],
     triggers: ['mention'], ci: 'pass', state: 'open', approvals: 2,
     createdAt: ago(50), readyAt: ago(50), updatedAt: ago(22),
-    additions: 12, deletions: 3,
-    diffTypes: [{ ext: '.rs', additions: 12, deletions: 3 }],
+    additions: 12, deletions: 3, changedFiles: 1,
+    diffTypes: [{ ext: '.rs', files: 1, additions: 12, deletions: 3 }],
   },
 ];
 

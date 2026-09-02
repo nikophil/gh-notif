@@ -978,8 +978,8 @@ test('diffByType: aggregates by extension, heaviest volume (adds+dels) first', (
     { path: 'src/Sub/Baz.php', additions: 5, deletions: 3 },
   ];
   assert.deepEqual(diffByType(files), [
-    { ext: '.php', additions: 15, deletions: 5 },
-    { ext: '.feature', additions: 9, deletions: 1 },
+    { ext: '.php', files: 2, additions: 15, deletions: 5 },
+    { ext: '.feature', files: 1, additions: 9, deletions: 1 },
   ]);
 });
 
@@ -989,8 +989,8 @@ test('diffByType: equal volume → alphabetical tie-break', () => {
     { path: 'b.md', additions: 1, deletions: 1 },
   ];
   assert.deepEqual(diffByType(files), [
-    { ext: '.md', additions: 1, deletions: 1 },
-    { ext: '.php', additions: 2, deletions: 0 },
+    { ext: '.md', files: 1, additions: 1, deletions: 1 },
+    { ext: '.php', files: 1, additions: 2, deletions: 0 },
   ]);
 });
 
@@ -999,7 +999,7 @@ test('diffByType: merges .yml into .yaml, case-insensitive extension', () => {
     { path: 'a.YML', additions: 1, deletions: 0 },
     { path: 'config/b.yaml', additions: 2, deletions: 1 },
   ];
-  assert.deepEqual(diffByType(files), [{ ext: '.yaml', additions: 3, deletions: 1 }]);
+  assert.deepEqual(diffByType(files), [{ ext: '.yaml', files: 2, additions: 3, deletions: 1 }]);
 });
 
 test('diffByType: extensionless file → its lowercased name; a dotfile keeps its dot', () => {
@@ -1008,8 +1008,8 @@ test('diffByType: extensionless file → its lowercased name; a dotfile keeps it
     { path: '.gitignore', additions: 1, deletions: 1 },
   ];
   assert.deepEqual(diffByType(files), [
-    { ext: 'makefile', additions: 4, deletions: 0 },
-    { ext: '.gitignore', additions: 1, deletions: 1 },
+    { ext: 'makefile', files: 1, additions: 4, deletions: 0 },
+    { ext: '.gitignore', files: 1, additions: 1, deletions: 1 },
   ]);
 });
 
@@ -1033,8 +1033,8 @@ test('collectPRs: rows carry diffTypes (aggregated) and moreFiles', async () => 
   });
   const { others } = await collectPRs(gh, ME, {});
   assert.deepEqual(others[0].diffTypes, [
-    { ext: '.php', additions: 8, deletions: 2 },
-    { ext: '.md', additions: 2, deletions: 0 },
+    { ext: '.php', files: 1, additions: 8, deletions: 2 },
+    { ext: '.md', files: 1, additions: 2, deletions: 0 },
   ]);
   assert.equal(others[0].moreFiles, 3);
 });
@@ -1047,4 +1047,12 @@ test('collectPRs: detail without files → diffTypes [] and moreFiles 0 (compat)
   const { others } = await collectPRs(gh, ME, {});
   assert.deepEqual(others[0].diffTypes, []);
   assert.equal(others[0].moreFiles, 0);
+});
+
+test('collectPRs: rows carry changedFiles (GitHub total), null when the detail lacks it', async () => {
+  const search = [{ number: 42, title: 'PR A', html_url: 'https://github.com/o/r/pull/42', updated_at: '2026-06-24T12:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }];
+  const withCount = fakeGh({ search, details: () => ({ number: 42, title: 'PR A', author: { login: 'alice' }, changedFiles: 7 }) });
+  assert.equal((await collectPRs(withCount, ME, {})).others[0].changedFiles, 7);
+  const without = fakeGh({ search, details: () => ({ number: 42, title: 'PR A', author: { login: 'alice' } }) });
+  assert.equal((await collectPRs(without, ME, {})).others[0].changedFiles, null);
 });

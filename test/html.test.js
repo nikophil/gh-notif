@@ -1120,11 +1120,14 @@ test('renderFragment: hidden author column on others', () => {
 });
 
 test('renderFragment: with diffTypes the diff becomes a button opening a per-type popover', () => {
-  const out = renderFragment({ mine: [myRow({ diffTypes: [{ ext: '.php', additions: 15, deletions: 5 }, { ext: '.yaml', additions: 2, deletions: 0 }] })], others: [] }, { now: NOW });
+  const out = renderFragment({ mine: [myRow({ diffTypes: [{ ext: '.php', files: 3, additions: 15, deletions: 5 }, { ext: '.yaml', files: 1, additions: 2, deletions: 0 }] })], others: [] }, { now: NOW });
   assert.ok(out.includes('diff-btn'), 'clickable diff');
   assert.ok(out.includes('diff-pop'), 'inline hidden popover');
   assert.ok(out.includes('.php'));
   assert.ok(out.includes('.yaml'));
+  // each type line carries its file count (singular/plural)
+  assert.ok(out.includes('<span class="diff-n">3 files</span>'));
+  assert.ok(out.includes('<span class="diff-n">1 file</span>'));
   // the displayed number stays the raw total
   assert.ok(out.includes('+17'));
   assert.ok(out.includes('−4'));
@@ -1145,4 +1148,44 @@ test('renderFragment: diff popover escapes the extension (anti-injection)', () =
   const out = renderFragment({ mine: [myRow({ diffTypes: [{ ext: '.<script>', additions: 1, deletions: 0 }] })], others: [] }, { now: NOW });
   assert.ok(!out.includes('.<script>'));
   assert.ok(out.includes('.&lt;script&gt;'));
+});
+
+test('renderFragment: Files column (file-diff octicon header) after Diff, in both tables', () => {
+  const out = renderFragment({ mine: [myRow({ changedFiles: 4 })], others: [otherRow({ changedFiles: 9 })] },
+    { now: NOW, sort: { key: 'date', dir: 'desc' }, sortMine: { key: 'date', dir: 'desc' } });
+  const [mineTbl, othersTbl] = out.split('👥');
+  assert.match(othersTbl, /data-sort-key="diff"[^>]*>Diff<\/th><th[^>]*data-sort-key="files"[^>]*><abbr title="Changed files"[^>]*><svg/);
+  assert.match(mineTbl, /data-sort-key="files"[^>]*data-sort-table="mine"/);
+  // plain count without a per-type breakdown (compat: no button, no popover)
+  assert.match(mineTbl, /<td>4<\/td>/);
+  assert.match(othersTbl, /<td>9<\/td>/);
+  assert.ok(!out.includes('diff-btn'));
+});
+
+test('renderFragment: no changedFiles (older snapshot) → empty Files cell', () => {
+  const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW });
+  // …+17 −4</td><td></td><td>🟢 status cell
+  assert.match(out, /−4<\/span><\/td><td><\/td><td>/);
+});
+
+test('renderFragment: the Files count opens the SAME per-type popover as the Diff figures', () => {
+  const types = [{ ext: '.php', files: 3, additions: 15, deletions: 5 }];
+  const out = renderFragment({ mine: [myRow({ changedFiles: 3, diffTypes: types })], others: [] }, { now: NOW });
+  assert.match(out, /<button class="diff-btn" title="Files by type">3<\/button><div class="diff-pop" hidden>/);
+  // one popover per button: the two cells stay independent…
+  assert.equal((out.match(/class="diff-pop"/g) || []).length, 2);
+  // …so hiding Diff keeps the Files popover alive (and vice versa)
+  const noDiff = renderFragment({ mine: [myRow({ changedFiles: 3, diffTypes: types })], others: [] }, { now: NOW, cols: { mine: ['diff'], others: [] } });
+  assert.equal((noDiff.match(/class="diff-pop"/g) || []).length, 1);
+  assert.match(noDiff, /title="Files by type">3<\/button>/);
+});
+
+test('renderFragment: Files is hideable via the column selector (headers/cells stay aligned)', () => {
+  const out = renderFragment({ mine: [myRow({ changedFiles: 4 })], others: [] }, { now: NOW, sortMine: { key: 'date', dir: 'desc' }, cols: { mine: ['files'], others: [] } });
+  assert.doesNotMatch(out, /data-sort-key="files"/);
+  assert.doesNotMatch(out, /<td>4<\/td>/);
+  assert.match(out, /data-cols-table="mine" data-cols-key="files"(?![^>]*checked)/);
+  const ths = (out.match(/<th[ >]/g) || []).length;
+  const tds = (out.match(/<td[ >]/g) || []).length;
+  assert.equal(ths, tds);
 });
