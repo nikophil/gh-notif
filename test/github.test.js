@@ -350,3 +350,25 @@ test('getPullDetailsBatch: exposes changedFiles (GraphQL PR field), null when ab
   const old = await makeGh(fakeRunner([['api graphql', pr({})]])).getPullDetailsBatch([{ repo: 'o/r', number: 42 }]);
   assert.equal(old[0].changedFiles, null);
 });
+
+// ── Search page (§29) ───────────────────────────────────────────────────────
+test('searchPRs: sort=updated desc, stops at `max` (2 full pages of 100), returns total_count', async () => {
+  const full = Array.from({ length: 100 }, (_, i) => ({ number: i + 1 }));
+  const calls = [];
+  const runner = async (args) => { calls.push(args.join(' ')); return JSON.stringify({ total_count: 1234, items: full }); };
+  const out = await makeGh(runner).searchPRs('is:pr author:alice', { max: 200 });
+  assert.equal(calls.length, 2, 'never a 3rd page: max reached');
+  assert.ok(calls[0].includes('q=is:pr author:alice'));
+  assert.ok(calls[0].includes('sort=updated') && calls[0].includes('order=desc') && calls[0].includes('per_page=100'));
+  assert.equal(out.items.length, 200);
+  assert.equal(out.total, 1234);
+});
+
+test('searchPRs: a non-full page ends the loop; a full last page is sliced to max', async () => {
+  const thirty = await makeGh(async () => JSON.stringify({ total_count: 30, items: Array.from({ length: 30 }, (_, i) => ({ number: i })) })).searchPRs('q');
+  assert.equal(thirty.items.length, 30);
+  assert.equal(thirty.total, 30);
+  const sliced = await makeGh(async () => JSON.stringify({ total_count: 500, items: Array.from({ length: 100 }, (_, i) => ({ number: i })) })).searchPRs('q', { max: 50 });
+  assert.equal(sliced.items.length, 50);
+  assert.equal(sliced.total, 500);
+});

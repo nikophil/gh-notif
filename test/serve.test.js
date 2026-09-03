@@ -613,7 +613,7 @@ test('GET /view : JSON {chips, fragment, updatedAt}, counters from the snapshot'
 test('GET /fragment : « closed » link contextualized (ad-hoc > active favorite > union of favorites)', () => {
   // No scope nor favorite → link without qualifier.
   let res = handleRequest('/fragment', okSnapshot(), OPTS);
-  assert.ok(res.body.includes('href="https://github.com/pulls?q=is%3Apr%20author%3A%40me%20is%3Aclosed"'));
+  assert.ok(res.body.includes('href="/search?q=is%3Apr%20author%3A%40me%20is%3Aclosed"'));
   // Active favorite → its qualifier alone.
   res = handleRequest('/fragment', okSnapshot(), { ...OPTS, favorites: ['symfony', 'a/b'], activeFav: 'symfony' });
   assert.ok(res.body.includes('is%3Aclosed%20org%3Asymfony"'));
@@ -1097,6 +1097,74 @@ test('POST /cols : hides/shows a column per table, persists, 400 on invalid key'
 
     // POST /cols triggers no GitHub poll (local recompute only).
     assert.equal(polls, 1);
+  } finally {
+    server.close();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// ── integration: search page (§29) ──────────────────────────────────────────
+test('search page: one fetch per query, sort/page from the cache, refresh refetches, errors not cached', async () => {
+  let searches = 0;
+  let fail = false;
+  const gh = {
+    getCurrentUser: async () => 'me',
+    listNotifications: async () => [],
+    searchReviewRequested: async () => [],
+    searchAuthored: async () => [],
+    searchPRs: async () => {
+      searches++;
+      if (fail) throw new Error('gh: API rate limit exceeded (HTTP 403)');
+      return { items: Array.from({ length: 30 }, (_, i) => ({ repository_url: 'https://api.github.com/repos/symfony/web', number: i + 1, title: `t${i + 1}`, html_url: `https://github.com/symfony/web/pull/${i + 1}` })), total: 30 };
+    },
+    getPullDetailsBatch: async (prs) => prs.map((p) => ({
+      number: p.number, title: `t${p.number}`, author: { login: 'alice' }, createdAt: '2026-06-01T00:00:00Z',
+      updatedAt: `2026-06-${String(p.number).padStart(2, '0')}T00:00:00Z`, additions: p.number, deletions: 0,
+      isDraft: false, state: 'OPEN', reviews: [], statusCheckRollupState: 'SUCCESS',
+    })),
+    getComment: async () => null,
+    getReviewComments: async () => [],
+  };
+  const tmp = `/tmp/gh-notif-test-search-${process.pid}`;
+  rmSync(tmp, { recursive: true, force: true });
+  process.env.XDG_STATE_HOME = tmp;
+
+  const PORT = 7813;
+  const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false });
+  const base = `http://localhost:${PORT}`;
+  const q = encodeURIComponent('author:alice');
+  try {
+    await new Promise((r) => setTimeout(r, 250)); // 1st poll
+    assert.equal(searches, 0, 'the poll never searches');
+
+    const shell = await fetch(`${base}/search?q=${q}`);
+    assert.equal(shell.status, 200);
+    assert.match(await shell.text(), /value="author:alice"/);
+
+    const f1 = await (await fetch(`${base}/search-fragment?q=${q}`)).text();
+    assert.equal(searches, 1);
+    assert.match(f1, /30 PRs/);
+    assert.match(f1, /<span class="on">1<\/span>/);
+    assert.match(f1, /page=2">2<\/a>/);
+    assert.match(f1, />t30</, 'updated-desc by default: #30 first');
+    assert.ok(!f1.includes('>t1<'), 'page 1 holds 25 rows: #1 (oldest) is on page 2');
+
+    const f2 = await (await fetch(`${base}/search-fragment?q=${q}&sort=diff&dir=asc&page=2`)).text();
+    assert.equal(searches, 1, 'sort/page served from the cache');
+    assert.match(f2, /<span class="on">2<\/span>/);
+    assert.match(f2, />t26</, 'diff asc (additions = number): page 2 = #26–#30');
+
+    const f3 = await (await fetch(`${base}/search/refresh?q=${q}`, { method: 'POST' })).text();
+    assert.equal(searches, 2, 'refresh bypasses the cache');
+    assert.match(f3, /30 PRs/);
+
+    fail = true;
+    const f4 = await (await fetch(`${base}/search-fragment?q=${encodeURIComponent('author:bob')}`)).text();
+    assert.equal(searches, 3);
+    assert.match(f4, /⚠️ .*rate limit/);
+    fail = false;
+    await fetch(`${base}/search-fragment?q=${encodeURIComponent('author:bob')}`);
+    assert.equal(searches, 4, 'an error is not cached');
   } finally {
     server.close();
     rmSync(tmp, { recursive: true, force: true });

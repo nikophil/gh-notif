@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { collectNotifications, collectPending, collectPRs, diffByType, ciFromState, ciFromChecks, ciOf, recomputeCi, prState, countApprovals, scopeMatches, scopeQualifier, toScopeList, matchesAnyScope, scopesQualifier, mergeReviewComments, watermarkOf } from '../src/collect.js';
+import { collectNotifications, collectPending, collectPRs, collectSearch, searchQuery, buildRow, diffByType, ciFromState, ciFromChecks, ciOf, recomputeCi, prState, countApprovals, scopeMatches, scopeQualifier, toScopeList, matchesAnyScope, scopesQualifier, mergeReviewComments, watermarkOf } from '../src/collect.js';
 
 const ME = 'nikophil';
 
@@ -1055,4 +1055,54 @@ test('collectPRs: rows carry changedFiles (GitHub total), null when the detail l
   assert.equal((await collectPRs(withCount, ME, {})).others[0].changedFiles, 7);
   const without = fakeGh({ search, details: () => ({ number: 42, title: 'PR A', author: { login: 'alice' } }) });
   assert.equal((await collectPRs(without, ME, {})).others[0].changedFiles, null);
+});
+
+// ── Search page (§29) ───────────────────────────────────────────────────────
+test('searchQuery: is:pr forced once, whitespace normalized', () => {
+  assert.equal(searchQuery('  author:alice   org:x '), 'is:pr author:alice org:x');
+  assert.equal(searchQuery('is:pr author:alice'), 'is:pr author:alice');
+  assert.equal(searchQuery('author:alice is:pr is:closed'), 'author:alice is:pr is:closed');
+  assert.equal(searchQuery(''), 'is:pr');
+});
+
+test('buildRow: no detail → fallbacks on the entry (title, url), empty/zero fields', () => {
+  const row = buildRow({ repo: 'o/r', number: 3, title: 'from search', url: 'u', triggers: new Set(['review']) }, null);
+  assert.equal(row.title, 'from search');
+  assert.equal(row.url, 'u');
+  assert.deepEqual(row.triggers, ['review']);
+  assert.equal(row.author, null);
+  assert.equal(row.ci, 'none');
+  assert.equal(row.approvals, 0);
+  assert.equal(row.state, 'open');
+});
+
+const searchItem = (number) => ({ repository_url: 'https://api.github.com/repos/o/r', number, title: `PR ${number}`, html_url: `u${number}` });
+
+test('collectSearch: one capped search + details → full rows, GitHub total and capped flag', async () => {
+  const gh = fakeGh({
+    details: (repo, number) => ({ number, title: `PR ${number}`, author: { login: 'alice' }, isDraft: number === 2, state: 'OPEN', statusCheckRollupState: 'SUCCESS', additions: 3, deletions: 1 }),
+  });
+  const calls = [];
+  gh.searchPRs = async (q, opts) => { calls.push([q, opts]); return { items: [searchItem(1), searchItem(2)], total: 275 }; };
+  const r = await collectSearch(gh, ' author:alice   is:closed ', { max: 2 });
+
+  assert.deepEqual(calls, [['is:pr author:alice is:closed', { max: 2 }]]);
+  assert.equal(r.query, 'is:pr author:alice is:closed');
+  assert.equal(r.url, `https://github.com/pulls?q=${encodeURIComponent('is:pr author:alice is:closed')}`);
+  assert.deepEqual(r.rows.map((x) => x.number), [1, 2]);
+  assert.equal(r.rows[0].ci, 'pass');
+  assert.equal(r.rows[0].author, 'alice');
+  assert.equal(r.rows[0].url, 'u1');
+  assert.equal(r.rows[1].state, 'draft'); // drafts kept: an inventory, not an inbox
+  assert.deepEqual(r.rows[0].triggers, []);
+  assert.equal(r.total, 275);
+  assert.equal(r.capped, true);
+});
+
+test('collectSearch: the per-repo CI blocklist applies (same rows as the dashboard); not capped when complete', async () => {
+  const gh = fakeGh({ details: () => ({ number: 1, title: 'x', author: { login: 'a' }, statusCheckRollupState: 'FAILURE', checks: [{ name: 'flaky', state: 'fail' }] }) });
+  gh.searchPRs = async () => ({ items: [searchItem(1)], total: 1 });
+  const r = await collectSearch(gh, 'author:a', { ignoredChecks: { 'o/r': ['flaky'] } });
+  assert.equal(r.rows[0].ci, 'none');
+  assert.equal(r.capped, false);
 });

@@ -4,7 +4,7 @@
 import { ciIcon, stateIcon, relativeDate, durationSince, checksByRepo } from './render.js';
 import { isReady } from './approvals.js';
 import { favoriteLabel } from './favorites.js';
-import { hasStacks } from './sort.js';
+import { hasStacks, toggleSort, DEFAULT_SORT } from './sort.js';
 
 // Labels shown on hover (title="") of the icons — they give the meaning.
 const STATE_LABEL = { draft: 'Draft', open: 'Open', merged: 'Merged', closed: 'Closed' };
@@ -39,11 +39,16 @@ const SORT_ARROW = { asc: ' ▴', desc: ' ▾' };
 // indicator if it's the active column. `sort` absent → bare th (compat).
 // `table` ('mine') tags the th so the client posts /sort?table=… — the two
 // tables carry independent sort states (cf. §15).
-function sortableTh(html, key, sort, table = null) {
+// `href` (search page, §29): the th carries the URL of the toggled sort
+// instead of a key — the server computed the next state, the client only
+// navigates (no data-sort-key → the dashboard's POST /sort handler never fires).
+function sortableTh(html, key, sort, table = null, href = null) {
   if (!sort) return html;
   const active = sort.key === key;
   return {
-    attrs: ` data-sort-key="${key}"${table ? ` data-sort-table="${table}"` : ''} title="Sort"`,
+    attrs: href
+      ? ` data-sort-href="${escapeHtml(href)}" title="Sort"`
+      : ` data-sort-key="${key}"${table ? ` data-sort-table="${table}"` : ''} title="Sort"`,
     html: active ? `${html}${SORT_ARROW[sort.dir] ?? ''}` : html,
     active, // current sort column → marked in the colgroup (cf. table)
   };
@@ -540,24 +545,26 @@ function otherRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
   );
 }
 
-function othersTable(others, hiddenRows, now, showHidden, sort = null, ignoredChecks = {}, hiddenCols = []) {
+// `hrefOf(key)` (optional, search page §29): the th link to the toggled sort.
+function othersTable(others, hiddenRows, now, showHidden, sort = null, ignoredChecks = {}, hiddenCols = [], hrefOf = null) {
   hiddenCols = dropLabelsIfEmpty([...others, ...(showHidden ? hiddenRows : [])], hiddenCols);
+  const th = (html, key) => sortableTh(html, key, sort, null, hrefOf ? hrefOf(key) : null);
   const headers = dropHidden([
-    sortableTh('Repository', 'repo', sort),
-    sortableTh('PR', 'number', sort),
-    sortableTh('Title', 'title', sort),
-    sortableTh('Labels', 'labels', sort),
-    sortableTh('Branch', 'branch', sort),
-    sortableTh('Author', 'author', sort),
-    sortableTh('Opened', 'date', sort),
-    sortableTh('In review', 'review', sort),
-    sortableTh('Updated', 'updated', sort),
-    sortableTh('Diff', 'diff', sort),
-    sortableTh(FILES_TH, 'files', sort),
-    sortableTh(STATUS_TH, 'status', sort),
-    sortableTh(APPROVALS_TH, 'approvals', sort),
-    sortableTh(TRIGGERS_TH, 'triggers', sort),
-    sortableTh('CI', 'ci', sort),
+    th('Repository', 'repo'),
+    th('PR', 'number'),
+    th('Title', 'title'),
+    th('Labels', 'labels'),
+    th('Branch', 'branch'),
+    th('Author', 'author'),
+    th('Opened', 'date'),
+    th('In review', 'review'),
+    th('Updated', 'updated'),
+    th('Diff', 'diff'),
+    th(FILES_TH, 'files'),
+    th(STATUS_TH, 'status'),
+    th(APPROVALS_TH, 'approvals'),
+    th(TRIGGERS_TH, 'triggers'),
+    th('CI', 'ci'),
     '',
   ], OTHERS_COL_KEYS, hiddenCols);
   const trs = [
@@ -721,15 +728,71 @@ export function renderFavorites(favorites = [], active = null, { adhoc = false, 
     + `<button data-fav=""${allOn} title="All favorites">⭐ all${badge(counts?.total)}</button>${chips}</div>`;
 }
 
-// hidden » mode, the hide-by-button, and the org/repo filter. `scopeLabel` pre-fills
-// the scope field. The client rhythm is decoupled from the GitHub poll server-side.
-export function renderShell({ intervalMs = 10000, scopeLabel = '', notifyEnabled = true, theme = 'auto', favorites = [], activeFav = null, adhoc = false, counts = null, favModes = null } = {}) {
+// Table interactions shared by the dashboard and the search page (§29), inlined
+// in both scripts: the CI / diff / column popovers (one open at a time,
+// position:fixed, reparented to <body>, closed on outside click / Escape,
+// re-anchored on scroll) and the clipboard copy with its execCommand fallback.
+const TABLE_JS = `
+  var openPop = null;
+  // Column-selector popover: which table's menu is open ('mine'/'others'), so
+  // it can be re-opened after each fragment re-injection (checking a box POSTs
+  // /cols and replaces #content — without this the menu would close after
+  // every single toggle).
+  var openColsTable = null;
+  var popAnchor = null;
+  function closeCiPop() {
+    if (openPop) {
+      openPop.hidden = true;
+      // Undo the <body> reparenting (showPop): back next to its anchor, or
+      // dropped if the fragment was re-injected meanwhile (orphan node).
+      if (openPop.parentNode === document.body) {
+        if (popAnchor && popAnchor.isConnected) popAnchor.after(openPop);
+        else openPop.remove();
+      }
+      openPop = null;
+    }
+    openColsTable = null; popAnchor = null;
+  }
+  function showPop(anchor, pop) {
+    popAnchor = anchor;
+    // Reparent to <body>: an ancestor sticky h2 creates a stacking context
+    // that would confine the popover's z-index under the table headers.
+    if (pop.parentNode !== document.body) document.body.appendChild(pop);
+    pop.hidden = false;
+    var rect = anchor.getBoundingClientRect();
+    pop.style.top = Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - pop.offsetHeight - 8)) + 'px';
+    pop.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - pop.offsetWidth - 8)) + 'px';
+    openPop = pop;
+  }
+  document.addEventListener('click', function (e) {
+    if (openPop && !e.target.closest('.ci-pop, .cols-pop, .diff-pop') && !e.target.closest('button.ci-btn, button.cols-btn, button.diff-btn')) closeCiPop();
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeCiPop(); });
+  // position:fixed popovers don't follow the page: re-anchor them on scroll
+  // (capture: the horizontal scroll happens on the sections, not on window).
+  document.addEventListener('scroll', function () {
+    if (openPop && popAnchor) showPop(popAnchor, openPop);
+  }, true);
+  // Copy to the clipboard, with a fallback (execCommand) when the Clipboard
+  // API is unavailable (page served over plain http on a non-localhost host).
+  function copyText(v) {
+    if (navigator.clipboard) return navigator.clipboard.writeText(v);
+    var ta = document.createElement('textarea');
+    ta.value = v; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } finally { document.body.removeChild(ta); }
+    return Promise.resolve();
+  }
+`;
+
+// <!doctype> → </head> shared by the dashboard and the search page (§29): same
+// Primer palette, same table/popover/chip CSS — the two pages look identical.
+function shellHead(theme, title) {
   return `<!doctype html>
 <html lang="en" data-theme="${theme}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>gh notif</title>
+<title>${title}</title>
 ${FAVICON}
 <style>
   /* GitHub Primer palette. Light by default; the theme is driven by
@@ -838,8 +901,8 @@ ${FAVICON}
   th, td { text-align: left; padding: .5rem 1rem; border-bottom: 1px solid var(--border-muted); white-space: nowrap; }
   tbody tr:last-child td { border-bottom: 0; }
   th { font-weight: 600; color: var(--fg-muted); font-size: .75rem; }
-  th[data-sort-key] { cursor: pointer; user-select: none; }
-  th[data-sort-key]:hover { color: var(--accent); }
+  th[data-sort-key], th[data-sort-href] { cursor: pointer; user-select: none; }
+  th[data-sort-key]:hover, th[data-sort-href]:hover { color: var(--accent); }
   /* Active sort column: discreet veil (accent at 6 %), th included. */
   col.sorted { background: color-mix(in srgb, var(--accent) 6%, transparent); }
   /* Title column: absorbs the remaining width and truncates on a single line
@@ -1004,8 +1067,34 @@ ${FAVICON}
                       transform: translate(-50%, -50%) translateY(-2rem); }
   .party-banner .party-head { font-size: 2.5rem; font-weight: 800; line-height: 1.2; }
   .party-banner .party-pr { font-weight: 400; font-size: .875rem; color: var(--fg-muted); }
+  /* Search page (§29): wide query field, summary in the section title, pager. */
+  header h1 a { color: inherit; text-decoration: none; }
+  form.search { display: flex; gap: .4rem; flex: 1; }
+  #q { flex: 1; min-width: 20rem; padding: .3rem .65rem; border-radius: 6px; font-size: .8125rem;
+       border: 1px solid var(--border); background: var(--canvas); color: var(--fg); }
+  #q:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+  /* Busy state: spinner next to the field while a fetch is in flight, the current
+     table dimmed (a sort/page answers in ms from the cache — no flash; a new
+     query replaces it with the loading block). .spinner is display:inline-block,
+     which beats the UA's [hidden] rule → explicit. */
+  #busy { color: var(--fg-muted); }
+  #busy[hidden] { display: none; }
+  #content.loading { opacity: .5; cursor: progress; }
+  h2 .summary { font-weight: 400; color: var(--fg-muted); }
+  nav.pages { display: flex; gap: .25rem; justify-content: center; padding: .6rem; font-size: .8125rem;
+              border-top: 1px solid var(--border-muted); }
+  nav.pages a, nav.pages span { padding: .15rem .5rem; border-radius: 6px; }
+  nav.pages a:hover { background: var(--btn-hover); text-decoration: none; }
+  nav.pages .on { background: var(--accent); color: #fff; }
+  nav.pages .gap { color: var(--fg-muted); }
 </style>
-</head>
+</head>`;
+}
+
+// hidden » mode, the hide-by-button, and the org/repo filter. `scopeLabel` pre-fills
+// the scope field. The client rhythm is decoupled from the GitHub poll server-side.
+export function renderShell({ intervalMs = 10000, scopeLabel = '', notifyEnabled = true, theme = 'auto', favorites = [], activeFav = null, adhoc = false, counts = null, favModes = null } = {}) {
+  return `${shellHead(theme, 'gh notif')}
 <body>
 <header>
   <div class="brand">
@@ -1032,6 +1121,7 @@ ${FAVICON}
       <button type="button" data-theme-val="light"${theme === 'light' ? ' class="on"' : ''} title="Theme: light">☀️ light</button>
       <button type="button" data-theme-val="dark"${theme === 'dark' ? ' class="on"' : ''} title="Theme: dark">🌙 dark</button>
     </span>
+    <a id="search-link" href="/search" title="Search PRs: any GitHub query, these columns">🔎</a>
     <a id="github-link" href="https://github.com/notifications" target="_blank" rel="noopener" title="Open GitHub notifications">📬</a>
     <a id="debug-link" href="/debug" title="Debug: pipeline verdict">🐛</a>
   </div>
@@ -1055,47 +1145,7 @@ ${FAVICON}
 
   // CI checks popover: one open at a time; closed on outside click, Escape,
   // or fragment re-injection (the node would be detached anyway).
-  var openPop = null;
-  // Column-selector popover: which table's menu is open ('mine'/'others'), so
-  // it can be re-opened after each fragment re-injection (checking a box POSTs
-  // /cols and replaces #content — without this the menu would close after
-  // every single toggle).
-  var openColsTable = null;
-  var popAnchor = null;
-  function closeCiPop() {
-    if (openPop) {
-      openPop.hidden = true;
-      // Undo the <body> reparenting (showPop): back next to its anchor, or
-      // dropped if the fragment was re-injected meanwhile (orphan node).
-      if (openPop.parentNode === document.body) {
-        if (popAnchor && popAnchor.isConnected) popAnchor.after(openPop);
-        else openPop.remove();
-      }
-      openPop = null;
-    }
-    openColsTable = null; popAnchor = null;
-  }
-  function showPop(anchor, pop) {
-    popAnchor = anchor;
-    // Reparent to <body>: an ancestor sticky h2 creates a stacking context
-    // that would confine the popover's z-index under the table headers.
-    if (pop.parentNode !== document.body) document.body.appendChild(pop);
-    pop.hidden = false;
-    var rect = anchor.getBoundingClientRect();
-    pop.style.top = Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - pop.offsetHeight - 8)) + 'px';
-    pop.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - pop.offsetWidth - 8)) + 'px';
-    openPop = pop;
-  }
-  document.addEventListener('click', function (e) {
-    if (openPop && !e.target.closest('.ci-pop, .cols-pop, .diff-pop') && !e.target.closest('button.ci-btn, button.cols-btn, button.diff-btn')) closeCiPop();
-  });
-  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeCiPop(); });
-  // position:fixed popovers don't follow the page: re-anchor them on scroll
-  // (capture: the horizontal scroll happens on the sections, not on window).
-  document.addEventListener('scroll', function () {
-    if (openPop && popAnchor) showPop(popAnchor, openPop);
-  }, true);
-
+${TABLE_JS}
   function q(extra) {
     var p = [];
     if (showHidden) p.push('hidden=1');
@@ -1464,15 +1514,6 @@ ${FAVICON}
     // Selecting a favorite leaves ad-hoc mode: clear the manual scope field too.
     if (sel) { scopeInput.value = ''; act('/fav', 'value=' + encodeURIComponent(sel.getAttribute('data-fav'))); }
   });
-  // Copy to the clipboard, with a fallback (execCommand) when the Clipboard
-  // API is unavailable (page served over plain http on a non-localhost host).
-  function copyText(v) {
-    if (navigator.clipboard) return navigator.clipboard.writeText(v);
-    var ta = document.createElement('textarea');
-    ta.value = v; document.body.appendChild(ta); ta.select();
-    try { document.execCommand('copy'); } finally { document.body.removeChild(ta); }
-    return Promise.resolve();
-  }
   // Any row link (PR, title, branch…): remember it and mark its row — no
   // return, the link opens normally in its new tab.
   function rememberClick(e) {
@@ -1851,6 +1892,144 @@ ${FAVICON}
   });
   load();
   setInterval(load, INTERVAL);
+</script>
+</body>
+</html>`;
+}
+
+// ── Search page (§29) ──────────────────────────────────────────────────────
+
+// URL of the search page for a state (q, sort, page) — the URL IS the state
+// (bookmarkable, Ctrl+R stable, back button). Default sort and page 1 are
+// omitted so a bare query stays a clean, shareable URL.
+export function searchUrl(q, sort = null, page = 1) {
+  const p = new URLSearchParams({ q });
+  if (sort?.key && (sort.key !== DEFAULT_SORT.key || sort.dir !== DEFAULT_SORT.dir)) {
+    p.set('sort', sort.key);
+    p.set('dir', sort.dir);
+  }
+  if (page > 1) p.set('page', String(page));
+  return `/search?${p}`;
+}
+
+// GitHub-like pager: « ‹ 1 … 4 5 6 … 12 › » — every page when ≤ 9, otherwise
+// the first, the last and a window of 2 around the current one. Real links
+// (middle-click works); the client intercepts plain clicks (pushState + fetch).
+function pagination(q, sort, page, pages) {
+  if (pages <= 1) return '';
+  const link = (n, label = String(n)) => `<a data-page href="${escapeHtml(searchUrl(q, sort, n))}">${label}</a>`;
+  const parts = [];
+  let prev = 0;
+  for (let n = 1; n <= pages; n++) {
+    if (!(pages <= 9 || n === 1 || n === pages || Math.abs(n - page) <= 2)) continue;
+    if (n - prev > 1) parts.push('<span class="gap">…</span>');
+    parts.push(n === page ? `<span class="on">${n}</span>` : link(n));
+    prev = n;
+  }
+  const first = page > 1 ? link(page - 1, '‹') : '<span class="gap">‹</span>';
+  const last = page < pages ? link(page + 1, '›') : '<span class="gap">›</span>';
+  return `<nav class="pages">${first}${parts.join('')}${last}</nav>`;
+}
+
+// Search page fragment (§29): summary in the section title, the « others »
+// table without the ⚡/✕ columns (an inventory, not an inbox), th carrying
+// `data-sort-href` (the server computes the toggled URL: zero client logic),
+// then the pager. Sorting/slicing is done upstream (serve.js): `rows` IS the
+// page. `fetched` = rows collected (≤ cap), `total` = GitHub's count.
+export function renderSearchFragment({ q = '', rows = [], page = 1, pages = 1, pageSize = 25, total = 0, fetched = 0, sort = null, fetchedAt = null, error = null, ghUrl = null } = {}, { now = Date.now(), ignoredChecks = {} } = {}) {
+  if (error) return `<p class="empty offline">⚠️ ${escapeHtml(error)}</p>`;
+  const capped = total > fetched ? ` (the ${fetched} most recently updated of ${total} — refine the query)` : '';
+  const range = fetched > pageSize ? ` · ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, fetched)}` : '';
+  const upd = fetchedAt ? ` · upd ${new Date(fetchedAt).toLocaleTimeString('en-US')}` : '';
+  const gh = ghUrl ? ` <a class="hist" href="${escapeHtml(ghUrl)}" target="_blank" rel="noopener">on GitHub ↗</a>` : '';
+  const title = `<h2>🔎 <span class="summary">${fetched} PR${fetched === 1 ? '' : 's'}${capped}${range}${upd}</span>${gh}</h2>`;
+  const body = rows.length > 0
+    ? othersTable(rows, [], now, false, sort, ignoredChecks, ['triggers', 'act'], (key) => searchUrl(q, toggleSort(sort, key), 1))
+    : '<p class="empty">No PR matches ✨</p>';
+  return `<section>${title}${body}${pagination(q, sort, page, pages)}</section>`;
+}
+
+// Loading block of the search page: initial state and every new query (a cold
+// search takes seconds: search pages + GraphQL batches). No quote inside — it
+// is also inlined as a JS string literal in the shell script.
+const SEARCH_LOADING = '<p class="empty" data-loading="1"><span class="spinner"></span> Searching…</p>';
+
+// Search page (§29): one query field, one table — any GitHub PR search with
+// the dashboard's columns. Same head (CSS) as the dashboard, its own tiny
+// script: the URL is the state, the client fetches /search-fragment with it,
+// pushState on sort/pager clicks, re-reads it on popstate. No auto-poll: the
+// data is fetched on demand (🔄 bypasses the server cache).
+export function renderSearchShell({ q = '', theme = 'auto' } = {}) {
+  return `${shellHead(theme, 'gh notif · search')}
+<body>
+<header>
+  <div class="brand"><h1><a href="/" title="Back to the dashboard">🔔 gh notif</a> · search</h1></div>
+  <form class="search" id="search">
+    <input id="q" name="q" value="${escapeHtml(q)}" placeholder="is:open author:alice org:acme label:bug …" autocomplete="off" spellcheck="false">
+    <button type="submit" title="Search">Search</button>
+    <button type="button" id="refresh" title="Fetch again (bypasses the 5 min cache)">🔄</button>
+    <span id="busy" class="spinner" hidden title="Searching…"></span>
+  </form>
+</header>
+<main id="content">${SEARCH_LOADING}</main>
+<script>
+  var content = document.getElementById('content');
+  var input = document.getElementById('q');
+  var busy = document.getElementById('busy');
+${TABLE_JS}
+  function currentParams() {
+    var p = new URLSearchParams(location.search);
+    if (!p.get('q')) p.set('q', input.value.trim());
+    return p.toString();
+  }
+  // reset = a new query: the old table is meaningless, show the loading block;
+  // otherwise (sort, page, refresh) keep it, dimmed, with the header spinner.
+  function load(refresh, reset) {
+    if (reset) content.innerHTML = '${SEARCH_LOADING}';
+    busy.hidden = false;
+    content.classList.add('loading');
+    fetch((refresh ? '/search/refresh?' : '/search-fragment?') + currentParams(), refresh ? { method: 'POST' } : {})
+      .then(function (r) { return r.text(); })
+      .then(function (html) { closeCiPop(); content.innerHTML = html; })
+      .catch(function () { content.innerHTML = '<p class="empty offline">⚠️ offline</p>'; })
+      .finally(function () { busy.hidden = true; content.classList.remove('loading'); });
+  }
+  function go(url, reset) { history.pushState(null, '', url); load(false, reset); }
+  document.getElementById('search').addEventListener('submit', function (e) {
+    e.preventDefault();
+    go('/search?q=' + encodeURIComponent(input.value.trim()), true);
+  });
+  document.getElementById('refresh').addEventListener('click', function () { load(true); });
+  window.addEventListener('popstate', function () {
+    var q = new URLSearchParams(location.search).get('q') || '';
+    var reset = q !== input.value;
+    input.value = q;
+    load(false, reset);
+  });
+  content.addEventListener('click', function (e) {
+    var cp = e.target.closest('button.copy');
+    if (cp) {
+      copyText(cp.getAttribute('data-copy')).then(function () {
+        var old = cp.innerHTML;
+        cp.innerHTML = '✓';
+        setTimeout(function () { cp.innerHTML = old; }, 1000);
+      }).catch(function () {});
+      return;
+    }
+    var pb = e.target.closest('button.ci-btn, button.diff-btn');
+    if (pb) {
+      var pop = pb.nextElementSibling;
+      var wasOpen = (pop === openPop);
+      closeCiPop();
+      if (!wasOpen && pop) showPop(pb, pop);
+      return;
+    }
+    var th = e.target.closest('th[data-sort-href]');
+    if (th) { go(th.getAttribute('data-sort-href')); return; }
+    var pg = e.target.closest('a[data-page]');
+    if (pg && e.button === 0 && !e.ctrlKey && !e.metaKey) { e.preventDefault(); go(pg.getAttribute('href')); }
+  });
+  load(false);
 </script>
 </body>
 </html>`;

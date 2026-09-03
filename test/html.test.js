@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { escapeHtml, isMergeable, addBusinessDays, partyWorthy, labelColors, renderFragment, renderShell, renderLoading, renderDebug, renderDebugShell, renderFavorites } from '../src/html.js';
+import { escapeHtml, isMergeable, addBusinessDays, partyWorthy, labelColors, renderFragment, renderShell, renderLoading, renderDebug, renderDebugShell, renderFavorites, searchUrl, renderSearchFragment, renderSearchShell } from '../src/html.js';
 
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
 
@@ -1203,4 +1203,62 @@ test('renderFragment: Files is hideable via the column selector (headers/cells s
   const ths = (out.match(/<th[ >]/g) || []).length;
   const tds = (out.match(/<td[ >]/g) || []).length;
   assert.equal(ths, tds);
+});
+
+// ── Search page (§29) ───────────────────────────────────────────────────────
+test('searchUrl: the URL is the state — default sort and page 1 omitted', () => {
+  assert.equal(searchUrl('author:alice org:x'), '/search?q=author%3Aalice+org%3Ax');
+  assert.equal(searchUrl('a', { key: 'updated', dir: 'desc' }), '/search?q=a');
+  assert.equal(searchUrl('a', { key: 'ci', dir: 'asc' }, 3), '/search?q=a&sort=ci&dir=asc&page=3');
+});
+
+test('renderSearchFragment: summary, others-like table without ⚡/✕, th links carry the toggled sort', () => {
+  const out = renderSearchFragment(
+    { q: 'author:alice <b>', rows: [otherRow({ triggers: [] })], page: 1, pages: 1, pageSize: 25, total: 1, fetched: 1, sort: { key: 'updated', dir: 'desc' }, fetchedAt: NOW, ghUrl: 'https://github.com/pulls?q=x' },
+    { now: NOW },
+  );
+  assert.match(out, /1 PR · upd /);
+  assert.match(out, /href="https:\/\/github.com\/pulls\?q=x"/);
+  assert.match(out, /symfony\/api/);
+  assert.ok(!out.includes('<b>'), 'query escaped');
+  assert.ok(!out.includes('data-act="hide"'), 'no hide button');
+  assert.ok(!out.includes('Triggers'), 'no ⚡ column');
+  assert.ok(!out.includes('data-sort-key'), 'no dashboard sort keys (POST /sort must never fire here)');
+  assert.match(out, /data-sort-href="\/search\?q=author%3Aalice\+%3Cb%3E&amp;sort=updated&amp;dir=asc"/, 'Updated (active, desc) → asc');
+  assert.match(out, /data-sort-href="\/search\?q=author%3Aalice\+%3Cb%3E&amp;sort=ci&amp;dir=asc"/, 'other column → its default direction');
+  assert.ok(!out.includes('<nav class="pages"'), 'single page → no pager');
+});
+
+test('renderSearchFragment: capped note, range, pager window (first, last, ±2, gaps), current page not a link', () => {
+  const out = renderSearchFragment(
+    { q: 'a', rows: [otherRow()], page: 6, pages: 12, pageSize: 25, total: 1234, fetched: 200, sort: { key: 'updated', dir: 'desc' }, fetchedAt: NOW },
+    { now: NOW },
+  );
+  assert.match(out, /200 PRs \(the 200 most recently updated of 1234/);
+  assert.match(out, /126–150/);
+  assert.match(out, /<nav class="pages">/);
+  assert.match(out, /<span class="on">6<\/span>/);
+  assert.match(out, /<a data-page href="\/search\?q=a">1<\/a>/, 'page 1 → no page param');
+  for (const n of [4, 5, 7, 8, 12]) assert.match(out, new RegExp(`<a data-page href="/search\\?q=a&amp;page=${n}">${n}</a>`));
+  assert.ok(!out.includes('>3</a>') && !out.includes('>10</a>'), 'outside the window');
+  assert.equal((out.match(/class="gap">…</g) || []).length, 2);
+  assert.match(out, /href="\/search\?q=a&amp;page=5">‹<\/a>/);
+  assert.match(out, /href="\/search\?q=a&amp;page=7">›<\/a>/);
+});
+
+test('renderSearchFragment: error → escaped banner; no row → empty message', () => {
+  assert.match(renderSearchFragment({ error: 'rate <limit>' }), /⚠️ rate &lt;limit&gt;/);
+  assert.match(renderSearchFragment({ q: 'a', rows: [], fetched: 0, total: 0 }), /No PR matches/);
+});
+
+test('renderSearchShell: query pre-filled and escaped, theme applied; the dashboard header links to /search', () => {
+  const out = renderSearchShell({ q: 'author:"a <b>"', theme: 'dark' });
+  assert.match(out, /data-theme="dark"/);
+  assert.match(out, /id="q"[^>]*value="author:&quot;a &lt;b&gt;&quot;"/);
+  assert.match(out, /\/search-fragment/);
+  assert.match(out, /function showPop/, 'shared table JS inlined');
+  assert.match(out, /<main id="content"><p class="empty" data-loading="1"><span class="spinner"><\/span> Searching…<\/p><\/main>/, 'spinner while the first fetch runs');
+  assert.match(out, /<span id="busy" class="spinner" hidden/, 'header spinner for the later fetches');
+  assert.match(renderShell(), /href="\/search"/);
+  assert.match(renderShell(), /function showPop/, 'dashboard keeps the shared table JS');
 });

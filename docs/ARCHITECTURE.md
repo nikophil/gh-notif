@@ -24,9 +24,9 @@ error).
 | File | Role | Pure / testable? |
 |---------|------|------------------|
 | `gh-notif` | Entrypoint: parses args, handles the `fav` subcommand, resolves the scope, calls `serve` (the only mode). | no (I/O) |
-| `src/github.js` | Thin wrapper around `gh` (`makeGh(runner)`), injectable `runner`. Returns raw JSON. | yes via runner stub |
+| `src/github.js` | Thin wrapper around `gh` (`makeGh(runner)`), injectable `runner`. Returns raw JSON. `searchPRs` = capped, GitHub-sorted search of the search page (§29). | yes via runner stub |
 | `src/filter.js` | **Core**: `classify()` (filtering rules), `findReplyToMe()`, helpers. Pure functions. | yes |
-| `src/collect.js` | Orchestration: aggregates notifications + PR searches, fetches details, scope. | yes via gh stub |
+| `src/collect.js` | Orchestration: aggregates notifications + PR searches, fetches details, scope. `buildRow` (entry + GraphQL detail → row) is shared with `collectSearch` (search page, §29). | yes via gh stub |
 | `src/state.js` | Persistence + deduplication of the poll-loop notifications. | yes |
 | `src/prefs.js` | Persisted UI preferences (`notify`, `theme`, `favorites`, `activeFav`, `sort`, `sortMine`, `ignoredChecks`, `favModes`, with defaults/validation `isNotifyEnabled`/`themeOf`/`ignoredChecksOf`/`ignoredChecksFor`/`favModesOf`/`toggleFavMode`). Pure + JSON I/O, modeled on `state.js`. | yes |
 | `src/favorites.js` | Scope favorites: normalization/add/remove, `parseScope`, `f` key cycle, **`filterDataByScope`** (display filter), `favoriteLabel` (`org/*`), `favoriteCounts` (badges) and `repoInAllMode` (« all » mode, §18). Pure. | yes |
@@ -35,8 +35,8 @@ error).
 | `src/render.js` | **Presentation helpers shared with the web** (`ciIcon`, `stateIcon`, `relativeDate`, `checksByRepo`) + the tiny terminal `favoritesBar` for `fav list`. No table rendering. | yes |
 | `src/spinner.js` | Spinner during the server poll (stderr, no-op outside TTY). | yes via stream stub |
 | `src/hidden.js` | Hiding of PRs (others' and mine): persistence, event signatures, reconciliation, numbers. | yes |
-| `src/html.js` | **Pure HTML** rendering of the web page (`escapeHtml`, `renderFragment`, `renderShell`, `renderDebug`/`renderDebugShell`). Reuses the helpers of `render.js`. | yes |
-| `src/serve.js` | Local HTTP server (`node:http`) + poll loop: `handleRequest` (pure) + `serve` (I/O). | `handleRequest` yes; `serve` no (I/O) |
+| `src/html.js` | **Pure HTML** rendering of the web pages (`escapeHtml`, `renderFragment`, `renderShell`, `renderDebug`/`renderDebugShell`, `renderSearchShell`/`renderSearchFragment`/`searchUrl` for the search page §29). Reuses the helpers of `render.js`. | yes |
+| `src/serve.js` | Local HTTP server (`node:http`) + poll loop: `handleRequest` (pure) + `serve` (I/O, incl. the on-demand search cache §29). | `handleRequest` yes; `serve` no (I/O) |
 | `src/ratelimit.js` | Rate-limit detection (`isRateLimitError`) + backoff (`nextBackoffSeconds`). Pure. | yes |
 | `src/sort.js` | Sorting of the web tables (« others » AND « Your PRs », each with its own key set): `normalizeSort`, `toggleSort` (click cycle), `sortRows` (sorted copy, missing at the end). Pure. | yes |
 
@@ -227,6 +227,7 @@ sequenceDiagram
 - **Issue row** (`data.issues`, « all » mode only, §18): `{ repo, number, title, url, actor, createdAt, updatedAt, triggers:[…] }` — no CI/diff/approvals (meaningless for an issue), no hiding in v1
 - **Row** (output of `collectPRs`): `{ repo, number, url, title, triggers:[…], author, branch, branchRepo, base, defaultBranch, createdAt, readyAt, updatedAt, additions, deletions, changedFiles, diffTypes, moreFiles, ci, checks:[{name,state}], statusCheckRollupState, state, conflicting, approvals, changesRequested }` — `readyAt` = date of the last draft → « ready for review » transition (GraphQL `timelineItems`, same batch; null if never draft), consumed by the easter-egg business-days gate (§21) and by the « In review » column (§26) — `branch` = the PR's `headRefName` and `branchRepo` = `headRepository.nameWithOwner` (same GraphQL batch, zero extra cost; null if missing), shown in the web « Branch » column as a small GitHub-like ref chip linking to the branch tree on the head repo (the fork for external PRs; fallback on `repo` if the fork is gone) with a copy button — `state` ∈ {draft,open,merged,closed} (via `prState`), `approvals` = number of **approvals** (via `countApprovals`: distinct users whose last review is APPROVED — not `reviews.length`), `changesRequested` = number of distinct users whose **last review is CHANGES_REQUESTED** (via `changesRequestedOf`, mirror of `approvalsOf`; zero cost, same GraphQL `reviews`). In the ✅ column, a non-zero `changesRequested` appends the GitHub `file-diff` octicon in red (`--danger`) — shown **even at 0 approvals** (a request-changes with no approval is exactly the signal to surface), tooltip « N change(s) requested ». `labels` = the PR's GitHub labels (`[{name, color}]`, `color` = 6-digit hex **without** `#`, same GraphQL batch, zero extra cost) — shown in the « Labels » column as GitHub-look pills (§25). `checks` = individual CI jobs normalized (`{name, state, url}`, `state` ∈ {pass,fail,pending}, `url` = run page — CheckRun `detailsUrl` / StatusContext `targetUrl`, null if absent), consumed by the debug view, the CI recompute (cf. §16) and the CI checks popover (cf. §17). `ci` = aggregated verdict (`ciOf`: `ciFromState` by default; `ciFromChecks` if the repo has a blocklist). `statusCheckRollupState` = raw rollup, kept for the **local recompute** (`recomputeCi`) after a web toggle — allows falling back on `ciFromState` if the repo's blocklist becomes empty again. `conflicting` = the PR conflicts with its base branch: it comes from the GraphQL field `mergeable` (same batch, zero extra cost) and is true **only** for an explicit `CONFLICTING`. ⚠️ GitHub computes the merge commit **lazily**: the first read after a push returns `UNKNOWN` and merely *triggers* the computation — the next poll gives the verdict. Testing `mergeable !== 'MERGEABLE'` would therefore flash a false conflict on every fresh push. Shown in the 🚦 column, next to the state icon: a ⚠️, tooltip « Merge conflicts » — no column of its own (both tables would widen for a rare case). ⚠️ An **emoji**, not an octicon: the state icon is itself an emoji (📝🟢🟣🔴) and an inline SVG never lines up next to one (an emoji carries its own metrics and sits low in its box — neither `vertical-align` nor an `inline-flex` centring the boxes fixes it; both were tried and shipped visibly off).
 - **scope**: `null` (everything) | `{ type:'org', value }` | `{ type:'repo', value:'owner/name' }` | **array** of these objects (union of favorites, cf. §14)
+- **Search result** (output of `collectSearch`, search page §29): `{ query, url, rows:[Row…], total, capped }` — `query` = the normalized query (`is:pr` forced), `url` = the same search on github.com, `rows` = the same **Row** shape as the dashboard (via `buildRow`, `triggers` always `[]`), `total` = GitHub's `total_count`, `capped` = `total > rows.length`. The server adds `fetchedAt` (cache) and, on failure, `error` (last line of the `gh` message) with `rows: []`.
 
 ## Non-obvious decisions (⚠️ traps)
 
@@ -876,6 +877,44 @@ sequenceDiagram
     every existing child is new → both tables surface once (one click to leave). ⚠️ Tests:
     a stack present at the 1st poll is grouped BY DEFAULT — a `POST /stacks` right after
     startup turns it OFF, not on.
+
+29. **Search page (`/search`): any GitHub PR query, our columns — on demand, NEVER in the poll.**
+    A separate page (like `/debug`): one query field, ONE table with the « others » columns
+    (minus ⚡ triggers and the ✕ hide button — an inventory, not an inbox; drafts and closed
+    PRs are kept), pagination (25/page) and sort. Typical use: « where is my colleague at? »
+    (`author:alice org:acme`), my closed PRs, the PRs I reviewed — the « closed » / « reviewed »
+    links of the dashboard now point here (`closedPRsUrl`/`reviewedPRsUrl`) instead of github.com.
+    - **Why on demand.** The first version of this idea (« pinned lists » refetched in the
+      poll) got the author **rate-limited** the very first day: a wide query (`is:closed` on an
+      org = hundreds of PRs) costs a search page per 100 results + a GraphQL batch per 30 PRs,
+      every minute. So: `collectSearch` runs only when a fragment is requested, results are
+      **capped to the 200 most recently updated** (`searchPRs` asks GitHub for
+      `sort=updated&order=desc` and stops paging at the cap; `total_count` is kept so the page
+      says « the 200 most recently updated of 1234 — refine the query »), and cached **5 min
+      per normalized query** in `serve.js` (`searchCache`, 10 entries, oldest evicted). A sort
+      or page change costs **zero** GitHub call: it re-sorts/slices the cached rows. 🔄 =
+      `POST /search/refresh` bypasses the cache. ⚠️ **Errors are never cached** (a rate-limit
+      must be retryable on the next click) and concurrent identical queries share ONE in-flight
+      fetch (`searchPending`).
+    - **`is:pr` is forced** (`searchQuery`: trims, collapses whitespace, prepends `is:pr` unless
+      already present) — PRs only, never issues; the normalized string is the cache key.
+    - **The URL is the state**: `/search?q=…&sort=…&dir=…&page=N` (`searchUrl`; default sort
+      and page 1 are omitted so a bare query stays a clean, shareable URL). The client script
+      does NOT know the sort cycle: each `th` carries `data-sort-href` computed **server-side**
+      (`sortableTh(…, href)` → `toggleSort`) and the pager links are real `<a href>`
+      (middle-click works); a plain click = `pushState` + fetch of `/search-fragment` with the
+      same query string; `popstate` re-reads the URL. ⚠️ No `data-sort-key` on this page: the
+      dashboard's `POST /sort` handler must never fire here (and the `/search` shell has no
+      `POST /sort` listener anyway).
+    - **Shared look with zero duplication**: `shellHead(theme, title)` is the `<!doctype>` →
+      `</head>` of both pages (same `<style>`), and `TABLE_JS` (popovers CI/diff/columns + clipboard
+      copy) is inlined in both scripts. ⚠️ A CSS rule added for the tables therefore applies to
+      both pages by construction; a JS helper needed by both belongs in `TABLE_JS`, not in
+      `renderShell`'s script. `buildRow` (extracted from `collectPRs`) guarantees the search rows
+      carry exactly the dashboard's fields — the per-repo CI blocklist (§16) applies too.
+    - **Routing**: `GET /search` (pure shell, `handleRequest`, field pre-filled from `?q=`,
+      default `is:open author:@me`), `GET /search-fragment` and `POST /search/refresh` (I/O →
+      handled in the `http.createServer` callback before `handleRequest`, like the POSTs).
 
 ## Test conventions
 

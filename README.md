@@ -132,6 +132,27 @@ gh notif fav rm zenstruck     # remove a favorite
 > Limit: a GitHub search is capped at 256 characters, so the list is too (about ten favorites with
 > short names). Prefer an org over enumerating its repositories.
 
+### Search page — any PR list, with these columns
+
+The 🔎 link in the header opens **`/search`**: type any GitHub search (the same syntax as
+[github.com/pulls](https://github.com/pulls), `is:pr` is added for you) and get **one table with the
+same columns as the dashboard** — CI verdict and checks, diff by file type, approvals, labels,
+branch, time in review… Handy to see at a glance where a colleague is at:
+
+```text
+author:alice org:acme            # alice's open PRs in the org
+is:closed author:@me org:acme    # my merged/closed PRs
+reviewed-by:@me -author:@me      # the PRs I reviewed
+```
+
+Results are **sorted** by clicking a header and **paginated** (25 per page); the URL carries the
+query, the sort and the page, so it can be bookmarked or shared. The « closed » and « reviewed »
+links of the dashboard open this page.
+
+> Cost: the search runs **only when you ask** (never in the background poll), is capped to the
+> **200 most recently updated** PRs (the page says so, refine the query) and is cached **5 minutes**
+> — sorting and paging never call GitHub again. 🔄 forces a fresh fetch.
+
 ## The web page
 
 `gh notif` launches a small **local HTTP server** and opens the page, which **refreshes on its own**

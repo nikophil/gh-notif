@@ -138,12 +138,14 @@ export function makeGh(runner = defaultRunner) {
   // so --paginate emits one concatenated JSON object per page and `parseJson`
   // throws. Hence per_page=100 + page=N, stopping on the first non-full page.
   // The search API caps at 1000 results anyway → 10 pages max.
+  const PER_PAGE = 100;
+  async function searchPage(q, page, extra = []) {
+    return parseJson(await runner(['api', '-X', 'GET', 'search/issues', '-f', `q=${q}`, '-f', `per_page=${PER_PAGE}`, '-f', `page=${page}`, ...extra]));
+  }
   async function searchIssues(q) {
-    const PER_PAGE = 100;
     const all = [];
     for (let page = 1; page <= 10; page++) {
-      const out = parseJson(await runner(['api', '-X', 'GET', 'search/issues', '-f', `q=${q}`, '-f', `per_page=${PER_PAGE}`, '-f', `page=${page}`]));
-      const items = out?.items ?? [];
+      const items = (await searchPage(q, page))?.items ?? [];
       all.push(...items);
       if (items.length < PER_PAGE) break;
     }
@@ -204,6 +206,21 @@ export function makeGh(runner = defaultRunner) {
     },
     async searchAuthored(qualifier = '') {
       return searchIssues(`is:open is:pr author:@me${qualifier}`);
+    },
+    // Search page (§29): free query → the `max` most recently UPDATED matches
+    // (GitHub-side order; our own sort applies downstream on that capped set)
+    // + GitHub's total_count, so the page can say « 200 of 1234 ».
+    async searchPRs(q, { max = 200 } = {}) {
+      const items = [];
+      let total = 0;
+      for (let page = 1; items.length < max && page <= 10; page++) {
+        const out = await searchPage(q, page, ['-f', 'sort=updated', '-f', 'order=desc']);
+        total = out?.total_count ?? 0;
+        const got = out?.items ?? [];
+        items.push(...got);
+        if (got.length < PER_PAGE) break;
+      }
+      return { items: items.slice(0, max), total };
     },
     async currentRepo() {
       try {

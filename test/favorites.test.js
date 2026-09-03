@@ -220,10 +220,10 @@ test('favoriteCounts: empty/invalid list or data → zeros, no crash', () => {
   );
 });
 
-test('closedPRsUrl: without scope → GitHub search author:@me is:closed', () => {
+test('closedPRsUrl: without scope → internal search page, author:@me is:closed', () => {
   assert.equal(
     closedPRsUrl(null),
-    'https://github.com/pulls?q=is%3Apr%20author%3A%40me%20is%3Aclosed',
+    '/search?q=is%3Apr%20author%3A%40me%20is%3Aclosed',
   );
 });
 
@@ -238,10 +238,10 @@ test('closedPRsUrl: union of scopes → all qualifiers (OR-ed by GitHub)', () =>
   assert.ok(url.includes('repo%3Aa%2Fb'));
 });
 
-test('reviewedPRsUrl: GitHub search reviewed-by:@me -author:@me, contextualized', () => {
+test('reviewedPRsUrl: internal search page, reviewed-by:@me -author:@me, contextualized', () => {
   assert.equal(
     reviewedPRsUrl(null),
-    'https://github.com/pulls?q=is%3Apr%20reviewed-by%3A%40me%20-author%3A%40me',
+    '/search?q=is%3Apr%20reviewed-by%3A%40me%20-author%3A%40me',
   );
   assert.ok(reviewedPRsUrl({ type: 'org', value: 'symfony' }).endsWith('%20org%3Asymfony'));
 });

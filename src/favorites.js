@@ -136,17 +136,18 @@ export function repoInAllMode(favorites, favModes, repo) {
   return false;
 }
 
-// External link to MY closed PRs (merged + closed) on GitHub, contextualized
-// on the displayed scope(s) — null, a single scope, or the union (array). No
-// collection nor pagination on the gh-notif side: GitHub handles the display.
+// Link to MY closed PRs (merged + closed) on the internal search page (§29),
+// contextualized on the displayed scope(s) — null, a single scope, or the
+// union (array). The search page collects on demand (capped, cached), the
+// dashboard poll never pays for it.
 export function closedPRsUrl(scopes) {
-  return `https://github.com/pulls?q=${encodeURIComponent(`is:pr author:@me is:closed${scopesQualifier(scopes)}`)}`;
+  return `/search?q=${encodeURIComponent(`is:pr author:@me is:closed${scopesQualifier(scopes)}`)}`;
 }
 
-// External link to the PRs I reviewed (others' — hence -author:@me) on GitHub,
-// same contract as closedPRsUrl: contextualized, no collection on our side.
+// Link to the PRs I reviewed (others' — hence -author:@me), same contract as
+// closedPRsUrl: contextualized, internal search page.
 export function reviewedPRsUrl(scopes) {
-  return `https://github.com/pulls?q=${encodeURIComponent(`is:pr reviewed-by:@me -author:@me${scopesQualifier(scopes)}`)}`;
+  return `/search?q=${encodeURIComponent(`is:pr reviewed-by:@me -author:@me${scopesQualifier(scopes)}`)}`;
 }
 
 // DISPLAY filter: restricts already-collected data to a scope.

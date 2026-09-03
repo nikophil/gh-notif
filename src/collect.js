@@ -304,6 +304,76 @@ export function diffByType(files) {
     (b.additions + b.deletions) - (a.additions + a.deletions) || a.ext.localeCompare(b.ext));
 }
 
+// Per-repo CI blocklist lookup (§16): the ignored job names of a repo, [] if none.
+const ignoredFor = (ignoredChecks, repo) => (Array.isArray(ignoredChecks?.[repo]) ? ignoredChecks[repo] : []);
+
+// One table row from a search entry `{ repo, number, title, url, triggers }` and
+// its GraphQL detail `d` (null if not found / failed chunk → fallbacks on the
+// entry). Shared by the dashboard (collectPRs) and the search page
+// (collectSearch, §29): both tables show exactly the same information.
+export function buildRow(e, d, ignoredForRepo = []) {
+  return {
+    repo: e.repo,
+    number: e.number,
+    url: e.url,
+    title: d?.title ?? e.title,
+    triggers: [...(e.triggers ?? [])],
+    author: d?.author?.login ?? null,
+    branch: d?.branch ?? null,
+    branchRepo: d?.branchRepo ?? null,
+    base: d?.base ?? null,
+    defaultBranch: d?.defaultBranch ?? null,
+    labels: d?.labels ?? [], // GitHub labels ({name, color}), Labels column of the web tables
+    createdAt: d?.createdAt ?? null,
+    readyAt: d?.readyAt ?? null, // draft → ready date (easter-egg gate, cf. html.js)
+    updatedAt: d?.updatedAt ?? null,
+    additions: d?.additions ?? 0,
+    deletions: d?.deletions ?? 0,
+    changedFiles: d?.changedFiles ?? null, // GitHub total of changed files (Files column)
+    diffTypes: diffByType(d?.files), // per-extension diff (popover of the Diff/Files cells)
+    moreFiles: d?.moreFiles ?? 0, // files beyond the fetched page of 100
+    // Per-repo blocklist: IF the repo has ignored jobs, we recompute the verdict
+    // from the individual checks; otherwise we keep the GitHub rollup as-is
+    // (byte-identical compat for anyone who configured nothing — cf. §16).
+    ci: ciOf(d, ignoredForRepo),
+    checks: d?.checks ?? [], // raw list (debug view + local recompute; zero cost)
+    statusCheckRollupState: d?.statusCheckRollupState ?? null, // basis of ciFromState for recomputeCi
+    state: prState(d),
+    // Merge conflict with the base branch. Only an explicit CONFLICTING counts:
+    // UNKNOWN means « GitHub has not computed it yet » (cf. github.js), not « fine ».
+    conflicting: d?.mergeable === 'CONFLICTING',
+    approvals: approvalsOf(d?.reviews).length,
+    changesRequested: changesRequestedOf(d?.reviews).length, // reviewers whose latest review requests changes
+  };
+}
+
+// Search page (§29): the query as typed, whitespace normalized, `is:pr` forced
+// (PRs only — never issues). Also the cache key upstream.
+export function searchQuery(raw) {
+  const q = String(raw ?? '').trim().replace(/\s+/g, ' ');
+  return /(^|\s)is:pr(\s|$)/.test(q) ? q : `is:pr ${q}`.trim();
+}
+
+// Search page (§29): ONE search (the `max` most recently updated matches) +
+// the GraphQL details of those PRs → full rows, like the dashboard's. On
+// demand only — never in the poll (a wide query would cost dozens of GraphQL
+// batches per minute: real rate-limit). `total` = GitHub's count, `capped`
+// tells the page the set was truncated.
+export async function collectSearch(gh, raw, { max = 200, ignoredChecks = {} } = {}) {
+  const query = searchQuery(raw);
+  const { items, total } = await gh.searchPRs(query, { max });
+  const entries = items.map((it) => ({
+    repo: it.repository_url.replace('https://api.github.com/repos/', ''),
+    number: it.number,
+    title: it.title,
+    url: it.html_url,
+    triggers: new Set(),
+  }));
+  const details = await gh.getPullDetailsBatch(entries.map((e) => ({ repo: e.repo, number: e.number })));
+  const rows = entries.map((e, i) => buildRow(e, details[i], ignoredFor(ignoredChecks, e.repo)));
+  return { query, url: `https://github.com/pulls?q=${encodeURIComponent(query)}`, rows, total, capped: total > rows.length };
+}
+
 // Groups notifications + pending reviews by PR, aggregates the triggers,
 // fetches the details of each PR (author / date / diff / CI) in parallel,
 // then splits according to whether the PR is mine or someone else's.
@@ -356,40 +426,7 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
   entries.forEach((e, i) => {
     const d = details[i];
     const approvers = approvalsOf(d?.reviews);
-    // Per-repo blocklist: IF the repo has ignored jobs, we recompute the verdict
-    // from the individual checks; otherwise we keep the GitHub rollup as-is
-    // (byte-identical compat for anyone who configured nothing — cf. the spec's §compat).
-    const ignoredForRepo = Array.isArray(ignoredChecks[e.repo]) ? ignoredChecks[e.repo] : [];
-    const row = {
-      repo: e.repo,
-      number: e.number,
-      url: e.url,
-      title: d?.title ?? e.title,
-      triggers: [...e.triggers],
-      author: d?.author?.login ?? null,
-      branch: d?.branch ?? null,
-      branchRepo: d?.branchRepo ?? null,
-      base: d?.base ?? null,
-      defaultBranch: d?.defaultBranch ?? null,
-      labels: d?.labels ?? [], // GitHub labels ({name, color}), Labels column of the web tables
-      createdAt: d?.createdAt ?? null,
-      readyAt: d?.readyAt ?? null, // draft → ready date (easter-egg gate, cf. html.js)
-      updatedAt: d?.updatedAt ?? null,
-      additions: d?.additions ?? 0,
-      deletions: d?.deletions ?? 0,
-      changedFiles: d?.changedFiles ?? null, // GitHub total of changed files (Files column)
-      diffTypes: diffByType(d?.files), // per-extension diff (popover of the Diff/Files cells)
-      moreFiles: d?.moreFiles ?? 0, // files beyond the fetched page of 100
-      ci: ciOf(d, ignoredForRepo), // recompute if the repo has a blocklist, otherwise GitHub rollup
-      checks: d?.checks ?? [], // raw list (debug view + local recompute; zero cost)
-      statusCheckRollupState: d?.statusCheckRollupState ?? null, // basis of ciFromState for recomputeCi
-      state: prState(d),
-      // Merge conflict with the base branch. Only an explicit CONFLICTING counts:
-      // UNKNOWN means « GitHub has not computed it yet » (cf. github.js), not « fine ».
-      conflicting: d?.mergeable === 'CONFLICTING',
-      approvals: approvers.length,
-      changesRequested: changesRequestedOf(d?.reviews).length, // reviewers whose latest review requests changes
-    };
+    const row = buildRow(e, d, ignoredFor(ignoredChecks, e.repo));
     if (d && d.author?.login === me) {
       mineAll.push(row); // my PRs: we keep my drafts
       // Approval events: only on my OPEN PRs (not draft/merged/

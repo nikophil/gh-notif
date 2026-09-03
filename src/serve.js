@@ -7,7 +7,7 @@
 import http from 'node:http';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
-import { collectPRs, recomputeCi } from './collect.js';
+import { collectPRs, recomputeCi, collectSearch, searchQuery } from './collect.js';
 import { CATEGORY } from './filter.js';
 import { hiddenPath, loadHidden, saveHidden, toggleHidden, isHidden, keyOf } from './hidden.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './state.js';
@@ -21,11 +21,17 @@ import { normalizeSort, toggleSort, sortRows, groupStacks, stackChildKeys, SORT_
 import { sendNotification } from './notify.js';
 import { isRateLimitError, nextBackoffSeconds } from './ratelimit.js';
 import { startSpinner } from './spinner.js';
-import { renderShell, renderFragment, renderLoading, renderDebug, renderDebugShell, renderFavorites, escapeHtml } from './html.js';
+import { renderShell, renderFragment, renderLoading, renderDebug, renderDebugShell, renderFavorites, renderSearchShell, renderSearchFragment, escapeHtml } from './html.js';
 
 const POLL_SECONDS = 60;
 const BACKOFF_CAP = 600; // ceiling of the backoff on rate-limit (10 min)
 const REFRESH_MIN_AGE_MS = 10_000; // debounce of POST /refresh (see shouldRefresh)
+// Search page (§29): result cap per query (the most recently updated ones),
+// page size, cache TTL (sort/page never refetch) and the query of a bare /search.
+const SEARCH_MAX = 200;
+const SEARCH_PAGE = 25;
+const SEARCH_TTL_MS = 5 * 60_000;
+export const SEARCH_DEFAULT_QUERY = 'is:open author:@me';
 
 // `parseScope` lives in favorites.js (pure module, without node:http) because the CLI
 // and the favorites need it; re-exported here where it has always been consumed.
@@ -120,8 +126,13 @@ export function handleRequest(pathname, snapshot, opts = {}) {
   const {
     now, intervalMs, showHidden, scope, notifyEnabled = true, theme = 'auto',
     favorites = [], activeFav = null, adhoc = false, sort = null, sortMine = null, ignoredChecks = {},
-    favModes = null, stacks = null, cols = null,
+    favModes = null, stacks = null, cols = null, searchQ = '',
   } = opts;
+  // Search page shell (§29): the query comes from the URL (pre-filled field);
+  // the data itself goes through /search-fragment (I/O, outside this pure router).
+  if (pathname === '/search') {
+    return { status: 200, type: 'text/html; charset=utf-8', body: renderSearchShell({ q: searchQ || SEARCH_DEFAULT_QUERY, theme }) };
+  }
   // Display filter: the active favorite, except in ad-hoc mode (the entered scope
   // already drives the collection, re-filtering would be redundant).
   const viewScope = adhoc ? null : parseScope(activeFav);
@@ -349,6 +360,45 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   };
   const json = 'application/json; charset=utf-8';
 
+  // Search page (§29): on demand, NEVER in the poll. One collectSearch per
+  // distinct query, cached SEARCH_TTL_MS (sort/page = 0 GitHub call), refetched
+  // on demand (POST /search/refresh). Errors are NOT cached (a rate-limit must
+  // be retryable) and concurrent identical queries share one in-flight fetch.
+  const searchCache = new Map(); // normalized query → { …collectSearch result, fetchedAt }
+  const searchPending = new Map(); // normalized query → in-flight promise
+  const searchResult = (raw, { force = false } = {}) => {
+    const query = searchQuery(raw || SEARCH_DEFAULT_QUERY);
+    const hit = searchCache.get(query);
+    if (!force && hit && Date.now() - hit.fetchedAt < SEARCH_TTL_MS) return Promise.resolve(hit);
+    if (searchPending.has(query)) return searchPending.get(query);
+    const p = collectSearch(gh, query, { max: SEARCH_MAX, ignoredChecks })
+      .then((r) => {
+        const entry = { ...r, fetchedAt: Date.now() };
+        searchCache.delete(query); // re-insert → most recent, so the eviction below drops the oldest
+        searchCache.set(query, entry);
+        if (searchCache.size > 10) searchCache.delete(searchCache.keys().next().value);
+        return entry;
+      })
+      .catch((err) => ({ query, rows: [], total: 0, error: String(err.message ?? err).trim().split('\n').pop(), fetchedAt: Date.now() }))
+      .finally(() => searchPending.delete(query));
+    searchPending.set(query, p);
+    return p;
+  };
+  // sort/page come from the URL (the URL is the state); the raw `q` is kept
+  // for the links so the field and the URLs show what the user typed.
+  const searchFragment = async (params, { force = false } = {}) => {
+    const q = params.get('q') || SEARCH_DEFAULT_QUERY;
+    const r = await searchResult(q, { force });
+    const srt = normalizeSort({ key: params.get('sort'), dir: params.get('dir') });
+    const rows = sortRows(r.rows ?? [], srt);
+    const pages = Math.max(1, Math.ceil(rows.length / SEARCH_PAGE));
+    const page = Math.min(Math.max(1, Number(params.get('page')) || 1), pages);
+    return renderSearchFragment({
+      q, rows: rows.slice((page - 1) * SEARCH_PAGE, page * SEARCH_PAGE), page, pages, pageSize: SEARCH_PAGE,
+      total: r.total ?? 0, fetched: (r.rows ?? []).length, sort: srt, fetchedAt: r.fetchedAt, error: r.error ?? null, ghUrl: r.url ?? null,
+    }, { now: Date.now(), ignoredChecks });
+  };
+
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     const pathname = url.pathname;
@@ -539,7 +589,15 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         savePrefs(prefsFile, prefs);
         return send(204, 'text/plain; charset=utf-8', '');
       }
+      if (pathname === '/search/refresh') {
+        return send(200, 'text/html; charset=utf-8', await searchFragment(url.searchParams, { force: true }));
+      }
       return send(404, 'text/plain; charset=utf-8', 'Not found');
+    }
+
+    // Search fragment: I/O on a cache miss (GitHub) → handled here, outside the pure router.
+    if (pathname === '/search-fragment') {
+      return send(200, 'text/html; charset=utf-8', await searchFragment(url.searchParams));
     }
 
     const { status, type, body } = handleRequest(pathname, snapshot, {
@@ -560,6 +618,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       favModes,
       stacks,
       cols,
+      searchQ: url.searchParams.get('q') ?? '',
     });
     send(status, type, body);
   });
