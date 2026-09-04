@@ -257,5 +257,25 @@ export function makeGh(runner = defaultRunner) {
         return /HTTP 404|Not Found/i.test(msg) ? false : null;
       }
     },
+    // Dashboard toggle on my PRs (ARCHITECTURE §30): draft → « ready for
+    // review ». Text output only (nothing to parse); a failure throws with
+    // gh's message (surfaced by the server as a 400).
+    async markReady(repoFullName, number) {
+      await runner(['pr', 'ready', String(number), '--repo', repoFullName]);
+    },
+    // « ready » → draft. ⚠️ GitHub keeps the requested reviewers on a draft
+    // (docs: nobody is unsubscribed by the conversion), so they are removed
+    // explicitly — users AND teams — through the REST endpoint. No DELETE
+    // when nobody is requested.
+    async convertToDraft(repoFullName, number) {
+      await runner(['pr', 'ready', '--undo', String(number), '--repo', repoFullName]);
+      const path = `repos/${repoFullName}/pulls/${number}/requested_reviewers`;
+      const req = parseJson(await runner(['api', path])) ?? {};
+      const fields = [
+        ...(req.users ?? []).map((u) => `reviewers[]=${u.login}`),
+        ...(req.teams ?? []).map((t) => `team_reviewers[]=${t.slug}`),
+      ];
+      if (fields.length) await runner(['api', '-X', 'DELETE', path, ...fields.flatMap((f) => ['-f', f])]);
+    },
   };
 }

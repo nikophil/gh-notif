@@ -35,7 +35,9 @@ A third **📋 Issues** table appears only if a favorite is in « all » mode (s
 - **Files** — number of changed files (GitHub's `file-diff` icon as header); **click the
   count** to open the same per-type popover;
 - **Status** — 📝 draft · 🟢 open · 🟣 merged · 🔴 closed, plus a **⚠️ if the PR conflicts**
-  with its base branch;
+  with its base branch; on **your** PRs, **click the 📝 / 🟢** to mark the PR ready for review
+  or convert it back to draft (confirmation popover — converting to draft also **removes the
+  requested reviewers**, which GitHub itself keeps);
 - **✅** — number of **approvals** (distinct users whose last review approves, `·` if none); a
   red diff icon is appended when someone **requested changes**;
 - **CI** — aggregated verdict; **click the icon** to open a GitHub-like popover listing every
@@ -176,6 +178,8 @@ are shown, but you're only notified (desktop) of events happening **after** star
 From the page, you can:
 
 - **🔄 refresh** immediately (without waiting for the next poll);
+- **draft ⇄ ready** one of your PRs: click its 📝 (→ ready for review) or 🟢 (→ back to draft,
+  requested reviewers removed) and confirm in the popover;
 - **hide / restore** one of the others' PRs via the **✕** button on its row (persisted; reappears on
   a new trigger — reply to your thread, mention, comment), and **🙈 hidden** shows the hidden PRs
   (greyed out, restore button). Your own PRs are never hidden. The list is persisted in

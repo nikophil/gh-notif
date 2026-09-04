@@ -415,6 +415,23 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         if (shouldRefresh(snapshot.updatedAt, Date.now())) await refresh();
         return send(200, json, currentView(showHidden));
       }
+      if (pathname === '/ready' || pathname === '/draft') {
+        // draft ⇄ ready on one of MY visible PRs (§30): gh does the write, then
+        // the row is flipped locally at once (the next poll reconciles). A gh
+        // failure → 400 with its last line (shown by the client), row untouched.
+        const key = url.searchParams.get('key') ?? '';
+        const row = (snapshot.data?.mine ?? []).find((r) => keyOf(r) === key);
+        if (!row) return send(400, 'text/plain; charset=utf-8', `not one of your open PRs: ${key}`);
+        const toDraft = pathname === '/draft';
+        try {
+          await (toDraft ? gh.convertToDraft(row.repo, row.number) : gh.markReady(row.repo, row.number));
+        } catch (err) {
+          return send(400, 'text/plain; charset=utf-8', String(err.message ?? err).trim().split('\n').pop());
+        }
+        row.state = toDraft ? 'draft' : 'open';
+        if (!toDraft) row.readyAt = new Date().toISOString(); // the « In review » clock starts now
+        return send(200, json, currentView(showHidden));
+      }
       if (pathname === '/hide') {
         const key = url.searchParams.get('key');
         if (key) {

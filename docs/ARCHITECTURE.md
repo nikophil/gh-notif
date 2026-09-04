@@ -916,6 +916,27 @@ sequenceDiagram
       default `is:open author:@me`), `GET /search-fragment` and `POST /search/refresh` (I/O →
       handled in the `http.createServer` callback before `handleRequest`, like the POSTs).
 
+30. **draft ⇄ ready toggle on MY PRs (click the state icon, confirm in a popover).** On a
+    visible row of « Your PRs », the 📝 of a draft and the 🟢 of an open PR are **buttons**
+    (`stateCell(state, conflicting, toggleRow)`, html.js — a hidden row, a merged/closed PR, an
+    others' PR or the search page keep the plain icon: the toggle is *my* call on *my* live PRs
+    only). The click opens a **confirmation popover** (`.state-pop`, the button's next sibling —
+    same mechanics as the CI popover §17: `showPop`, position:fixed, reparented to `<body>`, so
+    the « ok » button is handled by a **document-level** listener, like the column checkboxes
+    §24) → `POST /ready?key=repo#n` or `POST /draft?key=repo#n`. The two writes go through
+    `gh` (github.js): `markReady` = `gh pr ready N --repo`, `convertToDraft` = `gh pr ready
+    --undo` **then removes the requested reviewers** — ⚠️ GitHub does NOT remove them on a
+    conversion (docs: nobody is unsubscribed), and a draft with stale review requests is
+    exactly the noise the user wanted gone — via `GET` then `DELETE
+    /repos/o/r/pulls/N/requested_reviewers` (users AND teams, `-f 'reviewers[]=login'`; no
+    DELETE when nobody is requested). The server looks the key up in **`snapshot.data.mine`**
+    (raw union — an unknown key or an others' PR → 400, gh untouched), awaits gh, then flips
+    the row **locally** (`row.state`, plus `row.readyAt = now` on ready: the « In review »
+    clock §26 starts at once) and responds with the current view — no re-poll (the next one
+    reconciles; GraphQL reads the new `isDraft` immediately). A gh failure (rights, network)
+    → **400 with gh's last stderr line**, row untouched; the client's `act` shows it near the
+    scope field. No pref, no disk state.
+
 ## Test conventions
 
 - Pure logic (`filter`, `render` helpers, `state`, `collect`, `ciRollup`, `scope`): fixtures, no

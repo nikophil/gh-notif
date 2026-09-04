@@ -372,3 +372,39 @@ test('searchPRs: a non-full page ends the loop; a full last page is sliced to ma
   assert.equal(sliced.items.length, 50);
   assert.equal(sliced.total, 500);
 });
+
+// ── draft ⇄ ready (dashboard toggle on my PRs) ──────────────────────────────
+test('markReady: gh pr ready <n> --repo', async () => {
+  const runner = fakeRunner([['pr ready', '✓ Pull request #42 is marked as "ready for review"']]);
+  await makeGh(runner).markReady('o/r', 42);
+  assert.deepEqual(runner.calls, [['pr', 'ready', '42', '--repo', 'o/r']]);
+});
+
+test('convertToDraft: gh pr ready --undo, then removes the requested reviewers (users + teams)', async () => {
+  const runner = fakeRunner([
+    ['pr ready --undo', '✓ Pull request #42 is marked as "draft"'],
+    ['requested_reviewers', JSON.stringify({ users: [{ login: 'alice' }, { login: 'bob' }], teams: [{ slug: 'core' }] })],
+  ]);
+  await makeGh(runner).convertToDraft('o/r', 42);
+  assert.deepEqual(runner.calls, [
+    ['pr', 'ready', '--undo', '42', '--repo', 'o/r'],
+    ['api', 'repos/o/r/pulls/42/requested_reviewers'],
+    ['api', '-X', 'DELETE', 'repos/o/r/pulls/42/requested_reviewers',
+      '-f', 'reviewers[]=alice', '-f', 'reviewers[]=bob', '-f', 'team_reviewers[]=core'],
+  ]);
+});
+
+test('convertToDraft: no requested reviewer → no DELETE', async () => {
+  const runner = fakeRunner([
+    ['pr ready --undo', ''],
+    ['requested_reviewers', JSON.stringify({ users: [], teams: [] })],
+  ]);
+  await makeGh(runner).convertToDraft('o/r', 42);
+  assert.equal(runner.calls.length, 2);
+});
+
+test('convertToDraft: a failing gh pr ready --undo throws (nothing else is attempted)', async () => {
+  const runner = fakeRunner([]);
+  await assert.rejects(() => makeGh(runner).convertToDraft('o/r', 42));
+  assert.equal(runner.calls.length, 1);
+});

@@ -1170,3 +1170,74 @@ test('search page: one fetch per query, sort/page from the cache, refresh refetc
     rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+// ── integration: POST /ready + /draft flip the state of MY PR through gh ────
+test('POST /ready and /draft call gh, update the row at once, 400 on unknown PR or gh failure', async () => {
+  const calls = [];
+  let fail = null;
+  const gh = {
+    getCurrentUser: async () => 'me',
+    listNotifications: async () => [],
+    searchReviewRequested: async () => [
+      { repository_url: 'https://api.github.com/repos/symfony/web', number: 7, title: 't', html_url: 'u', updated_at: '2026-06-24T00:00:00Z' },
+    ],
+    searchAuthored: async () => [
+      { repository_url: 'https://api.github.com/repos/symfony/web', number: 43, title: 't', html_url: 'u', updated_at: '2026-06-24T00:00:00Z' },
+    ],
+    getPullDetailsBatch: async (prs) => prs.map((p) => ({
+      number: p.number, title: 't', author: { login: p.number === 7 ? 'alice' : 'me' }, createdAt: '2026-06-24T00:00:00Z',
+      additions: 1, deletions: 0, isDraft: p.number === 43, state: 'OPEN', reviews: [], statusCheckRollupState: 'SUCCESS',
+    })),
+    getComment: async () => null,
+    getReviewComments: async () => [],
+    markReady: async (repo, number) => { calls.push(['ready', repo, number]); if (fail) throw new Error(`Command failed: gh pr ready\n${fail}`); },
+    convertToDraft: async (repo, number) => { calls.push(['draft', repo, number]); },
+  };
+  const tmp = `/tmp/gh-notif-test-draft-${process.pid}`;
+  rmSync(tmp, { recursive: true, force: true });
+  process.env.XDG_STATE_HOME = tmp;
+
+  const PORT = 7812;
+  const base = `http://localhost:${PORT}`;
+  const key = encodeURIComponent('symfony/web#43');
+  const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false });
+  try {
+    await new Promise((r) => setTimeout(r, 250)); // 1st poll
+    const frag0 = await (await fetch(`${base}/fragment`)).text();
+    assert.match(frag0, /data-key="symfony\/web#43" data-to="ready"/, 'draft at first');
+    assert.equal((frag0.match(/In review since/g) || []).length, 1, 'only the others\' open PR is in review');
+
+    // draft → ready: gh called, the row shows 🟢 right away (no re-poll needed)
+    const r1 = await fetch(`${base}/ready?key=${key}`, { method: 'POST' });
+    assert.equal(r1.status, 200);
+    assert.deepEqual(calls, [['ready', 'symfony/web', 43]]);
+    const d1 = await r1.json();
+    assert.match(d1.fragment, /data-key="symfony\/web#43" data-to="draft"/, 'now open');
+    assert.doesNotMatch(d1.fragment, /data-to="ready"/);
+    assert.equal((d1.fragment.match(/In review since/g) || []).length, 2, 'the review clock of my PR starts now');
+
+    // ready → draft
+    const r2 = await fetch(`${base}/draft?key=${key}`, { method: 'POST' });
+    assert.equal(r2.status, 200);
+    assert.deepEqual(calls.at(-1), ['draft', 'symfony/web', 43]);
+    assert.match((await r2.json()).fragment, /data-key="symfony\/web#43" data-to="ready"/, 'draft again');
+
+    // not one of MY PRs (others' #7) or unknown → 400, gh untouched
+    const bad1 = await fetch(`${base}/ready?key=${encodeURIComponent('symfony/web#7')}`, { method: 'POST' });
+    assert.equal(bad1.status, 400);
+    const bad2 = await fetch(`${base}/draft?key=nope`, { method: 'POST' });
+    assert.equal(bad2.status, 400);
+    assert.equal(calls.length, 2);
+
+    // gh failure → 400 with gh's last line, state unchanged
+    fail = 'GraphQL: Resource not accessible by integration (markPullRequestReadyForReview)';
+    const r3 = await fetch(`${base}/ready?key=${key}`, { method: 'POST' });
+    assert.equal(r3.status, 400);
+    assert.equal(await r3.text(), fail);
+    const frag3 = await (await fetch(`${base}/fragment`)).text();
+    assert.match(frag3, /data-key="symfony\/web#43" data-to="ready"/, 'still a draft');
+  } finally {
+    server.close();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});

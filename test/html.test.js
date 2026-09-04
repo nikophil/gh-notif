@@ -89,6 +89,36 @@ test('renderFragment: the conflict icon also appears on others\' PRs', () => {
   assert.match(out, /title="Merge conflicts"/);
 });
 
+// ── draft ⇄ ready toggle on MY PRs (state icon = button + confirmation popover) ─
+test('renderFragment: my draft PR → the 📝 is a button proposing « ready for review »', () => {
+  const out = renderFragment({ mine: [myRow({ state: 'draft' })], others: [] }, { now: NOW });
+  assert.match(out, /<button class="state-btn" data-key="symfony\/web#120" data-to="ready" title="Draft — click to mark as ready for review">📝<\/button>/);
+  assert.match(out, /<div class="state-pop" hidden>[\s\S]*Mark #120 as ready for review\?[\s\S]*<button class="state-ok" data-key="symfony\/web#120" data-to="ready">Ready for review<\/button>/);
+});
+
+test('renderFragment: my open PR → the 🟢 is a button proposing « convert to draft » (warns about reviewers)', () => {
+  const out = renderFragment({ mine: [myRow({ state: 'open' })], others: [] }, { now: NOW });
+  assert.match(out, /<button class="state-btn" data-key="symfony\/web#120" data-to="draft" title="Open — click to convert to draft">🟢<\/button>/);
+  assert.match(out, /<div class="state-pop" hidden>[\s\S]*Convert #120 back to draft\? Its requested reviewers will be removed\.[\s\S]*<button class="state-ok" data-key="symfony\/web#120" data-to="draft">Convert to draft<\/button>/);
+});
+
+test('renderFragment: no state button on merged/closed, on others\' PRs, nor on hidden rows', () => {
+  const merged = renderFragment({ mine: [myRow({ state: 'merged' }), myRow({ number: 121, state: 'closed' })], others: [] }, { now: NOW });
+  assert.ok(!merged.includes('state-btn'), 'merged/closed are final');
+  assert.ok(merged.includes('🟣') && merged.includes('🔴'), 'plain icons stay');
+  const others = renderFragment({ mine: [], others: [otherRow({ state: 'open' }), otherRow({ number: 56, state: 'draft' })] }, { now: NOW });
+  assert.ok(!others.includes('state-btn'), 'not my PR → not my call');
+  const hidden = renderFragment({ mine: [], hiddenMine: [myRow({ state: 'draft' })], hiddenMineCount: 1, others: [] }, { now: NOW, showHidden: true });
+  assert.ok(!hidden.includes('state-btn'), 'a hidden row has no action but restore');
+  assert.ok(hidden.includes('📝'));
+});
+
+test('renderFragment: the state button keeps the ⚠️ conflict icon and escapes the key', () => {
+  const out = renderFragment({ mine: [myRow({ repo: 'o/a"b', state: 'open', conflicting: true })], others: [] }, { now: NOW });
+  assert.match(out, /data-key="o\/a&quot;b#120" data-to="draft"/);
+  assert.match(out, /<\/div> <span title="Merge conflicts">⚠️<\/span>/, 'the ⚠️ follows the button + its popover');
+});
+
 test('renderFragment: tooltips (title) on the icons', () => {
   const out = renderFragment(
     { mine: [myRow({ state: 'merged', ci: 'pass', triggers: ['review', 'comment'], approvals: 2 })], others: [] },

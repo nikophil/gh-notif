@@ -141,9 +141,23 @@ const titled = (title, content) => `<span title="${escapeHtml(title)}">${content
 // line. Both tried, both visibly off. Two emojis align for free.
 const CONFLICT_ICON = '⚠️';
 
-const stateCell = (state, conflicting = false) =>
-  titled(STATE_LABEL[state] || state || '', stateIcon(state))
-  + (conflicting ? ` ${titled('Merge conflicts', CONFLICT_ICON)}` : '');
+// draft ⇄ ready toggle (§30): given `toggleRow` (one of MY visible PRs), a
+// draft/open icon becomes a button whose popover asks for confirmation
+// (same mechanics as the CI popover: the panel is the button's next sibling),
+// then the client POSTs /ready or /draft. Merged/closed are final: plain icon.
+const STATE_TOGGLE = {
+  draft: { to: 'ready', title: 'Draft — click to mark as ready for review', ask: (n) => `Mark #${n} as ready for review?`, ok: 'Ready for review' },
+  open: { to: 'draft', title: 'Open — click to convert to draft', ask: (n) => `Convert #${n} back to draft? Its requested reviewers will be removed.`, ok: 'Convert to draft' },
+};
+const stateCell = (state, conflicting = false, toggleRow = null) => {
+  const t = toggleRow ? STATE_TOGGLE[state] : null;
+  const key = t ? escapeHtml(`${toggleRow.repo}#${toggleRow.number}`) : '';
+  const icon = t
+    ? `<button class="state-btn" data-key="${key}" data-to="${t.to}" title="${t.title}">${stateIcon(state)}</button>`
+      + `<div class="state-pop" hidden><p>${t.ask(toggleRow.number)}</p><button class="state-ok" data-key="${key}" data-to="${t.to}">${t.ok}</button></div>`
+    : titled(STATE_LABEL[state] || state || '', stateIcon(state));
+  return icon + (conflicting ? ` ${titled('Merge conflicts', CONFLICT_ICON)}` : '');
+};
 // GitHub check-state octicons (x / dot-fill / check), inline SVG tinted with the
 // Primer state colors — the row icons of GitHub's own checks dropdown.
 const ciSvg = (path, color) =>
@@ -473,7 +487,7 @@ function mineRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
     dateCell('Updated', r.updatedAt, now),
     diffCell(r),
     filesCell(r),
-    stateCell(r.state, r.conflicting),
+    stateCell(r.state, r.conflicting, hidden ? null : r), // a hidden row only offers « restore »
     approvalsCell(r.approvals, r.state === 'open' && isReady(r.approvals), r.changesRequested),
     triggersCell(r.triggers),
     ciCell(r, ignoredChecks),
@@ -765,7 +779,7 @@ const TABLE_JS = `
     openPop = pop;
   }
   document.addEventListener('click', function (e) {
-    if (openPop && !e.target.closest('.ci-pop, .cols-pop, .diff-pop') && !e.target.closest('button.ci-btn, button.cols-btn, button.diff-btn')) closeCiPop();
+    if (openPop && !e.target.closest('.ci-pop, .cols-pop, .diff-pop, .state-pop') && !e.target.closest('button.ci-btn, button.cols-btn, button.diff-btn, button.state-btn')) closeCiPop();
   });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeCiPop(); });
   // position:fixed popovers don't follow the page: re-anchor them on scroll
@@ -988,13 +1002,16 @@ ${FAVICON}
      GitHub-like panel listing the runs. position:fixed because the sections
      clip their content (overflow:hidden for the rounded corners) — the client
      positions the panel from the button's rect. */
-  button.ci-btn { border: 0; background: transparent; box-shadow: none; padding: 0 .1rem;
+  button.ci-btn, button.state-btn { border: 0; background: transparent; box-shadow: none; padding: 0 .1rem;
                   border-radius: 4px; line-height: 1; font-size: inherit; }
-  button.ci-btn:hover { background: var(--btn-hover); }
-  .ci-pop { position: fixed; z-index: 30; min-width: 16rem; max-width: 26rem; max-height: 60vh;
+  button.ci-btn:hover, button.state-btn:hover { background: var(--btn-hover); }
+  .ci-pop, .state-pop { position: fixed; z-index: 30; min-width: 16rem; max-width: 26rem; max-height: 60vh;
             overflow-y: auto; background: var(--canvas); border: 1px solid var(--border);
             border-radius: 6px; box-shadow: 0 8px 24px rgba(1,4,9,.3); padding: .3rem 0;
             font-size: .75rem; font-weight: 400; text-align: left; }
+  /* draft ⇄ ready confirmation (§30): one sentence, one button. */
+  .state-pop { padding: .6rem .75rem; }
+  .state-pop p { margin: 0 0 .5rem; }
   .ci-pop .ci-group { margin: 0; padding: .3rem .75rem .1rem; color: var(--fg-muted); font-weight: 600; }
   .ci-pop ul { list-style: none; margin: 0; padding: 0; }
   .ci-pop .ci-check { display: flex; align-items: center; gap: .45rem; padding: .25rem .75rem;
@@ -1684,6 +1701,17 @@ ${TABLE_JS}
       if (!wasOpen && pop) showPop(cib, pop);
       return;
     }
+    // draft ⇄ ready: the state icon of MY PR opens its confirmation popover
+    // (confirmed by the document-level listener below, the panel being
+    // reparented to <body>).
+    var stb = e.target.closest('button.state-btn');
+    if (stb) {
+      var spop = stb.nextElementSibling;
+      var sWasOpen = (spop === openPop);
+      closeCiPop();
+      if (!sWasOpen && spop) showPop(stb, spop);
+      return;
+    }
     // Per-type diff popover: the +X −Y figures toggle the panel of their row
     // (same mechanics as the CI popover above).
     var dfb = e.target.closest('button.diff-btn');
@@ -1739,6 +1767,15 @@ ${TABLE_JS}
     var qs = 'key=' + encodeURIComponent(el.getAttribute('data-cols-key'));
     if (el.getAttribute('data-cols-table') === 'mine') qs += '&table=mine';
     act('/cols', qs);
+  });
+  // draft ⇄ ready confirmation (§30, delegated on document for the same
+  // reason): POST /ready or /draft → the fragment comes back with the flipped
+  // icon; a gh failure shows its message near the scope field (act → showError).
+  document.addEventListener('click', function (e) {
+    var ok = e.target.closest('button.state-ok');
+    if (!ok) return;
+    closeCiPop();
+    act('/' + ok.getAttribute('data-to'), 'key=' + encodeURIComponent(ok.getAttribute('data-key')));
   });
 
   setInterval(function () {
