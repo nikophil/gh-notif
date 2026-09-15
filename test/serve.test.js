@@ -610,6 +610,21 @@ test('GET /view : JSON {chips, fragment, updatedAt}, counters from the snapshot'
   assert.doesNotMatch(d.fragment, /at symfony/);
 });
 
+test('GET /view : events after the given seq, none without `after`, lastSeq always', () => {
+  const snap = mixedSnapshot();
+  const events = [
+    { seq: 1, title: 'a', body: 'o/r #1 — x', url: 'u1' },
+    { seq: 2, title: 'b', body: 'o/r #2 — y', url: 'u2' },
+  ];
+  const parse = (after) => JSON.parse(handleRequest('/view', snap, { ...OPTS, events, after }).body);
+  assert.deepEqual(parse(null).events, [], 'no `after` → the client is not a notifying browser');
+  assert.deepEqual(parse('').events, [], 'empty `after` → first poll, nothing to show yet');
+  assert.deepEqual(parse('1').events.map((e) => e.seq), [2]);
+  assert.deepEqual(parse('0').events.map((e) => e.seq), [1, 2]);
+  assert.equal(parse(null).lastSeq, 2);
+  assert.equal(JSON.parse(handleRequest('/view', snap, { ...OPTS }).body).lastSeq, 0, 'no buffer → 0');
+});
+
 test('GET /fragment : « closed » link contextualized (ad-hoc > active favorite > union of favorites)', () => {
   // No scope nor favorite → link without qualifier.
   let res = handleRequest('/fragment', okSnapshot(), OPTS);

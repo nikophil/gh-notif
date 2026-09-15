@@ -134,7 +134,7 @@ export function handleRequest(pathname, snapshot, opts = {}) {
   const {
     now, intervalMs, showHidden, scope, notifyEnabled = true, theme = 'auto',
     favorites = [], activeFav = null, adhoc = false, sort = null, sortMine = null, ignoredChecks = {},
-    favModes = null, stacks = null, cols = null, searchQ = '',
+    favModes = null, stacks = null, cols = null, searchQ = '', events = [], after = null,
   } = opts;
   // Search page shell (§29): the query comes from the URL (pre-filled field);
   // the data itself goes through /search-fragment (I/O, outside this pure router).
@@ -163,6 +163,10 @@ export function handleRequest(pathname, snapshot, opts = {}) {
       chips: renderFavorites(favorites, activeFav, { adhoc, counts, favModes }),
       fragment: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, reviewedUrl, sort, sortMine, ignoredChecks, stacks, cols }),
       updatedAt: snapshot.updatedAt,
+      // Browser notifications (§34): `after` present ⇒ the client can show them;
+      // '' = its first poll (it only learns lastSeq), 'N' = everything newer than N.
+      events: after ? events.filter((e) => e.seq > Number(after)) : [],
+      lastSeq: events.length ? events[events.length - 1].seq : 0,
     }) };
   }
   if (pathname === '/api/state') {
