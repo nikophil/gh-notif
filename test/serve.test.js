@@ -840,6 +840,65 @@ test('POST /fav/mode: toggles « all » mode, auto-watches, silent seed (no burs
   }
 });
 
+// ── integration: browser notifications (§34) ────────────────────────────────
+// A tab that polls /view?after=… takes over: the native notifier is NOT called,
+// the event is served to the tab instead. Without such a tab → native notif.
+test('a notifying tab (GET /view?after=) replaces the native notifier', async () => {
+  // A fresh, unread mention → one MENTION item per thread (dedup by comment URL).
+  const mention = (n) => ({
+    id: `t${n}`, reason: 'mention', updated_at: '2026-08-01T12:00:00Z', last_read_at: null,
+    subject: { title: `PR ${n}`, url: `https://api.github.com/repos/o/r/pulls/${n}`, latest_comment_url: `https://api.github.com/repos/o/r/issues/comments/${n}`, type: 'PullRequest' },
+    repository: { full_name: 'o/r' },
+  });
+  let threads = [mention(1)];
+  const notified = [];
+  const gh = {
+    getCurrentUser: async () => 'me',
+    listNotifications: async () => threads,
+    searchReviewRequested: async () => [],
+    searchAuthored: async () => [],
+    getPullDetailsBatch: async () => [],
+    getComment: async (url) => ({ user: { login: 'alice' }, created_at: '2026-08-01T12:00:00Z', html_url: `https://github.com/o/r/pull/1#issuecomment-${url.split('/').pop()}` }),
+    getReviewComments: async () => [],
+    scopeExists: async () => true,
+  };
+  const tmp = `/tmp/gh-notif-test-browser-${process.pid}`;
+  rmSync(tmp, { recursive: true, force: true });
+  process.env.XDG_STATE_HOME = tmp;
+
+  const PORT = 7802;
+  const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false, notifier: (i) => notified.push(i) });
+  const view = async (q = '') => (await fetch(`http://localhost:${PORT}/view${q}`)).json();
+  // POST /scope forces a real collection (not debounced, unlike /refresh).
+  const repoll = async () => { await fetch(`http://localhost:${PORT}/scope?value=o/r`, { method: 'POST' }); };
+  try {
+    await new Promise((r) => setTimeout(r, 150)); // 1st poll: silent seed of t1
+
+    // No notifying tab yet → native notif, but the event is buffered too.
+    threads = [mention(1), mention(2)];
+    await repoll();
+    assert.deepEqual(notified.map((n) => n.number), [2]);
+    const first = await view('?after=');
+    assert.deepEqual(first.events, [], 'first poll of the tab: nothing shown');
+    assert.equal(first.lastSeq, 1);
+
+    // The tab is now known → the next event goes to the tab, not to notify-send.
+    threads = [mention(1), mention(2), mention(3)];
+    await repoll();
+    assert.deepEqual(notified.map((n) => n.number), [2], 'native notifier NOT called');
+    const next = await view(`?after=${first.lastSeq}`);
+    assert.equal(next.events.length, 1);
+    assert.equal(next.events[0].seq, 2);
+    assert.equal(next.events[0].title, '@alice mentioned you');
+    assert.equal(next.events[0].body, 'o/r #3 — PR 3');
+    assert.equal(next.events[0].url, 'https://github.com/o/r/pull/1#issuecomment-3');
+    assert.deepEqual((await view(`?after=${next.lastSeq}`)).events, [], 'nothing newer');
+  } finally {
+    server.close();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 const stackSnapshot = () => {
   const parent = { repo: 'o/r', number: 10, url: 'u10', title: 'PARENT-PR', triggers: [], ci: 'pass', state: 'open', approvals: 0, branch: 'feat/p', base: 'main', defaultBranch: 'main' };
   const child = { repo: 'o/r', number: 11, url: 'u11', title: 'CHILD-PR', triggers: [], ci: 'pass', state: 'open', approvals: 0, branch: 'feat/c', base: 'feat/p', defaultBranch: 'main' };

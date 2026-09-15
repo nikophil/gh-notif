@@ -18,7 +18,7 @@ import {
 } from './favorites.js';
 import { diffApprovals } from './approvals.js';
 import { normalizeSort, toggleSort, sortRows, groupStacks, stackChildKeys, SORT_KEYS, MINE_SORT_KEYS, DEFAULT_SORT } from './sort.js';
-import { sendNotification } from './notify.js';
+import { sendNotification, browserEvent } from './notify.js';
 import { isRateLimitError, nextBackoffSeconds } from './ratelimit.js';
 import { startSpinner } from './spinner.js';
 import { renderShell, renderFragment, renderLoading, renderDebug, renderDebugShell, renderFavorites, renderSearchShell, renderSearchFragment, renderUpdateBanner, escapeHtml } from './html.js';
@@ -273,6 +273,21 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   const seenApprovals = new Set();
   let primedApprovals = false;
 
+  // Browser notifications (§34). Every notification is appended to a bounded
+  // in-memory buffer served by GET /view?after=<seq>. A tab that polls with
+  // `after` is a notifying browser: as long as one did so recently (2 polls),
+  // the native notifier (notify-send/osascript) stays silent → no duplicate,
+  // and a headless server (Docker, remote) still notifies through the tab.
+  const EVENTS_MAX = 50;
+  const events = [];
+  let lastSeq = 0;
+  let browserUntil = 0;
+  const emit = (item) => {
+    events.push({ seq: ++lastSeq, ...browserEvent(item) });
+    if (events.length > EVENTS_MAX) events.shift();
+    if (Date.now() >= browserUntil) notifier(item);
+  };
+
   const notifyNew = (data) => {
     // Approvals first (independent of the disk seed below): a new approve
     // → desktop notif. See approvals.js / spec.
@@ -281,7 +296,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
     // re-enabling.
     const freshApprovals = diffApprovals({ events: data.approvalEvents ?? [], seen: seenApprovals, primed: primedApprovals });
     primedApprovals = true;
-    if (notifyEnabled) for (const e of freshApprovals) notifier({ ...e, category: CATEGORY.APPROVAL });
+    if (notifyEnabled) for (const e of freshApprovals) emit({ ...e, category: CATEGORY.APPROVAL });
 
     const items = data.notifications ?? [];
     if (!primed) {
@@ -302,7 +317,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       if (muteWatch && WATCH_CATEGORIES.has(item.category)) continue;
       if (!notifyEnabled) continue;
       if (item.category === CATEGORY.REVIEW_REQUEST && !openKeys.has(`${item.repo}#${item.number}`)) continue;
-      notifier(item);
+      emit(item);
     }
     if (fresh.length > 0) saveState(sPath, state);
   };
@@ -650,8 +665,15 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       return send(200, 'text/html; charset=utf-8', await searchFragment(url.searchParams));
     }
 
+    // A poll carrying `after` marks a notifying tab for two intervals
+    // (Chrome throttles background timers to ~1/min: one interval is too tight).
+    const after = url.searchParams.get('after');
+    if (pathname === '/view' && after !== null) browserUntil = Date.now() + 2 * intervalSeconds * 1000;
+
     const { status, type, body } = handleRequest(pathname, snapshot, {
       now: Date.now(),
+      events,
+      after,
       // The page refresh follows the real GitHub poll interval
       // (the re-fetch only re-reads the server snapshot, 0 GitHub call).
       intervalMs: intervalSeconds * 1000,
