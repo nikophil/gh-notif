@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CATEGORY } from '../src/filter.js';
-import { notifyMessage, notifyCommand, sendNotification } from '../src/notify.js';
+import { notifyMessage, notifyCommand, sendNotification, browserEvent } from '../src/notify.js';
 
 const base = { repo: 'o/r', number: 42, title: 'My PR', url: 'https://github.com/o/r/pull/42' };
 
@@ -98,4 +98,12 @@ test('titles of the watch categories (all mode): new PR / new issue / activity',
   assert.equal(notifyMessage({ ...base, category: CATEGORY.NEW_ISSUE, actor: null }).title, 'New issue');
   assert.equal(notifyMessage({ ...base, category: CATEGORY.ACTIVITY, actor: 'bob' }).title, '@bob commented');
   assert.equal(notifyMessage({ ...base, category: CATEGORY.ACTIVITY, actor: null }).title, 'New activity');
+});
+
+test('browserEvent: same title as the desktop notif, one-line body, url apart', () => {
+  const item = { ...base, category: CATEGORY.MENTION, actor: 'alice' };
+  const e = browserEvent(item);
+  assert.equal(e.title, notifyMessage(item).title);
+  assert.equal(e.body, 'o/r #42 — My PR');
+  assert.equal(e.url, 'https://github.com/o/r/pull/42');
 });

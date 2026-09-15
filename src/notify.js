@@ -2,6 +2,8 @@ import { spawn as nodeSpawn } from 'node:child_process';
 import { CATEGORY } from './filter.js';
 import { isReady } from './approvals.js';
 
+const summary = (item) => `${item.repo} #${item.number} — ${item.title}`;
+
 export function notifyMessage(item) {
   let title;
   switch (item.category) {
@@ -16,8 +18,14 @@ export function notifyMessage(item) {
     case CATEGORY.ACTIVITY:       title = item.actor ? `@${item.actor} commented` : 'New activity'; break;
     default:                      title = 'Notification';
   }
-  const body = `${item.repo} #${item.number} — ${item.title}\n${item.url}`;
+  const body = `${summary(item)}\n${item.url}`;
   return { title, body };
+}
+
+// Payload of a browser (Web Notifications API) notification: the URL is not in
+// the body (the notification itself is clickable → opens `url`).
+export function browserEvent(item) {
+  return { title: notifyMessage(item).title, body: summary(item), url: item.url };
 }
 
 // System command to launch for a desktop notification, depending on the platform
