@@ -475,6 +475,13 @@ test('renderShell: complete HTML page with polling of /view', () => {
   assert.ok(out.includes('10000'), 'interval injected in the JS');
 });
 
+test('renderShell: browser notifications wired (permission button, after= poll, Notification)', () => {
+  const out = renderShell({ intervalMs: 10000 });
+  assert.ok(out.includes('id="notify-allow"'), 'button to request the permission');
+  assert.ok(out.includes("'after='"), 'the poll passes the last seen seq');
+  assert.ok(out.includes('new Notification('), 'shows the events');
+});
+
 test('renderShell: no external asset (all inline)', () => {
   const out = renderShell({ intervalMs: 10000 });
   assert.ok(!/src="https?:/.test(out), 'no external script');

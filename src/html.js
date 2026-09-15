@@ -1215,6 +1215,7 @@ export function renderShell({ intervalMs = 10000, scopeLabel = '', notifyEnabled
     <label id="notify-label" title="Enable/disable desktop notifications">
       <input type="checkbox" id="notify"${notifyEnabled ? ' checked' : ''}> 🔔 notifs
     </label>
+    <button type="button" id="notify-allow" hidden title="Notifications from the browser (works without a desktop on the server)">allow in browser</button>
     <span class="theme-switch" role="group" aria-label="Theme">
       <button type="button" data-theme-val="auto"${theme === 'auto' ? ' class="on"' : ''} title="Theme: auto (system)">🌗 auto</button>
       <button type="button" data-theme-val="light"${theme === 'light' ? ' class="on"' : ''} title="Theme: light">☀️ light</button>
@@ -1240,6 +1241,26 @@ export function renderShell({ intervalMs = 10000, scopeLabel = '', notifyEnabled
   var favs = document.getElementById('favs');
   var toggleBtn = document.getElementById('toggle-hidden');
   var showHidden = false;
+  // Browser notifications (§34). seq = last event seq shown (null = this tab
+  // does not notify: no permission, or 🔔 off → the server keeps notify-send).
+  var notifyBox = document.getElementById('notify');
+  var allowBtn = document.getElementById('notify-allow');
+  var seq = null;
+  function canNotify() {
+    return notifyBox.checked && typeof Notification !== 'undefined' && Notification.permission === 'granted';
+  }
+  function syncAllow() {
+    allowBtn.hidden = !(notifyBox.checked && typeof Notification !== 'undefined' && Notification.permission === 'default');
+    if (!canNotify()) seq = null;
+  }
+  allowBtn.addEventListener('click', function () {
+    Notification.requestPermission().then(syncAllow);
+  });
+  syncAllow();
+  function showNotif(e) {
+    var n = new Notification(e.title, { body: e.body, tag: e.url });
+    n.onclick = function () { window.open(e.url, '_blank'); n.close(); };
+  }
   var left = INTERVAL / 1000;
 
   // CI checks popover: one open at a time; closed on outside click, Escape,
@@ -1248,6 +1269,7 @@ ${TABLE_JS}
   function q(extra) {
     var p = [];
     if (showHidden) p.push('hidden=1');
+    if (canNotify()) p.push('after=' + (seq === null ? '' : seq));
     if (extra) p.push(extra);
     return p.length ? '?' + p.join('&') : '';
   }
@@ -1548,6 +1570,12 @@ ${TABLE_JS}
   function inject(d) {
     if (d && typeof d.chips === 'string') favs.innerHTML = d.chips;
     setContent(d.fragment, d.updatedAt);
+    if (canNotify() && typeof d.lastSeq === 'number') {
+      // Only once the server knows this tab (seq !== null): the very first
+      // response only teaches us lastSeq → no replay of past events.
+      if (seq !== null) (d.events || []).forEach(showNotif);
+      seq = d.lastSeq;
+    }
     return d;
   }
   function load() {
@@ -1585,6 +1613,7 @@ ${TABLE_JS}
 
   document.getElementById('refresh').addEventListener('click', function () { act('/refresh'); });
   document.getElementById('notify').addEventListener('change', function (e) {
+    syncAllow();
     // Drives the server flag; the box lives in the <header> (outside #content) so
     // it survives the fragment refreshes. We don't replace #content here.
     fetch('/notify?enabled=' + (e.target.checked ? '1' : '0'), { method: 'POST' });
