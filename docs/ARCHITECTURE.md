@@ -31,7 +31,7 @@ error).
 | `src/prefs.js` | Persisted UI preferences (`notify`, `theme`, `favorites`, `activeFav`, `sort`, `sortMine`, `ignoredChecks`, `favModes`, with defaults/validation `isNotifyEnabled`/`themeOf`/`ignoredChecksOf`/`ignoredChecksFor`/`favModesOf`/`toggleFavMode`). Pure + JSON I/O, modeled on `state.js`. | yes |
 | `src/favorites.js` | Scope favorites: normalization/add/remove, `parseScope`, `f` key cycle, **`filterDataByScope`** (display filter), `favoriteLabel` (`org/*`), `favoriteCounts` (badges) and `repoInAllMode` (« all » mode, §18). Pure. | yes |
 | `src/approvals.js` | Approvals on my PRs: `approvalsOf`, « ready to merge » threshold (`isReady`), event diff/seed (`diffApprovals`). Pure. | yes |
-| `src/notify.js` | Cross-platform desktop notifs (`notifyCommand`: `notify-send` Linux / `osascript` macOS). | yes via spawn stub |
+| `src/notify.js` | Cross-platform desktop notifs (`notifyCommand`: `notify-send` Linux / `osascript` macOS) + `browserEvent` (payload of the browser channel §34). | yes via spawn stub |
 | `src/render.js` | **Presentation helpers shared with the web** (`ciIcon`, `stateIcon`, `relativeDate`, `checksByRepo`) + the tiny terminal `favoritesBar` for `fav list`. No table rendering. | yes |
 | `src/spinner.js` | Spinner during the server poll (stderr, no-op outside TTY). | yes via stream stub |
 | `src/hidden.js` | Hiding of PRs (others' and mine): persistence, event signatures, reconciliation, numbers. | yes |
@@ -1055,6 +1055,23 @@ sequenceDiagram
       the children count) — chosen on purpose: the user folds a stack to stop looking at it.
       §28 still turns stacks mode on for a never-seen child; the root's « +N » just grows.
     - whole block only: a branched stack folds under its root, no per-node folding.
+
+34. **Browser notifications (§34): one channel at a time, chosen by the tab.** The server
+    appends every notification to a **bounded in-memory buffer** (`events`, 50 max, increasing
+    `seq`) and serves it through the poll the page already makes: `GET /view?after=<seq>` returns
+    `events` newer than `seq` + `lastSeq`. `after` **present** = « this tab can notify »
+    (permission granted **and** 🔔 on): the server then marks `browserUntil = now + 2 × interval`
+    and `emit()` skips the native notifier while that window holds → no duplicate
+    desktop+browser, and a headless server (Docker) still notifies through the tab. All tabs
+    closed → the window expires → back to `notify-send`/`osascript`. ⚠️ `after=''` (empty) is the
+    tab's **first** poll: it only learns `lastSeq`, no event is returned — otherwise the buffer
+    would be **replayed** (including events already shown on the desktop) at every page load.
+    ⚠️ Two intervals, not one: Chrome throttles background timers to ~1/min, one interval would
+    flap between channels. `handleRequest` stays pure (`events`/`after` come through `opts`);
+    `browserUntil` lives in the I/O handler. `Notification.requestPermission()` needs a **user
+    gesture** (Chrome/Safari/Firefox) → the **allow in browser** button, shown only while the
+    permission is `default` and 🔔 is on. Mobile browsers are out of scope (no constructor on
+    Android, push-only on iOS).
 
 ## Test conventions
 

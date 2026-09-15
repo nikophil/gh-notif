@@ -169,8 +169,16 @@ gh notif --org symfony   # restricts the scope
 
 A **single server-side poll loop** (~60 s) queries GitHub and feeds the page; several open tabs
 therefore don't multiply the calls. The page refreshes on its own (~10 s) with a **countdown**;
-links open in a **new tab**. Each new event pushes a **desktop notification** (`notify-send` on
-Linux, `osascript` on macOS).
+links open in a **new tab**. Each new event pushes a notification. Two channels, never both at
+once:
+
+- **browser**: click **allow in browser** next to 🔔 once and accept the prompt. As long as a tab
+  polling the page is open (background tab is fine), notifications are shown by the browser — this
+  is the channel to use when the server has no desktop (Docker, remote machine). Chrome's Memory
+  Saver may discard an idle tab (no more polling → no more notifications): add the page to its
+  « always keep active » list.
+- **desktop** (`notify-send` on Linux, `osascript` on macOS): used while no allowed tab has polled
+  recently (about two poll intervals), e.g. all tabs closed.
 
 On the very first launch, the existing backlog is marked « seen » **without alerting**: the tables
 are shown, but you're only notified (desktop) of events happening **after** startup.
@@ -186,7 +194,7 @@ From the page, you can:
   `~/.local/state/gh-notif/hidden-v1.json`.
 - **filter by org/repo**: type `symfony` or `symfony/web` in the field then **Filter** (the server
   loads **only** that scope); **All** shows everything again.
-- **turn off desktop notifications**: uncheck **🔔 notifs** in the header. The server keeps tracking
+- **turn off notifications (both channels)**: uncheck **🔔 notifs** in the header. The server keeps tracking
   events (they are marked « seen » silently), it simply stops pushing notifs — re-checking therefore
   does **not** trigger a burst of old notifs. The choice is **persisted** in
   `~/.local/state/gh-notif/prefs-v1.json` (survives a restart).
