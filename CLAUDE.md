@@ -34,9 +34,28 @@ so a push to `main` that is not released reaches nobody.
 
 - **After every push to `main`, suggest cutting a release** (suggest, never create it
   unasked). Semver: patch for a fix, minor for a feature.
-- Release = bump `version` in `package.json`, commit, then let `gh` write the notes from
-  the commits since the previous release:
+- Release = bump `version` in `package.json`, commit, then create the release with
+  **hand-written, user-facing notes**. Never `--generate-notes`: GitHub builds those from
+  merged PRs, and this repo commits straight to `main` → the notes would only hold the
+  changelog link.
+- Notes = what the user gains, not the commit log. List the commits since the previous
+  tag (`git fetch --tags && git log --oneline v<prev>..HEAD`), then group them by
+  **Features** / **Fixes** and describe each in one or two sentences a user of the page
+  understands (what it does, how to use it, e.g. « click *allow in browser* »).
+  Skip docs/chore/refactor commits. End with the compare link.
 
   ```bash
-  gh release create v<version> --generate-notes
+  gh release create v<version> --title "v<version>" --notes-file notes.md
+  ```
+
+  Template of `notes.md`:
+
+  ```markdown
+  ## Features
+  - **Browser notifications** — the page can now notify you itself (…how to enable…).
+
+  ## Fixes
+  - **…** — what was wrong, what happens now.
+
+  **Full Changelog**: https://github.com/nikophil/gh-notif/compare/v<prev>...v<version>
   ```
