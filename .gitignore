@@ -5,3 +5,6 @@ node_modules/
 
 # specs/skills directory, untracked (local only)
 docs/superpowers/
+
+# docker compose secrets
+.env

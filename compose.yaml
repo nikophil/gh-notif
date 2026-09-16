@@ -1,0 +1,16 @@
+services:
+  gh-notif:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "7777:7777"
+    environment:
+      # Classic token with `repo` + `notifications` (+ `read:org` for org repos).
+      GH_TOKEN: ${GH_TOKEN:?set GH_TOKEN in .env}
+    volumes:
+      - state:/data
+    # Any `gh notif` flag, e.g. a favorite or a slower poll:
+    # command: ["--fav", "symfony", "--interval", "120"]
+
+volumes:
+  state:
