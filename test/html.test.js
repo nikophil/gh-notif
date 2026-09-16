@@ -650,7 +650,8 @@ test('renderErrorsSection: journal newest first, code + escaped message, copy te
   const out = renderErrorsSection(entries, NOW);
   assert.match(out, /GitHub errors/);
   assert.match(out, /2 entries, newest first/);
-  assert.match(out, /<code>GH-GRAPHQL<\/code>/);
+  assert.match(out, /<code class="err-code">GH-GRAPHQL<\/code>/);
+  assert.match(out, /<span class="err-msg">HTTP 403: rate limited<\/span>/, 'message styled red');
   assert.match(out, /2min ago[\s\S]*5h ago/, 'chronological, newest first');
   assert.match(out, /&lt;b&gt;bad&lt;\/b&gt;/, 'message escaped');
   assert.ok(!out.includes('<b>bad</b>'), 'no injection');

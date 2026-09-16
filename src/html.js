@@ -2010,8 +2010,8 @@ export function renderErrorsSection(entries = [], now = Date.now()) {
   const headers = ['When', 'Code', 'Error', 'Command', '×'];
   const trs = entries.map((e) => tableRow([
     `<span title="${escapeHtml(new Date(e.at).toISOString())}">${escapeHtml(relativeDate(e.at, now))}</span>`,
-    `<code>${escapeHtml(e.code)}</code>`,
-    escapeHtml(e.message),
+    `<code class="err-code">${escapeHtml(e.code)}</code>`,
+    `<span class="err-msg">${escapeHtml(e.message)}</span>`,
     `<code>${escapeHtml(e.command)}</code>`,
     String(e.count),
   ]));
@@ -2084,6 +2084,10 @@ ${FAVICON}
   .errors td:nth-child(1), .errors td:nth-child(2), .errors td:nth-child(5) { white-space: nowrap; }
   .errors td:nth-child(4) { font-size: .8em; opacity: .8; }
   .errors td:nth-child(4) code { white-space: normal; word-break: break-all; }
+  /* Red, like the ⚠️ Error banner of the tables page: an error must read as one. */
+  .errors .err-code { color: #f85149; background: #f8514922; }
+  .errors .err-msg { color: #f85149; }
+  @media (prefers-color-scheme: light) { .errors .err-code, .errors .err-msg { color: #cf222e; } }
 </style>
 </head>
 <body>
