@@ -278,6 +278,99 @@ After modifying the `.service` file, a `systemctl --user daemon-reload` is **man
 > parent's `kill` and keeps the port busy (the service then restarts in a loop on `EADDRINUSE`).
 > Use `systemctl --user restart/stop`, which cleans up the whole cgroup.
 
+### Launch at startup (macOS · launchd)
+
+Same thing on macOS, with a ***user* LaunchAgent**
+(`~/Library/LaunchAgents/com.gh-notif.dashboard.plist`):
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.gh-notif.dashboard</string>
+
+    <!-- absolute path: launchd does NOT search the PATH here (see below) -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/gh</string>
+        <string>notif</string>
+        <string>--port</string>
+        <string>7777</string>
+        <string>--no-open</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/YOUR_LOGIN</string>
+
+    <!-- node installed via nvm/asdf? give an explicit PATH -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <!-- starts at session login (equivalent of graphical-session.target) -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- restart on crash only, not after a clean stop (equivalent of Restart=on-failure) -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <!-- equivalent of RestartSec=10 -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/gh-notif.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/gh-notif.err.log</string>
+</dict>
+</plist>
+```
+
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.gh-notif.dashboard.plist
+```
+
+`bootstrap` loads the agent **once**. Run it a second time on an agent that is already loaded and
+launchd answers `Bootstrap failed: 5: Input/output error`, which means « this label is already
+there », not « it is broken ». The legacy `launchctl load` is a shim over the same call and fails
+the same way (`Load failed: 5`). Check the state with `launchctl list | grep gh-notif` instead of
+re-running the load: a PID in the first column means it is running, a dash with a number in the
+second means it is stopped and that number is the last exit status.
+
+Three points that make the agent fail if you get them wrong:
+
+- **absolute path to `gh`, and the right one**: launchd resolves the first `ProgramArguments`
+  entry **without using the `PATH`**. Homebrew puts `gh` in `/opt/homebrew/bin` on Apple Silicon
+  and in `/usr/local/bin` on Intel — check with `which gh`. A wrong path gives **status 78** in
+  `launchctl list` and **empty logs**, since the process is never started.
+- **explicit `PATH` if node comes from nvm/asdf**: same trap as under systemd, the entrypoint is a
+  `#!/usr/bin/env node`.
+- **`--no-open`**: otherwise each restart of the agent opens a browser tab for you.
+
+Driving the agent day-to-day:
+
+```bash
+launchctl list | grep gh-notif                              # PID and last exit status
+launchctl kickstart -k gui/$(id -u)/com.gh-notif.dashboard  # restart (after an extension update)
+launchctl bootout gui/$(id -u)/com.gh-notif.dashboard       # stops and unloads the agent
+tail -f /tmp/gh-notif.err.log                               # live logs
+```
+
+After modifying the `.plist`, a `bootout` **then** a `bootstrap` is **mandatory**: `kickstart`
+relaunches the old definition, the one loaded in memory.
+
+> ⚠️ Same warning as under Linux: never kill the process by hand, the **child node process**
+> survives and keeps the port busy. Go through `launchctl kickstart -k` / `bootout`.
+
 ## Debug — check detection
 
 To understand *why* a PR surfaces (or not), the **`/debug`** page (🐛 link in the header) exposes the
