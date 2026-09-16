@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
-import { handleRequest, serve, parseScope, scopeLabel, shouldRefresh } from '../src/serve.js';
+import { handleRequest, serve, parseScope, scopeLabel, shouldRefresh, singleFlight } from '../src/serve.js';
 import { loadPrefs, prefsPath } from '../src/prefs.js';
 
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
@@ -132,6 +132,48 @@ test('GET /fragment?hidden (showHidden) also renders MY hidden rows', () => {
 });
 
 // ── parseScope / scopeLabel ────────────────────────────────────────────────
+// singleFlight: never two polls at once (secondary rate limit §11).
+const deferred = () => { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; };
+
+test('singleFlight: join → the caller waits for the poll in flight, no second poll', async () => {
+  const polls = [];
+  const run = singleFlight(() => { const d = deferred(); polls.push(d); return d.promise; });
+  const first = run();
+  const joined = run({ join: true });
+  assert.equal(polls.length, 1, 'one poll in flight');
+  polls[0].resolve('a');
+  assert.equal(await first, 'a');
+  assert.equal(await joined, 'a', 'same result as the poll it joined');
+  assert.equal(polls.length, 1, 'joining never started a poll');
+});
+
+test('singleFlight: default → ONE follow-up poll after the one in flight, shared by all callers', async () => {
+  const polls = [];
+  const run = singleFlight(() => { const d = deferred(); polls.push(d); return d.promise; });
+  const first = run();
+  const second = run();
+  const third = run();
+  assert.equal(polls.length, 1, 'the follow-up waits for the first poll');
+  polls[0].resolve('a');
+  await first;
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  assert.equal(polls.length, 2, 'exactly one follow-up, sequential');
+  polls[1].resolve('b');
+  assert.equal(await second, 'b');
+  assert.equal(await third, 'b', 'callers of the same window share the follow-up');
+  const fourth = run(); // idle again → a fresh poll starts at once
+  assert.equal(polls.length, 3);
+  polls[2].resolve('c');
+  assert.equal(await fourth, 'c');
+});
+
+test('singleFlight: a failed poll does not block the next ones', async () => {
+  let n = 0;
+  const run = singleFlight(async () => { n += 1; if (n === 1) throw new Error('boom'); return n; });
+  await assert.rejects(run());
+  assert.equal(await run(), 2);
+});
+
 test('parseScope : empty → null, org, owner/repo', () => {
   assert.equal(parseScope(''), null);
   assert.equal(parseScope('   '), null);

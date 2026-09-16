@@ -50,6 +50,27 @@ export function scopeLabel(scope) {
 // (ctrl+R = « really refresh »), so we only re-poll GitHub if the
 // snapshot is older than `minAgeMs` (otherwise spamming ctrl+R = spamming GitHub, cf.
 // rate-limit §11). `updatedAt` null (1st poll not done) → always poll.
+// Serializes the GitHub polls (§11): two collectPRs in parallel (ctrl+R while
+// the loop polls) double every request at once → secondary rate limit.
+// `run()` starts a poll, or — one already in flight — joins it (`join: true`:
+// a manual refresh wants fresh data, the running poll IS that) or queues ONE
+// follow-up after it (default: a scope/favorite change needs a poll that saw
+// the NEW scope). Callers arriving during the same poll share the follow-up.
+export function singleFlight(fn) {
+  let inflight = null;
+  let next = null;
+  const run = ({ join = false } = {}) => {
+    if (!inflight) {
+      inflight = fn().finally(() => { inflight = null; });
+      return inflight;
+    }
+    if (join) return inflight;
+    if (!next) next = inflight.catch(() => {}).then(() => { next = null; return run(); });
+    return next;
+  };
+  return run;
+}
+
 export function shouldRefresh(updatedAt, now, minAgeMs = REFRESH_MIN_AGE_MS) {
   return updatedAt == null || now - updatedAt >= minAgeMs;
 }
@@ -341,7 +362,9 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
     savePrefs(prefsFile, prefs);
   };
 
-  const refresh = async () => {
+  // Never two polls at once (singleFlight): the loop, /scope, /fav* queue a
+  // follow-up; /refresh joins the poll in flight.
+  const refresh = singleFlight(async () => {
     const stop = startSpinner('Updating…'); // terminal spinner (no-op outside TTY)
     try {
       // Collection over the UNION of favorites (or the ad-hoc scope). notifyNew receives
@@ -365,7 +388,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
     } finally {
       stop();
     }
-  };
+  });
 
   // Loop rescheduled by setTimeout (and not setInterval) to integrate the
   // backoff: the next poll is deferred by `intervalSeconds + backoff`.
@@ -460,7 +483,8 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       if (pathname === '/refresh') {
         // Debounced: fresh snapshot (< 10 s) → we respond with the current view without
         // touching GitHub (the client forces /refresh on every page load).
-        if (shouldRefresh(snapshot.updatedAt, Date.now())) await refresh();
+        // A poll already in flight is joined, never doubled (singleFlight).
+        if (shouldRefresh(snapshot.updatedAt, Date.now())) await refresh({ join: true });
         return send(200, json, currentView(showHidden));
       }
       if (pathname === '/ready' || pathname === '/draft') {

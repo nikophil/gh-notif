@@ -167,6 +167,11 @@ is already fresh). ⚠️ The `upd HH:MM:SS` stamp shows **the snapshot's `updat
 real poll), never the display time — otherwise a reload would claim an update it didn't make
 (real bug). The « next check » counter is aligned on the **estimated next server poll**
 (`updatedAt + INTERVAL`, clamped ≥ 5 s), not reset to full on each injection.
+A manual refresh (🔄, page load) also raises a **veil** (`#veil`, « Updating pull requests… »):
+**non-blocking** (`pointer-events: none`, the tables underneath are valid and stay clickable)
+and armed **after 300 ms only** — the debounced `/refresh` answers in ms and would flash it.
+The automatic poll never shows it (stamp spinner only). Server-side, a `/refresh` that lands
+while the loop is polling **joins** that poll instead of starting a second one (§11).
 
 **A restart must show the restored view, not a stale browser copy (real bug).** The server
 restores `activeFav` from prefs at startup, but the browser could still show a long-gone
@@ -414,6 +419,12 @@ sequenceDiagram
     (`isRateLimitError`: `rate limit`/`secondary`/`abuse`/`403`/`429`), the next poll backs off
     (`nextBackoffSeconds`: doubles, cap 10 min); reset on success. `serve.js` reschedules via
     **`setTimeout`** (not `setInterval`) to incorporate this delay.
+    **Never two polls at once** (`singleFlight`, pure, exported): a ctrl+R while the loop was
+    polling ran a second `collectPRs` in parallel — every request doubled at once, exactly the
+    burst the secondary limit punishes (colleagues got rate-limited; the interval itself is not
+    the culprit: ~5–15 requests/poll in steady state, far under 5000/h). `/refresh` **joins**
+    the poll in flight (`{ join: true }`: fresh data is what it wants); `/scope`, `/fav*` and
+    the loop queue **one** shared follow-up (they need a poll that saw the new scope).
     Interval adjustable by `--interval N`, **floor 60 s** (`effectiveInterval`). ⚠️ Known limitation
     (out of scope): the incremental `since` does not detect a comment **deleted** from a thread already
     in the cache.

@@ -482,6 +482,16 @@ test('renderShell: browser notifications wired (permission button, after= poll, 
   assert.ok(out.includes('new Notification('), 'shows the events');
 });
 
+test('renderShell: manual refresh veil (🔄 + page load), never the automatic poll', () => {
+  const out = renderShell({ intervalMs: 10000 });
+  assert.ok(out.includes('id="veil" hidden'), 'veil present, hidden by default');
+  assert.ok(out.includes('pointer-events: none'), 'non-blocking');
+  assert.ok(out.includes("addEventListener('click', manualRefresh)"), '🔄 goes through the veil');
+  assert.ok(out.includes('if (d) manualRefresh();'), 'page load (ctrl+R) goes through the veil');
+  // The automatic poll is load() → busy() (stamp spinner), no veil.
+  assert.ok(out.includes('if (left <= 0) { load(); return; }'), 'automatic poll = load(), no veil');
+});
+
 test('renderShell: no external asset (all inline)', () => {
   const out = renderShell({ intervalMs: 10000 });
   assert.ok(!/src="https?:/.test(out), 'no external script');
@@ -510,7 +520,8 @@ test('renderShell: page load forces a real poll (server-debounced)', () => {
   const out = renderShell({ intervalMs: 10000 });
   // Boot: shows the snapshot right away, then POST /refresh (the server
   // ignores it if the snapshot is fresh) → ctrl+R really refreshes the data.
-  assert.match(out, /load\(\)\.then\([\s\S]*act\('\/refresh'\)/, 'boot = load then /refresh');
+  assert.match(out, /load\(\)\.then\(function \(d\) \{ if \(d\) manualRefresh\(\); \}\)/, 'boot = load then manual /refresh');
+  assert.match(out, /function manualRefresh\(\) \{[\s\S]*act\('\/refresh'\)/, 'manualRefresh posts /refresh');
 });
 
 test('renderLoading: spinner + label + data-loading sentinel', () => {

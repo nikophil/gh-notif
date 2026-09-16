@@ -1179,6 +1179,16 @@ ${FAVICON}
   #busy { color: var(--fg-muted); }
   #busy[hidden] { display: none; }
   #content.loading { opacity: .5; cursor: progress; }
+  /* Manual refresh veil (🔄, ctrl+R): NON-blocking (pointer-events none — the
+     tables underneath are valid and stay clickable), shown only once the poll
+     has lasted 300 ms: the debounced /refresh answers in ms and must not flash.
+     The automatic poll never shows it (spinner in the stamp only). */
+  #veil { position: fixed; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center;
+          background: rgba(110,118,129,.25); pointer-events: none; }
+  #veil[hidden] { display: none; }
+  #veil > div { display: flex; align-items: center; gap: .5rem; padding: .6rem 1rem; font-size: .875rem;
+                background: var(--canvas); color: var(--fg); border: 1px solid var(--border);
+                border-radius: 6px; box-shadow: 0 8px 24px rgba(1,4,9,.3); }
   h2 .summary { font-weight: 400; color: var(--fg-muted); }
   nav.pages { display: flex; gap: .25rem; justify-content: center; padding: .6rem; font-size: .8125rem;
               border-top: 1px solid var(--border-muted); }
@@ -1229,6 +1239,7 @@ export function renderShell({ intervalMs = 10000, scopeLabel = '', notifyEnabled
   <div id="favs">${renderFavorites(favorites, activeFav, { adhoc, counts, favModes })}</div>
 </header>
 <main id="content"></main>
+<div id="veil" hidden><div><span class="spinner"></span> Updating pull requests…</div></div>
 <script>
   var INTERVAL = ${Number(intervalMs)};
   var content = document.getElementById('content');
@@ -1611,7 +1622,16 @@ ${TABLE_JS}
     clearTimeout(el._t); el._t = setTimeout(function () { el.textContent = ''; }, 6000);
   }
 
-  document.getElementById('refresh').addEventListener('click', function () { act('/refresh'); });
+  // Manual refresh (🔄, page load = ctrl+R): the veil says the data is being
+  // updated. Armed after 300 ms only — a debounced /refresh (snapshot < 10 s)
+  // answers at once and would flash it. act() never rejects (showError) →
+  // the veil always comes down.
+  var veil = document.getElementById('veil');
+  function manualRefresh() {
+    var t = setTimeout(function () { veil.hidden = false; }, 300);
+    return act('/refresh').then(function (d) { clearTimeout(t); veil.hidden = true; return d; });
+  }
+  document.getElementById('refresh').addEventListener('click', manualRefresh);
   document.getElementById('notify').addEventListener('change', function (e) {
     syncAllow();
     // Drives the server flag; the box lives in the <header> (outside #content) so
@@ -1932,7 +1952,7 @@ ${TABLE_JS}
   // The server debounces (shouldRefresh): fresh snapshot → immediate response,
   // spamming ctrl+R doesn't spam GitHub. On failure (server down), fail() has
   // already shown « offline » and d is undefined → we force nothing.
-  load().then(function (d) { if (d) act('/refresh'); });
+  load().then(function (d) { if (d) manualRefresh(); });
 </script>
 </body>
 </html>`;
