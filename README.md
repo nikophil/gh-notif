@@ -385,6 +385,12 @@ blocklist is persisted in `prefs-v1.json`
 (`"ignoredChecks": { "owner/repo": ["exact check name"] }`) and can also be edited by hand (with the
 app stopped).
 
+**Something failed? Send the code.** Every GitHub error carries a code naming the exact call
+(`[GH-SEARCH]`, `[GH-GRAPHQL]`, `[GH-NOTIFS]`…), shown in the page banner. The `/debug` page
+ends with a **« GitHub errors »** journal (newest first, code, GitHub's message, the `gh`
+command, repeat count) that survives restarts — even a failure the page absorbed silently is
+there. Click **copy** and paste it as is; `/api/errors` returns the same as JSON.
+
 > ⚠️ GitHub **does not create a notification for your own actions**: quietly commenting on a PR
 > yourself won't make it surface (there's nothing to detect). The debug therefore shows the
 > pipeline's reasoning on real data, not « your messages ». The diagnostic capture is **always

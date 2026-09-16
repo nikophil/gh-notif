@@ -1999,6 +1999,27 @@ export function renderDebug(debug, opts = {}) {
 // Returns '' if no rows (compat). A job's state being per PR, it is not
 // shown here (config = per repo); the per-PR verdict stays in the tables. Every
 // check name is escaped (anti-injection, cf. §12).
+// « GitHub errors » section of the debug view (§35): the persisted journal,
+// newest first, each line carrying the code (`GH-<OP>`) a colleague pastes as
+// is. Rendered even when the snapshot is in error — that is when it matters.
+// The copy button puts the plain-text journal on the clipboard (delegated
+// handler in the debug shell; innerHTML is replaced on every load).
+export function renderErrorsSection(entries = [], now = Date.now()) {
+  const title = '<h2 class="checks-title">GitHub errors</h2>';
+  if (entries.length === 0) return `${title}<p class="summary">No GitHub error recorded.</p>`;
+  const headers = ['When', 'Code', 'Error', 'Command', '×'];
+  const trs = entries.map((e) => tableRow([
+    `<span title="${escapeHtml(new Date(e.at).toISOString())}">${escapeHtml(relativeDate(e.at, now))}</span>`,
+    `<code>${escapeHtml(e.code)}</code>`,
+    escapeHtml(e.message),
+    `<code>${escapeHtml(e.command)}</code>`,
+    String(e.count),
+  ]));
+  const text = entries.map((e) => `${new Date(e.at).toISOString()} ${e.code} ×${e.count} — ${e.message} — ${e.command}`).join('\n');
+  return `${title}<p class="summary">${entries.length} entr${entries.length > 1 ? 'ies' : 'y'}, newest first · `
+    + `<button id="copy-errors" data-text="${escapeHtml(text)}">copy</button></p><div class="errors">${table(headers, trs)}</div>`;
+}
+
 export function renderChecksSection(rows, ignoredChecks = {}) {
   const groups = checksByRepo(rows);
   if (groups.length === 0) return '';
@@ -2057,6 +2078,12 @@ ${FAVICON}
   .pr-checks li.ignored { opacity: .5; }
   .pr-checks label { cursor: pointer; }
   .pr-checks input.ig { vertical-align: middle; margin-right: .1rem; }
+  /* Errors journal (§35): message and command wrap (a gh command is long),
+     the when/code/count columns stay on one line. */
+  .errors td { white-space: normal; vertical-align: top; }
+  .errors td:nth-child(1), .errors td:nth-child(2), .errors td:nth-child(5) { white-space: nowrap; }
+  .errors td:nth-child(4) { font-size: .8em; opacity: .8; }
+  .errors td:nth-child(4) code { white-space: normal; word-break: break-all; }
 </style>
 </head>
 <body>
@@ -2077,6 +2104,15 @@ ${FAVICON}
       stamp.textContent = 'upd ' + new Date().toLocaleTimeString('en-US');
     }).catch(function () { stamp.textContent = 'offline — retrying…'; });
   }
+  // « copy » of the GitHub errors journal (§35) → clipboard, plain text.
+  content.addEventListener('click', function (e) {
+    var el = e.target;
+    if (!el || el.id !== 'copy-errors') return;
+    navigator.clipboard.writeText(el.getAttribute('data-text')).then(function () {
+      el.textContent = 'copied ✓';
+      setTimeout(function () { el.textContent = 'copy'; }, 1500);
+    });
+  });
   // A check's checkbox → toggles the repo blocklist (POST /ignore-check),
   // the response is the re-rendered debug fragment that we reinject (boxes + verdicts up to date).
   // DELEGATED handler on #content (persistent) because innerHTML is replaced on every load.

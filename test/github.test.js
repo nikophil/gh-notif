@@ -133,6 +133,30 @@ test('currentRepo returns nameWithOwner, null if outside a repo', async () => {
   assert.equal(await ghErr.currentRepo(), null);
 });
 
+// §35: every failed gh call is tagged with the call site and reported to onError.
+test('a failed gh call carries ghCode (call site) and reaches onError before being thrown', async () => {
+  const seen = [];
+  const runner = async (args) => { const e = new Error('Command failed\nHTTP 403: rate limited'); e.stderr = 'HTTP 403: rate limited'; throw e; };
+  const gh = makeGh(runner, { onError: (err, args) => seen.push([err.ghCode, args[0]]) });
+  await assert.rejects(gh.listNotifications(), (e) => e.ghCode === 'GH-NOTIFS' && e.stderr === 'HTTP 403: rate limited');
+  await assert.rejects(gh.searchAuthored(), (e) => e.ghCode === 'GH-SEARCH');
+  await assert.rejects(gh.getComment('https://api.github.com/x'), (e) => e.ghCode === 'GH-COMMENT');
+  assert.deepEqual(seen, [['GH-NOTIFS', 'api'], ['GH-SEARCH', 'api'], ['GH-COMMENT', 'api']]);
+});
+
+test('a failure the caller swallows (degraded GraphQL chunk, scopeExists null) is still reported', async () => {
+  const seen = [];
+  const gh = makeGh(async () => { throw new Error('HTTP 502'); }, { onError: (err) => seen.push(err.ghCode) });
+  assert.deepEqual(await gh.getPullDetailsBatch([{ repo: 'o/r', number: 1 }]), [null], 'degraded, not thrown');
+  assert.equal(await gh.scopeExists({ type: 'repo', value: 'o/r' }), null);
+  assert.deepEqual(seen, ['GH-GRAPHQL', 'GH-SCOPE_EXISTS']);
+});
+
+test('makeGh without onError: failures still throw, tagged', async () => {
+  const gh = makeGh(async () => { throw new Error('nope'); });
+  await assert.rejects(gh.getCurrentUser(), (e) => e.ghCode === 'GH-USER');
+});
+
 test('getPullDetailsBatch: one GraphQL request, alias per PR, normalized shape', async () => {
   const gqlResponse = JSON.stringify({ data: {
     p0: { pullRequest: {

@@ -38,6 +38,7 @@ error).
 | `src/html.js` | **Pure HTML** rendering of the web pages (`escapeHtml`, `renderFragment`, `renderShell`, `renderDebug`/`renderDebugShell`, `renderSearchShell`/`renderSearchFragment`/`searchUrl` for the search page §29). Reuses the helpers of `render.js`. | yes |
 | `src/serve.js` | Local HTTP server (`node:http`) + poll loop: `handleRequest` (pure) + `serve` (I/O, incl. the on-demand search cache §29). | `handleRequest` yes; `serve` no (I/O) |
 | `src/ratelimit.js` | Rate-limit detection (`isRateLimitError`) + backoff (`nextBackoffSeconds`). Pure. | yes |
+| `src/errlog.js` | GitHub error journal (§35): `recordError` (bounded, folds repeats), `openErrorLog` (persisted, fed by `makeGh`'s `onError`). | yes (tmp dir) |
 | `src/stale.js` | Stale stacks (§31): `isStaleStack(number, signal)` — a conflicting PR that drags a rewritten parent's commits. Pure. | yes |
 | `src/update.js` | Update hint (§32): `newerRelease(dir, runner)` (git fetch of the tags + highest tag not in HEAD, injectable runner), `isLocalInstall`, `extensionDir`, `UPGRADE_COMMANDS`. Nothing is installed. | yes via runner stub |
 | `src/sort.js` | Sorting of the web tables (« others » AND « Your PRs », each with its own key set): `normalizeSort`, `toggleSort` (click cycle), `sortRows` (sorted copy, missing at the end). Pure. | yes |
@@ -1083,6 +1084,37 @@ sequenceDiagram
     gesture** (Chrome/Safari/Firefox) → the **allow in browser** button, shown only while the
     permission is `default` and 🔔 is on. Mobile browsers are out of scope (no constructor on
     Android, push-only on iOS).
+
+35. **GitHub error codes + journal (`src/errlog.js`): « give me the code » is enough.** A
+    colleague got rate-limited and could only say « it failed » — nothing to chase. Now every
+    `gh` call in `github.js` goes through **`run(op, args)`**: on failure the error is tagged
+    **`ghCode = 'GH-<OP>'`** (the exact call site, table below) and handed to **`onError(err,
+    args)`** *before* being thrown — so a failure the caller **swallows** (a degraded GraphQL
+    chunk, a `null` inspection, a `scopeExists` null) is journaled all the same. Every error
+    surface prefixes the code: the poll banner (`[GH-SEARCH] ⏳ rate-limited…`), the search
+    page error, the 400 of a draft/ready toggle. `makeGh(runner, { onError })`: the entrypoint
+    wires `openErrorLog()` (`~/.local/state/gh-notif/errors.json`, **persisted** — the service
+    runs `Restart=always`, an in-memory list would vanish with the restart that follows most
+    incidents) and passes it to `serve({ errorLog })`, which only **reads** it: `/debug` ends
+    with a **« GitHub errors »** section (newest first, code, gh's last stderr line, command,
+    repeat count, a **copy** button → plain text to paste), rendered **even when the snapshot
+    is in error** — that is when someone comes looking; `/api/errors` = the raw JSON. The
+    journal is bounded (`ERRORS_MAX` = 100) and **folds repeats** of the newest entry (same code
+    + message → `count`): a rate-limited poll fails 30 inspections in one go. `currentRepo`
+    stays outside `run` (failing outside a git repo is expected, not an error).
+
+    | Code | Call (github.js) | Called from |
+    |------|------------------|-------------|
+    | `GH-USER` | `getCurrentUser` | entrypoint (startup) |
+    | `GH-NOTIFS` | `listNotifications` | `collectNotifications` (each poll) |
+    | `GH-MARK_READ` / `GH-MARK_READ_BEFORE` | `markThreadRead` / `markReadBefore` | auto-purge §22 |
+    | `GH-COMMENT` / `GH-REVIEW_COMMENTS` | `getComment` / `getReviewComments` | `inspectThread` (per changed thread) |
+    | `GH-GRAPHQL` | `graphqlPullChunk` | PR details / stale signals batch, `markReady` |
+    | `GH-SEARCH` | `searchPage` | `searchReviewRequested`, `searchAuthored`, `searchPRs` (§29) |
+    | `GH-SUBSCRIBE` | `setRepoSubscription` | favorite « all » mode §27 |
+    | `GH-SCOPE_EXISTS` | `scopeExists` | favorite add / `--org` `--repo` check |
+    | `GH-PR_READY` / `GH-PR_DRAFT` | `markReady` / `convertToDraft` | dashboard toggle §30 |
+    | `GH-REVIEWERS` / `GH-REQUEST_REVIEWERS` / `GH-REMOVE_REVIEWERS` | reviewer sync of the toggle | §30 |
 
 ## Test conventions
 

@@ -88,6 +88,23 @@ test('GET /debug-fragment → verdicts (and escaped message if error)', () => {
   assert.match(err.body, /boom &lt;x&gt;/);
 });
 
+test('GET /debug-fragment carries the GitHub errors journal, even with the snapshot in error', () => {
+  const errors = [{ at: NOW - 60000, code: 'GH-SEARCH', message: 'HTTP 403: rate limited', command: 'gh api search/issues', count: 3 }];
+  const ok = handleRequest('/debug-fragment', okSnapshot(), { ...OPTS, errors });
+  assert.match(ok.body, /No notification thread\.[\s\S]*GitHub errors[\s\S]*GH-SEARCH/, 'verdicts first, then the journal');
+  const err = handleRequest('/debug-fragment', { data: null, updatedAt: null, error: '[GH-NOTIFS] boom' }, { ...OPTS, errors });
+  assert.match(err.body, /\[GH-NOTIFS\] boom[\s\S]*GH-SEARCH/, 'journal shown under the error banner');
+  assert.match(handleRequest('/debug-fragment', okSnapshot(), OPTS).body, /No GitHub error recorded/);
+});
+
+test('GET /api/errors → JSON of the journal', () => {
+  const errors = [{ at: 1, code: 'GH-USER', message: 'm', command: 'gh api user', count: 1 }];
+  const res = handleRequest('/api/errors', okSnapshot(), { ...OPTS, errors });
+  assert.equal(res.type, 'application/json; charset=utf-8');
+  assert.deepEqual(JSON.parse(res.body), errors);
+  assert.deepEqual(JSON.parse(handleRequest('/api/errors', okSnapshot(), OPTS).body), []);
+});
+
 test('GET /api/debug → JSON of the debug table', () => {
   const snap = okSnapshot();
   snap.data.debug = [{ repo: 'o/r', number: 42, verdict: { kept: false, category: null, reason: 'noise' } }];

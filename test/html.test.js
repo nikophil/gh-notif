@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { escapeHtml, isMergeable, addBusinessDays, partyWorthy, labelColors, renderFragment, renderShell, renderLoading, renderDebug, renderDebugShell, renderFavorites, searchUrl, renderSearchFragment, renderSearchShell, renderUpdateBanner } from '../src/html.js';
+import { escapeHtml, isMergeable, addBusinessDays, partyWorthy, labelColors, renderFragment, renderShell, renderLoading, renderDebug, renderDebugShell, renderErrorsSection, renderFavorites, searchUrl, renderSearchFragment, renderSearchShell, renderUpdateBanner } from '../src/html.js';
 
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
 
@@ -640,6 +640,29 @@ test('renderDebug: kept/dropped verdict, linked PR, escaping', () => {
   assert.match(out, /your own action/);
   assert.match(out, /&lt;script&gt;/);            // dangerous title escaped
   assert.ok(!out.includes('<script>alert(1)'), 'no injection');
+});
+
+test('renderErrorsSection: journal newest first, code + escaped message, copy text; empty → neutral', () => {
+  const entries = [
+    { at: NOW - 120000, code: 'GH-GRAPHQL', message: 'HTTP 502 <b>bad</b>', command: 'gh api graphql', count: 1 },
+    { at: NOW - 3600000 * 5, code: 'GH-SEARCH', message: 'HTTP 403: rate limited', command: 'gh api search/issues -f q=is:pr', count: 30 },
+  ];
+  const out = renderErrorsSection(entries, NOW);
+  assert.match(out, /GitHub errors/);
+  assert.match(out, /2 entries, newest first/);
+  assert.match(out, /<code>GH-GRAPHQL<\/code>/);
+  assert.match(out, /2min ago[\s\S]*5h ago/, 'chronological, newest first');
+  assert.match(out, /&lt;b&gt;bad&lt;\/b&gt;/, 'message escaped');
+  assert.ok(!out.includes('<b>bad</b>'), 'no injection');
+  assert.match(out, /<td>30<\/td>/, 'repeat count');
+  assert.match(out, /id="copy-errors" data-text="[^"]*GH-SEARCH ×30 — HTTP 403: rate limited — gh api search\/issues/, 'plain-text journal to copy');
+  assert.match(renderErrorsSection([], NOW), /No GitHub error recorded/);
+});
+
+test('renderDebugShell: copy button of the errors journal wired (delegated)', () => {
+  const out = renderDebugShell({ intervalMs: 9000 });
+  assert.match(out, /el\.id !== 'copy-errors'/);
+  assert.match(out, /navigator\.clipboard\.writeText/);
 });
 
 test('renderDebug: empty → neutral message', () => {

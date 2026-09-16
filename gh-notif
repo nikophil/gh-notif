@@ -7,6 +7,7 @@ import {
   favoriteScopes, activeFavoriteOf,
 } from './src/favorites.js';
 import { serve } from './src/serve.js';
+import { openErrorLog } from './src/errlog.js';
 import { extensionDir, isLocalInstall, newerRelease } from './src/update.js';
 
 const POLL_SECONDS = 60;
@@ -191,7 +192,9 @@ async function main(argv) {
 
   const flags = parseArgs(argv);
   if (flags.help) { process.stdout.write(HELP); return; }
-  const gh = makeGh();
+  // GitHub error journal (§35): every failed gh call, persisted, shown in /debug.
+  const errorLog = openErrorLog();
+  const gh = makeGh(undefined, { onError: errorLog.onError });
   try {
     const prefsFile = prefsPath();
     const prefs = loadPrefs(prefsFile);
@@ -217,7 +220,7 @@ async function main(argv) {
     const checkUpdate = fake ? async () => fake
       : isLocalInstall(extDir) ? null
         : () => newerRelease(extDir);
-    serve({ gh, me, scope: Array.isArray(collectScope) ? null : collectScope, all: flags.all, port: flags.port ?? 7777, intervalSeconds, open: !flags.noOpen, checkUpdate });
+    serve({ gh, me, scope: Array.isArray(collectScope) ? null : collectScope, all: flags.all, port: flags.port ?? 7777, intervalSeconds, open: !flags.noOpen, checkUpdate, errorLog });
   } catch (err) {
     process.stderr.write(`gh notif: ${err.message}\n`);
     process.exit(1);

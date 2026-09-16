@@ -21,7 +21,7 @@ import { normalizeSort, toggleSort, sortRows, groupStacks, stackChildKeys, SORT_
 import { sendNotification, browserEvent } from './notify.js';
 import { isRateLimitError, nextBackoffSeconds } from './ratelimit.js';
 import { startSpinner } from './spinner.js';
-import { renderShell, renderFragment, renderLoading, renderDebug, renderDebugShell, renderFavorites, renderSearchShell, renderSearchFragment, renderUpdateBanner, escapeHtml } from './html.js';
+import { renderShell, renderFragment, renderLoading, renderDebug, renderDebugShell, renderErrorsSection, renderFavorites, renderSearchShell, renderSearchFragment, renderUpdateBanner, escapeHtml } from './html.js';
 import { UPGRADE_COMMANDS } from './update.js';
 
 const POLL_SECONDS = 60;
@@ -141,7 +141,12 @@ function linkScopes({ scope = null, activeFav = null, favorites = [] } = {}) {
 }
 
 // Body of the debug fragment (pipeline verdict) — same error/loading handling.
-function debugBody(snapshot, { now, viewScope = null, ignoredChecks = {} } = {}) {
+// The GitHub error journal (§35) is appended in EVERY case, snapshot in error
+// included — that is precisely when a colleague comes looking for it.
+function debugBody(snapshot, { now, viewScope = null, ignoredChecks = {}, errors = [] } = {}) {
+  return debugMain(snapshot, { now, viewScope, ignoredChecks }) + renderErrorsSection(errors, now);
+}
+function debugMain(snapshot, { now, viewScope, ignoredChecks }) {
   if (snapshot.error) return `<p class="empty offline">⚠️ Error: ${escapeHtml(snapshot.error)}</p>`;
   if (!snapshot.updatedAt) return renderLoading(viewScope?.value ?? '');
   const data = filterDataByScope(snapshot.data ?? {}, viewScope);
@@ -155,7 +160,7 @@ export function handleRequest(pathname, snapshot, opts = {}) {
   const {
     now, intervalMs, showHidden, scope, notifyEnabled = true, theme = 'auto',
     favorites = [], activeFav = null, adhoc = false, sort = null, sortMine = null, ignoredChecks = {},
-    favModes = null, stacks = null, cols = null, searchQ = '', events = [], after = null,
+    favModes = null, stacks = null, cols = null, searchQ = '', events = [], after = null, errors = [],
   } = opts;
   // Search page shell (§29): the query comes from the URL (pre-filled field);
   // the data itself goes through /search-fragment (I/O, outside this pure router).
@@ -198,10 +203,14 @@ export function handleRequest(pathname, snapshot, opts = {}) {
     return { status: 200, type: 'text/html; charset=utf-8', body: renderDebugShell({ intervalMs }) };
   }
   if (pathname === '/debug-fragment') {
-    return { status: 200, type: 'text/html; charset=utf-8', body: debugBody(snapshot, { now, viewScope, ignoredChecks }) };
+    return { status: 200, type: 'text/html; charset=utf-8', body: debugBody(snapshot, { now, viewScope, ignoredChecks, errors }) };
   }
   if (pathname === '/api/debug') {
     return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify(snapshot.data?.debug ?? []) };
+  }
+  // GitHub error journal (§35), raw: `curl localhost:7777/api/errors`.
+  if (pathname === '/api/errors') {
+    return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify(errors) };
   }
   return { status: 404, type: 'text/plain; charset=utf-8', body: 'Not found' };
 }
@@ -227,7 +236,9 @@ function openBrowser(url) {
 // `checkUpdate` (§32, optional): async () => tag of a newer release than the
 // install (null = up to date); run at startup then hourly, its result only
 // feeds the hint banner. null (dev install) → no check at all.
-export function serve({ gh, me, scope: initialScope = null, all = false, port = 7777, intervalSeconds = POLL_SECONDS, open = true, notifier = sendNotification, checkUpdate = null } = {}) {
+// `errorLog` (§35): the journal `makeGh` feeds (`{ entries }`), rendered in
+// /debug and /api/errors — the server only reads it.
+export function serve({ gh, me, scope: initialScope = null, all = false, port = 7777, intervalSeconds = POLL_SECONDS, open = true, notifier = sendNotification, checkUpdate = null, errorLog = { entries: [] } } = {}) {
   // `scope` non-null ⇒ ad-hoc mode: an entered scope (--org/--repo or web field)
   // takes precedence over the favorites, which become purely decorative (greyed chips).
   let scope = initialScope;
@@ -379,11 +390,14 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       snapshot.error = null;
       backoff = 0; // success: we restart at the normal interval
     } catch (err) {
+      // The code names the failed call (§35): a colleague reads it in the
+      // banner and we know the exact line in github.js.
+      const code = err.ghCode ? `[${err.ghCode}] ` : '';
       if (isRateLimitError(err.message)) {
         backoff = nextBackoffSeconds(backoff, intervalSeconds, BACKOFF_CAP);
-        snapshot.error = `⏳ rate-limited by GitHub — retrying in ${backoff}s`;
+        snapshot.error = `${code}⏳ rate-limited by GitHub — retrying in ${backoff}s`;
       } else {
-        snapshot.error = err.message;
+        snapshot.error = code + err.message;
       }
     } finally {
       stop();
@@ -450,7 +464,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         if (searchCache.size > 10) searchCache.delete(searchCache.keys().next().value);
         return entry;
       })
-      .catch((err) => ({ query, rows: [], total: 0, error: String(err.message ?? err).trim().split('\n').pop(), fetchedAt: Date.now() }))
+      .catch((err) => ({ query, rows: [], total: 0, error: (err.ghCode ? `[${err.ghCode}] ` : '') + String(err.message ?? err).trim().split('\n').pop(), fetchedAt: Date.now() }))
       .finally(() => searchPending.delete(query));
     searchPending.set(query, p);
     return p;
@@ -498,7 +512,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         try {
           await (toDraft ? gh.convertToDraft(row.repo, row.number) : gh.markReady(row.repo, row.number));
         } catch (err) {
-          return send(400, 'text/plain; charset=utf-8', String(err.message ?? err).trim().split('\n').pop());
+          return send(400, 'text/plain; charset=utf-8', (err.ghCode ? `[${err.ghCode}] ` : '') + String(err.message ?? err).trim().split('\n').pop());
         }
         row.state = toDraft ? 'draft' : 'open';
         if (!toDraft) row.readyAt = new Date().toISOString(); // the « In review » clock starts now
@@ -660,7 +674,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
           if (snapshot.data) recomputeCi(snapshot.data, ignoredChecks);
         }
         const viewScope = scope ? null : parseScope(activeFav);
-        return send(200, 'text/html; charset=utf-8', debugBody(snapshot, { now: Date.now(), viewScope, ignoredChecks }));
+        return send(200, 'text/html; charset=utf-8', debugBody(snapshot, { now: Date.now(), viewScope, ignoredChecks, errors: errorLog.entries }));
       }
       if (pathname === '/notify') {
         notifyEnabled = url.searchParams.get('enabled') !== '0';
@@ -715,6 +729,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       stacks,
       cols,
       searchQ: url.searchParams.get('q') ?? '',
+      errors: errorLog.entries,
     });
     send(status, type, body);
   });

@@ -154,7 +154,21 @@ function normalizeStale(pr) {
   };
 }
 
-export function makeGh(runner = defaultRunner) {
+// `onError(err, args)`: called for EVERY failed `gh` call before the error is
+// thrown (§35) — so an error the caller swallows (a degraded GraphQL chunk, a
+// failed inspection) is still journaled. The error carries `ghCode`
+// (`GH-<OP>`, the exact call site below), shown in every error surface.
+export function makeGh(runner = defaultRunner, { onError = () => {} } = {}) {
+  const run = async (op, args) => {
+    try {
+      return await runner(args);
+    } catch (err) {
+      const e = err instanceof Error ? err : new Error(String(err));
+      e.ghCode = `GH-${op}`;
+      onError(e, args);
+      throw e;
+    }
+  };
   // One GraphQL request per PR batch (aliases p0,p1,… → one repository/pullRequest
   // each, spreading `fragment` — `...pr` by default). Returns an array aligned
   // with `chunk` (null if PR not found), each node passed through `normalize`.
@@ -164,7 +178,7 @@ export function makeGh(runner = defaultRunner) {
       return `p${i}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { pullRequest(number: ${Number(number)}) { ...${spread} } }`;
     });
     const query = `query {\n${aliases.join('\n')}\n}\n${fragment}`;
-    const data = parseJson(await runner(['api', 'graphql', '-f', `query=${query}`]))?.data ?? {};
+    const data = parseJson(await run('GRAPHQL', ['api', 'graphql', '-f', `query=${query}`]))?.data ?? {};
     return chunk.map((_, i) => normalize(data[`p${i}`]?.pullRequest));
   }
 
@@ -191,7 +205,7 @@ export function makeGh(runner = defaultRunner) {
   // The search API caps at 1000 results anyway → 10 pages max.
   const PER_PAGE = 100;
   async function searchPage(q, page, extra = []) {
-    return parseJson(await runner(['api', '-X', 'GET', 'search/issues', '-f', `q=${q}`, '-f', `per_page=${PER_PAGE}`, '-f', `page=${page}`, ...extra]));
+    return parseJson(await run('SEARCH', ['api', '-X', 'GET', 'search/issues', '-f', `q=${q}`, '-f', `per_page=${PER_PAGE}`, '-f', `page=${page}`, ...extra]));
   }
   // ⚠️ A wide query (union of favorites) can time out INSIDE GitHub: the
   // response is then a PARTIAL item list with `incomplete_results: true` and
@@ -226,26 +240,26 @@ export function makeGh(runner = defaultRunner) {
   return {
     graphqlPullChunk,
     async getCurrentUser() {
-      return parseJson(await runner(['api', 'user'])).login;
+      return parseJson(await run('USER', ['api', 'user'])).login;
     },
     async listNotifications({ all = false } = {}) {
       const args = ['api', '--paginate', '/notifications'];
       if (all) args.push('-f', 'all=true');
-      return parseJson(await runner(args)) ?? [];
+      return parseJson(await run('NOTIFS', args)) ?? [];
     },
     // Auto-purge (ARCHITECTURE §22): marks a notification thread as read
     // (205 No Content — nothing to parse).
     async markThreadRead(threadId) {
-      await runner(['api', '-X', 'PATCH', `notifications/threads/${threadId}`]);
+      await run('MARK_READ', ['api', '-X', 'PATCH', `notifications/threads/${threadId}`]);
     },
     // Age purge (ARCHITECTURE §22): GitHub marks read, server-side, every
     // notification updated before `iso` — one request whatever the count.
     async markReadBefore(iso) {
-      await runner(['api', '-X', 'PUT', '/notifications', '-f', `last_read_at=${iso}`, '-F', 'read=true']);
+      await run('MARK_READ_BEFORE', ['api', '-X', 'PUT', '/notifications', '-f', `last_read_at=${iso}`, '-F', 'read=true']);
     },
     async getComment(apiUrl) {
       const path = apiUrl.replace('https://api.github.com', '');
-      return parseJson(await runner(['api', path]));
+      return parseJson(await run('COMMENT', ['api', path]));
     },
     // `since` (ISO) → only fetches comments created/edited after this
     // point (sort=updated&direction=asc), for the incremental fetching of the
@@ -257,7 +271,7 @@ export function makeGh(runner = defaultRunner) {
         params.set('direction', 'asc');
         params.set('since', since);
       }
-      return parseJson(await runner(['api', '--paginate', `repos/${repoFullName}/pulls/${number}/comments?${params}`])) ?? [];
+      return parseJson(await run('REVIEW_COMMENTS', ['api', '--paginate', `repos/${repoFullName}/pulls/${number}/comments?${params}`])) ?? [];
     },
     // Details of N PRs in a minimum of requests (GraphQL batch, chunks of 30 in
     // parallel). Returns an array aligned with `prs` ([{repo, number}]); null
@@ -304,7 +318,7 @@ export function makeGh(runner = defaultRunner) {
     // caller fails open with a warning instead of blocking the toggle.
     async setRepoSubscription(repoFullName) {
       try {
-        await runner(['api', '-X', 'PUT', `repos/${repoFullName}/subscription`, '-F', 'subscribed=true']);
+        await run('SUBSCRIBE', ['api', '-X', 'PUT', `repos/${repoFullName}/subscription`, '-F', 'subscribed=true']);
         return true;
       } catch {
         return null;
@@ -319,7 +333,7 @@ export function makeGh(runner = defaultRunner) {
       if (!scope || !scope.value) return null;
       const path = scope.type === 'repo' ? `repos/${scope.value}` : `users/${scope.value}`;
       try {
-        await runner(['api', path, '-q', '.id']);
+        await run('SCOPE_EXISTS', ['api', path, '-q', '.id']);
         return true;
       } catch (err) {
         const msg = `${err?.stderr || ''} ${err?.message || ''}`;
@@ -333,7 +347,7 @@ export function makeGh(runner = defaultRunner) {
     // the two clicks loses nothing. A failure throws with gh's message
     // (surfaced by the server as a 400).
     async markReady(repoFullName, number) {
-      await runner(['pr', 'ready', String(number), '--repo', repoFullName]);
+      await run('PR_READY', ['pr', 'ready', String(number), '--repo', repoFullName]);
       const [items] = await graphqlPullChunk([{ repo: repoFullName, number }], {
         fragment: DRAFT_REMOVALS_FRAGMENT, spread: 'removals', normalize: (pr) => pr?.timelineItems?.nodes ?? [],
       });
@@ -344,7 +358,7 @@ export function makeGh(runner = defaultRunner) {
       const fields = [...[...users].map((u) => `reviewers[]=${u}`), ...[...teams].map((t) => `team_reviewers[]=${t}`)];
       if (fields.length) {
         const path = `repos/${repoFullName}/pulls/${number}/requested_reviewers`;
-        await runner(['api', '-X', 'POST', path, ...fields.flatMap((f) => ['-f', f])]);
+        await run('REQUEST_REVIEWERS', ['api', '-X', 'POST', path, ...fields.flatMap((f) => ['-f', f])]);
       }
     },
     // « ready » → draft. ⚠️ GitHub keeps the requested reviewers on a draft
@@ -352,14 +366,14 @@ export function makeGh(runner = defaultRunner) {
     // explicitly — users AND teams — through the REST endpoint. No DELETE
     // when nobody is requested.
     async convertToDraft(repoFullName, number) {
-      await runner(['pr', 'ready', '--undo', String(number), '--repo', repoFullName]);
+      await run('PR_DRAFT', ['pr', 'ready', '--undo', String(number), '--repo', repoFullName]);
       const path = `repos/${repoFullName}/pulls/${number}/requested_reviewers`;
-      const req = parseJson(await runner(['api', path])) ?? {};
+      const req = parseJson(await run('REVIEWERS', ['api', path])) ?? {};
       const fields = [
         ...(req.users ?? []).map((u) => `reviewers[]=${u.login}`),
         ...(req.teams ?? []).map((t) => `team_reviewers[]=${t.slug}`),
       ];
-      if (fields.length) await runner(['api', '-X', 'DELETE', path, ...fields.flatMap((f) => ['-f', f])]);
+      if (fields.length) await run('REMOVE_REVIEWERS', ['api', '-X', 'DELETE', path, ...fields.flatMap((f) => ['-f', f])]);
     },
   };
 }
