@@ -165,6 +165,10 @@ export function makeGh(runner = defaultRunner, { onError = () => {} } = {}) {
     } catch (err) {
       const e = err instanceof Error ? err : new Error(String(err));
       e.ghCode = `GH-${op}`;
+      // The body gh printed before exiting 1 (GraphQL: partial `data` +
+      // `errors` naming the failed aliases; REST: { message, status }) —
+      // parsed best-effort for the journal and graphqlPullChunk's recovery.
+      try { e.body = parseJson(String(e.stdout ?? '')); } catch { e.body = null; }
       onError(e, args);
       throw e;
     }
@@ -178,7 +182,17 @@ export function makeGh(runner = defaultRunner, { onError = () => {} } = {}) {
       return `p${i}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { pullRequest(number: ${Number(number)}) { ...${spread} } }`;
     });
     const query = `query {\n${aliases.join('\n')}\n}\n${fragment}`;
-    const data = parseJson(await run('GRAPHQL', ['api', 'graphql', '-f', `query=${query}`]))?.data ?? {};
+    let data;
+    try {
+      data = parseJson(await run('GRAPHQL', ['api', 'graphql', '-f', `query=${query}`]))?.data ?? {};
+    } catch (err) {
+      // gh exits 1 on ANY GraphQL error, but the body still holds the aliases
+      // that resolved (§35): a NOT_FOUND on one PR, or GitHub's internal error
+      // on one alias, must not null the 29 others. No data at all → the chunk
+      // fails (journaled by `run` either way).
+      if (!err.body?.data) throw err;
+      data = err.body.data;
+    }
     return chunk.map((_, i) => normalize(data[`p${i}`]?.pullRequest));
   }
 

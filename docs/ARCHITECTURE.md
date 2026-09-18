@@ -1103,6 +1103,25 @@ sequenceDiagram
     + message → `count`): a rate-limited poll fails 30 inspections in one go. `currentRepo`
     stays outside `run` (failing outside a git repo is expected, not an error).
 
+    **GitHub-side errors are said to be (`isServerError`).** A 5xx (`gh: HTTP 502` on GraphQL,
+    `… (HTTP 502)` on REST — both forms seen) or the GraphQL « Something went wrong while
+    executing your query … Please include `<request ID>` » (an internal error GitHub returns
+    with HTTP **200** and no `type`) is nothing we can fix: the entry carries `server: true`
+    → a neutral « GitHub-side » badge (not red) with a tooltip in `/debug`, `[GitHub-side]`
+    in the copy text, and the poll banner says « GitHub-side error, nothing to fix here —
+    retrying next poll ». Measured on the stale batch (§31): ~3 % of polls over an afternoon.
+
+    **`run` keeps the body gh printed before exiting 1 (`err.body`, parsed best-effort).**
+    `gh api` writes the response to stdout *then* fails: on GraphQL that body holds the
+    partial `data` **and** `errors[]` (`type`, `path` = the alias). Two uses: (1)
+    `graphqlPullChunk` **recovers the aliases that resolved** — before, a single NOT_FOUND
+    (deleted repo, wrong number) or an internal error on one alias nulled the whole chunk of
+    30; now only the failed alias is null (no `data` at all → the chunk still fails);
+    (2) the journal entry gets `details` (`errorDetails`): the failed aliases mapped back to
+    `owner/repo#number` by regex on the query text (`NOT_FOUND o/r#12 — batch of 9 PRs`,
+    capped at 5) — the `command` column is truncated at 200 chars and never showed the batch.
+    '' for REST (stderr already carries message + status).
+
     | Code | Call (github.js) | Called from |
     |------|------------------|-------------|
     | `GH-USER` | `getCurrentUser` | entrypoint (startup) |

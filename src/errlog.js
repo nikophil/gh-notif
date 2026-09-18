@@ -21,6 +21,30 @@ export function errorLine(err) {
   return text.split('\n').map((l) => l.trim()).filter(Boolean).pop() ?? '';
 }
 
+// GitHub-side failure: a 5xx (« gh: HTTP 502 » on GraphQL, « … (HTTP 502) »
+// on REST — both seen), or the GraphQL « Something went wrong while executing
+// your query » (an internal error GitHub returns with HTTP 200 and a request
+// ID). Nothing to fix on our side — the next poll retries. Flagged in the
+// journal and the poll banner so nobody chases it in our code.
+export function isServerError(message) {
+  return /\bHTTP 5\d\d\b/.test(message) || /Something went wrong while executing your query/i.test(message);
+}
+
+// What gh's last line does not say about a GraphQL batch: which aliases failed
+// (`errors[].path` → the PR named in the query text, via `err.body` = the
+// response gh printed before failing) and how big the batch was. '' when
+// there is nothing to add (REST: stderr already carries message + status).
+const ALIAS_RE = /(p\d+): repository\(owner: "([^"]+)", name: "([^"]+)"\) \{ pullRequest\(number: (\d+)\)/g;
+export function errorDetails(err, args = []) {
+  const errors = err?.body?.errors;
+  if (!Array.isArray(errors) || errors.length === 0) return '';
+  const prs = new Map();
+  for (const m of args.join(' ').matchAll(ALIAS_RE)) prs.set(m[1], `${m[2]}/${m[3]}#${m[4]}`);
+  const failed = errors.map((e) => `${e.type ?? 'ERROR'} ${prs.get(e.path?.[0]) ?? e.path?.[0] ?? ''}`.trim());
+  const shown = failed.slice(0, 5).join(', ') + (failed.length > 5 ? ` … +${failed.length - 5}` : '');
+  return prs.size ? `${shown} — batch of ${prs.size} PR${prs.size > 1 ? 's' : ''}` : shown;
+}
+
 // Newest first. A repeat of the newest entry (same code + message) bumps its
 // `count` and `at` instead of flooding: a rate-limited poll fails 30
 // inspections in one go. `now` is injectable for tests.
@@ -33,7 +57,7 @@ export function recordError(entries, err, args = [], now = Date.now()) {
     last.at = now;
     return entries;
   }
-  entries.unshift({ at: now, code, message, command: `gh ${args.join(' ')}`.slice(0, 200), count: 1 });
+  entries.unshift({ at: now, code, message, command: `gh ${args.join(' ')}`.slice(0, 200), count: 1, server: isServerError(message), details: errorDetails(err, args) });
   if (entries.length > ERRORS_MAX) entries.length = ERRORS_MAX;
   return entries;
 }

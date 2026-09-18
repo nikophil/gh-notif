@@ -660,6 +660,18 @@ test('renderErrorsSection: journal newest first, code + escaped message, copy te
   assert.match(renderErrorsSection([], NOW), /No GitHub error recorded/);
 });
 
+test('renderErrorsSection: a GitHub-side error carries the badge, the details follow the message and the copy text', () => {
+  const entries = [
+    { at: NOW - 60000, code: 'GH-GRAPHQL', message: 'gh: Something went wrong (HTTP 502)', command: 'gh api graphql', count: 1, server: true, details: 'ERROR o/r#1 <x> — batch of 9 PRs' },
+    { at: NOW - 120000, code: 'GH-SEARCH', message: 'HTTP 403: rate limited', command: 'gh api search/issues', count: 1 }, // older entry, no flags
+  ];
+  const out = renderErrorsSection(entries, NOW);
+  assert.match(out, /<span class="err-gh" title="[^"]*GitHub[^"]*">GitHub-side<\/span>/, 'badge with an explanatory tooltip');
+  assert.equal(out.match(/err-gh/g).length, 1, 'only the flagged entry');
+  assert.match(out, /<div class="err-details">ERROR o\/r#1 &lt;x&gt; — batch of 9 PRs<\/div>/, 'details escaped');
+  assert.match(out, /data-text="[^"]*\[GitHub-side\] gh: Something went wrong \(HTTP 502\) — ERROR o\/r#1 &lt;x&gt; — batch of 9 PRs — gh api graphql/, 'copy text carries both');
+});
+
 test('renderDebugShell: copy button of the errors journal wired (delegated)', () => {
   const out = renderDebugShell({ intervalMs: 9000 });
   assert.match(out, /el\.id !== 'copy-errors'/);

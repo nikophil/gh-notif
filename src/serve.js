@@ -20,6 +20,7 @@ import { diffApprovals } from './approvals.js';
 import { normalizeSort, toggleSort, sortRows, groupStacks, stackChildKeys, SORT_KEYS, MINE_SORT_KEYS, DEFAULT_SORT } from './sort.js';
 import { sendNotification, browserEvent } from './notify.js';
 import { isRateLimitError, nextBackoffSeconds } from './ratelimit.js';
+import { isServerError, errorLine } from './errlog.js';
 import { startSpinner } from './spinner.js';
 import { renderShell, renderFragment, renderLoading, renderDebug, renderDebugShell, renderErrorsSection, renderFavorites, renderSearchShell, renderSearchFragment, renderUpdateBanner, escapeHtml } from './html.js';
 import { UPGRADE_COMMANDS } from './update.js';
@@ -396,6 +397,9 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       if (isRateLimitError(err.message)) {
         backoff = nextBackoffSeconds(backoff, intervalSeconds, BACKOFF_CAP);
         snapshot.error = `${code}⏳ rate-limited by GitHub — retrying in ${backoff}s`;
+      } else if (isServerError(errorLine(err))) {
+        // 5xx / GitHub internal error (§35): say so, nobody should chase it here.
+        snapshot.error = `${code}GitHub-side error, nothing to fix here — retrying next poll · ${errorLine(err)}`;
       } else {
         snapshot.error = code + err.message;
       }

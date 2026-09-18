@@ -2004,18 +2004,24 @@ export function renderDebug(debug, opts = {}) {
 // is. Rendered even when the snapshot is in error — that is when it matters.
 // The copy button puts the plain-text journal on the clipboard (delegated
 // handler in the debug shell; innerHTML is replaced on every load).
+export const SERVER_ERROR_HINT = 'Error inside GitHub (5xx or internal error) — nothing to fix on our side, the next poll retries. The request ID in the message is what GitHub support asks for.';
 export function renderErrorsSection(entries = [], now = Date.now()) {
   const title = '<h2 class="checks-title">GitHub errors</h2>';
   if (entries.length === 0) return `${title}<p class="summary">No GitHub error recorded.</p>`;
   const headers = ['When', 'Code', 'Error', 'Command', '×'];
+  // `server` (5xx / GitHub internal error) → a « GitHub-side » badge: nothing to
+  // fix here, the next poll retries. `details` = the failed GraphQL aliases and
+  // the batch size (errlog.js#errorDetails); '' for REST.
   const trs = entries.map((e) => tableRow([
     `<span title="${escapeHtml(new Date(e.at).toISOString())}">${escapeHtml(relativeDate(e.at, now))}</span>`,
     `<code class="err-code">${escapeHtml(e.code)}</code>`,
-    `<span class="err-msg">${escapeHtml(e.message)}</span>`,
+    (e.server ? `<span class="err-gh" title="${SERVER_ERROR_HINT}">GitHub-side</span> ` : '')
+      + `<span class="err-msg">${escapeHtml(e.message)}</span>`
+      + (e.details ? `<div class="err-details">${escapeHtml(e.details)}</div>` : ''),
     `<code>${escapeHtml(e.command)}</code>`,
     String(e.count),
   ]));
-  const text = entries.map((e) => `${new Date(e.at).toISOString()} ${e.code} ×${e.count} — ${e.message} — ${e.command}`).join('\n');
+  const text = entries.map((e) => `${new Date(e.at).toISOString()} ${e.code} ×${e.count} — ${e.server ? '[GitHub-side] ' : ''}${e.message}${e.details ? ` — ${e.details}` : ''} — ${e.command}`).join('\n');
   return `${title}<p class="summary">${entries.length} entr${entries.length > 1 ? 'ies' : 'y'}, newest first · `
     + `<button id="copy-errors" data-text="${escapeHtml(text)}">copy</button></p><div class="errors">${table(headers, trs)}</div>`;
 }
@@ -2088,6 +2094,9 @@ ${FAVICON}
   .errors .err-code { color: #f85149; background: #f8514922; }
   .errors .err-msg { color: #f85149; }
   @media (prefers-color-scheme: light) { .errors .err-code, .errors .err-msg { color: #cf222e; } }
+  /* GitHub-side badge: neutral (not red) — it is precisely NOT our error. */
+  .errors .err-gh { font-size: .75em; padding: 0 .35em; border: 1px solid currentColor; border-radius: 1em; opacity: .7; cursor: help; white-space: nowrap; }
+  .errors .err-details { font-size: .85em; opacity: .75; margin-top: .15rem; }
 </style>
 </head>
 <body>

@@ -152,6 +152,25 @@ test('a failure the caller swallows (degraded GraphQL chunk, scopeExists null) i
   assert.deepEqual(seen, ['GH-GRAPHQL', 'GH-SCOPE_EXISTS']);
 });
 
+// §35: gh exits 1 on ANY GraphQL error but prints the body first — the
+// aliases that resolved are kept, only the failed ones are null.
+test('a GraphQL error with partial data degrades the failed alias only; the body reaches onError', async () => {
+  const body = { data: { p0: { pullRequest: { number: 1, title: 'ok' } }, p1: null }, errors: [{ type: 'NOT_FOUND', path: ['p1'], message: 'nope' }] };
+  const runner = async () => { const e = new Error('Command failed\ngh: nope'); e.stdout = JSON.stringify(body); e.stderr = 'gh: nope'; throw e; };
+  const seen = [];
+  const gh = makeGh(runner, { onError: (err) => seen.push(err.body?.errors?.[0]?.type) });
+  const out = await gh.getPullDetailsBatch([{ repo: 'o/r', number: 1 }, { repo: 'o/r', number: 2 }]);
+  assert.equal(out[0].title, 'ok', 'the resolved alias is kept');
+  assert.equal(out[1], null, 'the failed alias is null');
+  assert.deepEqual(seen, ['NOT_FOUND'], 'journaled all the same, with the parsed body');
+});
+
+test('a GraphQL error without data (whole query failed) still degrades the whole chunk', async () => {
+  const runner = async () => { const e = new Error('Command failed\ngh: Something went wrong'); e.stdout = '{"data":null,"errors":[{"message":"Something went wrong"}]}'; throw e; };
+  const gh = makeGh(runner);
+  assert.deepEqual(await gh.getPullDetailsBatch([{ repo: 'o/r', number: 1 }]), [null]);
+});
+
 test('makeGh without onError: failures still throw, tagged', async () => {
   const gh = makeGh(async () => { throw new Error('nope'); });
   await assert.rejects(gh.getCurrentUser(), (e) => e.ghCode === 'GH-USER');
