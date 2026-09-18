@@ -417,6 +417,21 @@ shows a banner with the commands to run (`gh extension upgrade notif`, then rest
 is upgraded behind your back; the check is an hourly `git fetch` of the extension clone's
 tags, no GitHub API call. Unreleased commits on `main` never trigger the banner.
 
+### Docker Compose
+
+No `gh` or Node on the host, no desktop needed: the container serves the page and the
+notifications go through the **browser** channel (click **allow in browser** once).
+
+```bash
+git clone https://github.com/nikophil/gh-notif && cd gh-notif
+cp .env.example .env      # GH_TOKEN = classic token with `repo` + `notifications` (+ `read:org`)
+docker compose up -d      # then open http://localhost:7777
+```
+
+State (favorites, hidden PRs, seen notifications) lives in the `state` volume. Any `gh notif`
+flag goes through `command:` in `compose.yaml` (a favorite, `--interval`…). Updating: `git pull`,
+then `docker compose up -d --build` (the in-app update banner is disabled in the container).
+
 ## Usage
 
 ```bash

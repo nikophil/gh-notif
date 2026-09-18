@@ -1,0 +1,7 @@
+.git
+.superpowers
+.worktrees
+docs
+test
+scripts
+node_modules
