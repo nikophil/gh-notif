@@ -1,6 +1,6 @@
 {
   "name": "gh-notif",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "description": "gh CLI extension: filtered GitHub notifications",
   "scripts": {
