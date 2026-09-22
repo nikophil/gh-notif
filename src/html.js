@@ -1035,16 +1035,30 @@ ${FAVICON}
   /* Stacked PRs: ⤷ marker of a child row (indent carried inline, per depth)
      and « base: … » chip of a stacked row whose parent is not in the table —
      both muted and tiny, GitHub-like discretion. */
-  .stack-indent { color: var(--fg-muted); }
+  /* The ⤷ of a child sits in the SAME 1.6rem box as the ▾ of its root, glyph
+     flush left in both, so the glyph column starts where the title of a row
+     WITHOUT a stack marker starts — the box only widens the hit target to the
+     right. The .5em of margin then offsets the child from its root.
+     box-sizing is content-box here so the per-depth padding-left of a
+     branched row (titleCell) still adds to the box instead of eating it. */
+  .stack-indent { display: inline-flex; align-items: center; justify-content: flex-start;
+                  box-sizing: content-box; min-width: 1.6rem; height: 1.4rem;
+                  margin-left: .5em; line-height: 1; color: var(--fg-muted); }
   /* Fold button of a stack root (§33): a bare muted chevron, ▾ open / ▸ folded,
      the « +N » children count only while folded. Folded children rows are
      simply not displayed (class set by the client, re-applied at injection). */
-  /* Sized as a real hit target (~22×22px): a bare 10px glyph was too hard to
-     click — the visual stays muted, only the hover veil tells the box. */
+  /* Sized as a real hit target (24×24px): a bare 10px glyph was too hard to
+     click — the visual stays muted, only the hover veil tells the box. The box
+     is SQUARE and the glyph centred in it, so the hover veil reads as a square
+     around the chevron; the negative margin then pulls that box back left so
+     the glyph itself still starts where the title of a marker-less row starts.
+     While folded the « +N » widens the box, which is the intended affordance. */
   button.stack-fold { display: inline-flex; align-items: center; justify-content: center;
-                      min-width: 1.6rem; height: 1.4rem; padding: 0 .3em; font-size: .8rem;
+                      min-width: 1.5rem; height: 1.5rem; padding: 0; margin-left: -.35rem;
+                      font-size: .8rem;
                       color: var(--fg-muted); background: transparent; border: 0;
                       border-radius: 4px; box-shadow: none; cursor: pointer; line-height: 1; }
+  tr.folded button.stack-fold { padding: 0 .3em; }
   button.stack-fold::before { content: '▾'; }
   button.stack-fold:hover { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
   tr.folded button.stack-fold::before { content: '▸'; }
