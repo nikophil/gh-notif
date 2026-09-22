@@ -633,6 +633,49 @@ test('collectPRs: approvalEvents excludes draft/merged PRs and others\' PRs', as
   assert.deepEqual(approvalEvents, []);
 });
 
+// ── changes requested (data.changesRequestedEvents) ──────────────────────────
+test('collectPRs: data.changesRequestedEvents — one event per reviewer requesting changes on MY open PRs', async () => {
+  const gh = fakeGh({
+    authored: [{ number: 81, title: 'My PR', html_url: 'https://github.com/o/x/pull/81', repository_url: 'https://api.github.com/repos/o/x' }],
+    details: () => ({ number: 81, title: 'My PR', author: { login: ME }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, state: 'OPEN', isDraft: false, statusCheckRollupState: 'SUCCESS', reviews: [
+      { author: { login: 'alice' }, state: 'CHANGES_REQUESTED', submittedAt: '2026-06-20T10:00:00Z' },
+      { author: { login: 'bob' }, state: 'APPROVED', submittedAt: '2026-06-21T12:00:00Z' },
+      // carol requested changes then approved: her latest review wins → no event
+      { author: { login: 'carol' }, state: 'CHANGES_REQUESTED', submittedAt: '2026-06-21T13:00:00Z' },
+      { author: { login: 'carol' }, state: 'APPROVED', submittedAt: '2026-06-21T14:00:00Z' },
+    ] }),
+  });
+  const { mine, changesRequestedEvents } = await collectPRs(gh, ME, {});
+  assert.equal(mine[0].changesRequested, 1);
+  assert.equal(changesRequestedEvents.length, 1);
+  const e = changesRequestedEvents[0];
+  assert.equal(e.actor, 'alice');
+  assert.equal(e.repo, 'o/x');
+  assert.equal(e.number, 81);
+  assert.equal(e.title, 'My PR');
+  assert.equal(e.submittedAt, '2026-06-20T10:00:00Z');
+  assert.equal(e.url, 'https://github.com/o/x/pull/81');
+});
+
+test('collectPRs: changesRequestedEvents excludes draft/merged PRs and others\' PRs', async () => {
+  const gh = fakeGh({
+    search: [{ number: 98, title: 'Other PR', html_url: 'https://github.com/o/r/pull/98', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }],
+    authored: [
+      { number: 81, title: 'My draft', html_url: 'https://github.com/o/x/pull/81', repository_url: 'https://api.github.com/repos/o/x' },
+      { number: 82, title: 'My merged', html_url: 'https://github.com/o/x/pull/82', repository_url: 'https://api.github.com/repos/o/x' },
+    ],
+    details: (repo, number) => {
+      const reviews = [{ author: { login: 'alice' }, state: 'CHANGES_REQUESTED', submittedAt: '2026-06-20T10:00:00Z' }];
+      if (number === 98) return { number: 98, title: 'Other PR', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, state: 'OPEN', isDraft: false, statusCheckRollupState: 'SUCCESS', reviews };
+      if (number === 81) return { number: 81, title: 'My draft', author: { login: ME }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, state: 'OPEN', isDraft: true, statusCheckRollupState: 'SUCCESS', reviews };
+      if (number === 82) return { number: 82, title: 'My merged', author: { login: ME }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, state: 'MERGED', isDraft: false, statusCheckRollupState: 'SUCCESS', reviews };
+      return null;
+    },
+  });
+  const { changesRequestedEvents } = await collectPRs(gh, ME, {});
+  assert.deepEqual(changesRequestedEvents, []);
+});
+
 // ── hiding (hidden) ────────────────────────────────────────────────────────
 test('collectPRs: a hidden « others » PR leaves others and moves into hidden', async () => {
   const gh = fakeGh({

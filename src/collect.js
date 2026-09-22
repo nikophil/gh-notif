@@ -525,13 +525,14 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
   const mineAll = [];   // my PRs (drafts kept), before hide filtering
   const othersAll = []; // others' PRs (excluding drafts), before hide filtering
   const approvalEvents = []; // one entry per approval on MY open PRs
+  const changesRequestedEvents = []; // idem, for the reviewers requesting changes
   seen.forEach(([e, d]) => {
     const approvers = approvalsOf(d?.reviews);
     const row = buildRow(e, d, ignoredFor(ignoredChecks, e.repo));
     row.staleStack = stale.has(`${e.repo}#${e.number}`);
     if (d && d.author?.login === me) {
       mineAll.push(row); // my PRs: we keep my drafts
-      // Approval events: only on my OPEN PRs (not draft/merged/
+      // Approval / changes-requested events: only on my OPEN PRs (not draft/merged/
       // closed). « ready to merge » makes no sense otherwise (and avoids noise).
       if (row.state === 'open') {
         for (const ap of approvers) {
@@ -539,6 +540,12 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
             repo: e.repo, number: e.number, title: row.title,
             actor: ap.login, url: e.url, submittedAt: ap.submittedAt,
             count: approvers.length,
+          });
+        }
+        for (const cr of changesRequestedOf(d?.reviews)) {
+          changesRequestedEvents.push({
+            repo: e.repo, number: e.number, title: row.title,
+            actor: cr.login, url: e.url, submittedAt: cr.submittedAt,
           });
         }
       }
@@ -553,8 +560,8 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
   // drafts, so a hidden PR turned draft counted as absent and started its purge
   // countdown for a reason that has nothing to do with being dead. What
   // reconcile needs is « was this PR seen this poll? », not « is it displayable? ».
-  // The approvalEvents above are computed BEFORE the split: a hidden PR of mine
-  // keeps notifying its approvals (raw data feeds the notifs, cf. §14).
+  // The approval / changes-requested events above are computed BEFORE the split:
+  // a hidden PR of mine keeps notifying them (raw data feeds the notifs, cf. §14).
   const hiddenChanged = reconcile(hidden, entries, items);
   const mine = mineAll.filter((r) => !isHidden(hidden, keyOf(r)));
   const hiddenMine = mineAll.filter((r) => isHidden(hidden, keyOf(r)));
@@ -564,5 +571,5 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
   // `notifications` = already-classified notification items (with event url),
   // exposed so that the poll loop detects new things without redoing the work.
   // `debug` = pipeline verdict per thread (debug mode).
-  return { mine, hiddenMine, hiddenMineCount: hiddenMine.length, others, hidden: hiddenRows, hiddenCount: hiddenRows.length, hiddenChanged, issues, notifications: items, approvalEvents, debug };
+  return { mine, hiddenMine, hiddenMineCount: hiddenMine.length, others, hidden: hiddenRows, hiddenCount: hiddenRows.length, hiddenChanged, issues, notifications: items, approvalEvents, changesRequestedEvents, debug };
 }

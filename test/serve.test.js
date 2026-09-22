@@ -958,6 +958,64 @@ test('a notifying tab (GET /view?after=) replaces the native notifier', async ()
   }
 });
 
+// ── integration: « changes requested » on my PR ─────────────────────────────
+// Silent seed on the 1st poll, then one notif per new request — and the comment
+// notif of that very review is swallowed (one event, one notification).
+test('a « request changes » notifies once and swallows the comment notif of the same review', async () => {
+  const authorThread = (commentId) => ({
+    id: 't1', reason: 'author', updated_at: `2026-08-0${commentId}T12:00:00Z`, last_read_at: null,
+    subject: {
+      title: 'My PR', url: 'https://api.github.com/repos/o/x/pulls/81',
+      latest_comment_url: `https://api.github.com/repos/o/x/issues/comments/${commentId}`, type: 'PullRequest',
+    },
+    repository: { full_name: 'o/x' },
+  });
+  // bob's request is already there at startup: it must NOT burst.
+  let reviews = [{ author: { login: 'bob' }, state: 'CHANGES_REQUESTED', submittedAt: '2026-07-01T10:00:00Z' }];
+  let threads = [];
+  const notified = [];
+  const gh = {
+    getCurrentUser: async () => 'me',
+    listNotifications: async () => threads,
+    searchReviewRequested: async () => [],
+    searchAuthored: async () => [{ number: 81, title: 'My PR', html_url: 'https://github.com/o/x/pull/81', repository_url: 'https://api.github.com/repos/o/x' }],
+    getPullDetailsBatch: async (prs) => prs.map(() => ({
+      number: 81, title: 'My PR', author: { login: 'me' }, createdAt: '2026-07-01T09:00:00Z',
+      additions: 1, deletions: 0, isDraft: false, state: 'OPEN', statusCheckRollupState: 'SUCCESS', reviews,
+    })),
+    getComment: async (url) => ({ user: { login: 'alice' }, created_at: '2026-08-02T12:00:00Z', html_url: `https://github.com/o/x/pull/81#issuecomment-${url.split('/').pop()}` }),
+    getReviewComments: async () => [],
+    scopeExists: async () => true,
+  };
+  const tmp = `/tmp/gh-notif-test-changes-${process.pid}`;
+  rmSync(tmp, { recursive: true, force: true });
+  process.env.XDG_STATE_HOME = tmp;
+
+  const PORT = 7803;
+  const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false, notifier: (i) => notified.push(i) });
+  const repoll = async () => { await fetch(`http://localhost:${PORT}/scope?value=o/x`, { method: 'POST' }); };
+  try {
+    await new Promise((r) => setTimeout(r, 200)); // 1st poll: silent seed
+    assert.deepEqual(notified, [], 'no burst at startup');
+
+    // alice requests changes, with an inline comment → ONE notification.
+    reviews = [...reviews, { author: { login: 'alice' }, state: 'CHANGES_REQUESTED', submittedAt: '2026-08-02T12:00:00Z' }];
+    threads = [authorThread(1)];
+    await repoll();
+    assert.deepEqual(notified.map((n) => n.category), ['changes_requested']);
+    assert.equal(notified[0].actor, 'alice');
+    assert.equal(notified[0].number, 81);
+
+    // A later comment from alice, no new review → the usual « commented » notif.
+    threads = [authorThread(2)];
+    await repoll();
+    assert.deepEqual(notified.map((n) => n.category), ['changes_requested', 'on_my_pr']);
+  } finally {
+    server.close();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 const stackSnapshot = () => {
   const parent = { repo: 'o/r', number: 10, url: 'u10', title: 'PARENT-PR', triggers: [], ci: 'pass', state: 'open', approvals: 0, branch: 'feat/p', base: 'main', defaultBranch: 'main' };
   const child = { repo: 'o/r', number: 11, url: 'u11', title: 'CHILD-PR', triggers: [], ci: 'pass', state: 'open', approvals: 0, branch: 'feat/c', base: 'feat/p', defaultBranch: 'main' };

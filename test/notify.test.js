@@ -38,6 +38,16 @@ test('title approval: 🎉 ready to merge suffix from 2 approvals', () => {
   assert.equal(m.title, '@dan approved your PR 🎉 ready to merge');
 });
 
+test('title changes requested includes the author', () => {
+  const m = notifyMessage({ ...base, category: CATEGORY.CHANGES_REQUESTED, actor: 'dan' });
+  assert.equal(m.title, '@dan requested changes on your PR');
+});
+
+test('title changes requested without an actor', () => {
+  const m = notifyMessage({ ...base, category: CATEGORY.CHANGES_REQUESTED, actor: null });
+  assert.equal(m.title, 'Changes requested on your PR');
+});
+
 test('sendNotification calls spawn with title and body', () => {
   const calls = [];
   const spawn = (cmd, args) => { calls.push({ cmd, args }); return { on() {}, unref() {} }; };

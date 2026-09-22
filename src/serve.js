@@ -301,10 +301,12 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   let ignoredChecks = ignoredChecksOf(prefs); // mutable: POST /ignore-check toggles it
   let cols = hiddenColsOf(prefs); // hidden columns per table (mutable: POST /cols toggles them)
 
-  // Approvals on my PRs: in-memory state (per process), independent of the disk
-  // state of the notifs. 1st poll = silent seeding (no burst at startup).
-  const seenApprovals = new Set();
-  let primedApprovals = false;
+  // Reviews on my PRs (approvals AND changes requested): in-memory state (per
+  // process), independent of the disk state of the notifs. 1st poll = silent
+  // seeding (no burst at startup). ONE Set for both: a review has a single
+  // state, so the two families never produce the same key.
+  const seenReviews = new Set();
+  let primedReviews = false;
 
   // Browser notifications (§34). Every notification is appended to a bounded
   // in-memory buffer served by GET /view?after=<seq>. A tab that polls with
@@ -322,14 +324,24 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   };
 
   const notifyNew = (data) => {
-    // Approvals first (independent of the disk seed below): a new approve
-    // → desktop notif. See approvals.js / spec.
-    // diffApprovals ALWAYS records in seenApprovals (even when we do not notify)
+    // Reviews first (independent of the disk seed below): a new approve or a new
+    // « request changes » → desktop notif. See approvals.js / spec.
+    // diffApprovals ALWAYS records in seenReviews (even when we do not notify)
     // → disabling the notifs = « mark seen silently », no burst on
-    // re-enabling.
-    const freshApprovals = diffApprovals({ events: data.approvalEvents ?? [], seen: seenApprovals, primed: primedApprovals });
-    primedApprovals = true;
-    if (notifyEnabled) for (const e of freshApprovals) emit({ ...e, category: CATEGORY.APPROVAL });
+    // re-enabling. ⚠️ Both diffs BEFORE flipping `primedReviews`, otherwise the
+    // second one would notify the whole backlog on the very first poll.
+    const freshApprovals = diffApprovals({ events: data.approvalEvents ?? [], seen: seenReviews, primed: primedReviews });
+    const freshChanges = diffApprovals({ events: data.changesRequestedEvents ?? [], seen: seenReviews, primed: primedReviews });
+    primedReviews = true;
+    if (notifyEnabled) {
+      for (const e of freshApprovals) emit({ ...e, category: CATEGORY.APPROVAL });
+      for (const e of freshChanges) emit({ ...e, category: CATEGORY.CHANGES_REQUESTED });
+    }
+    // A « request changes » carrying comments ALSO bumps the notification thread
+    // (reason: author) → an ON_MY_PR item for the same PR and the same author.
+    // One event deserves one notification: the (more precise) review verdict
+    // wins, its comment twin is swallowed for this poll.
+    const changedBy = new Set(freshChanges.map((e) => `${e.repo}#${e.number}:${e.actor}`));
 
     const items = data.notifications ?? [];
     if (!primed) {
@@ -350,6 +362,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       if (muteWatch && WATCH_CATEGORIES.has(item.category)) continue;
       if (!notifyEnabled) continue;
       if (item.category === CATEGORY.REVIEW_REQUEST && !openKeys.has(`${item.repo}#${item.number}`)) continue;
+      if (item.category === CATEGORY.ON_MY_PR && changedBy.has(`${item.repo}#${item.number}:${item.actor}`)) continue;
       emit(item);
     }
     if (fresh.length > 0) saveState(sPath, state);

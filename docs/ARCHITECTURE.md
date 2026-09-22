@@ -30,7 +30,7 @@ error).
 | `src/state.js` | Persistence + deduplication of the poll-loop notifications. | yes |
 | `src/prefs.js` | Persisted UI preferences (`notify`, `theme`, `favorites`, `activeFav`, `sort`, `sortMine`, `ignoredChecks`, `favModes`, with defaults/validation `isNotifyEnabled`/`themeOf`/`ignoredChecksOf`/`ignoredChecksFor`/`favModesOf`/`toggleFavMode`). Pure + JSON I/O, modeled on `state.js`. | yes |
 | `src/favorites.js` | Scope favorites: normalization/add/remove, `parseScope`, `f` key cycle, **`filterDataByScope`** (display filter), `favoriteLabel` (`org/*`), `favoriteCounts` (badges) and `repoInAllMode` (« all » mode, §18). Pure. | yes |
-| `src/approvals.js` | Approvals on my PRs: `approvalsOf`, « ready to merge » threshold (`isReady`), event diff/seed (`diffApprovals`). Pure. | yes |
+| `src/approvals.js` | Reviews on my PRs: `approvalsOf`, `changesRequestedOf`, « ready to merge » threshold (`isReady`), event diff/seed (`diffApprovals`, generic over both families of events). Pure. | yes |
 | `src/notify.js` | Cross-platform desktop notifs (`notifyCommand`: `notify-send` Linux / `osascript` macOS) + `browserEvent` (payload of the browser channel §34). | yes via spawn stub |
 | `src/render.js` | **Presentation helpers shared with the web** (`ciIcon`, `stateIcon`, `relativeDate`, `checksByRepo`) + the tiny terminal `favoritesBar` for `fav list`. No table rendering. | yes |
 | `src/spinner.js` | Spinner during the server poll (stderr, no-op outside TTY). | yes via stream stub |
@@ -112,17 +112,32 @@ notification items, exposed by `collectPRs`) via `state.js`; each new item trigg
 `sendNotification`. Pending reviews / authored PRs (search issues) do **not** emit a desktop notif:
 only the items of `data.notifications` do.
 
-**Approvals on my PRs** (`src/approvals.js`). An approval does **not** arrive through a
+**Approvals & changes requested on my PRs** (`src/approvals.js`). A review verdict does **not**
+arrive through a
 `/notifications` thread: it lives in the GraphQL `reviews` (already fetched → zero cost). `collectPRs`
 therefore exposes `data.approvalEvents` (one `{repo,number,title,actor,url,submittedAt,count}` event
-per approval, **only on my PRs in the `open` state** — not draft/merged/closed). The server keeps a
-`Set seenApprovals` **in memory (per process)** + a
-`primedApprovals` flag: `diffApprovals` does a **silent seeding on the 1st poll** (we memorize everything
+per approval) and `data.changesRequestedEvents` (same shape without `count`, one event per reviewer
+whose **latest** review is `CHANGES_REQUESTED`), both **only on my PRs in the `open` state** — not
+draft/merged/closed. The server keeps ONE
+`Set seenReviews` **in memory (per process)** + a
+`primedReviews` flag: `diffApprovals` does a **silent seeding on the 1st poll** (we memorize everything
 without notifying → no burst at startup, even if a `seen-v2.json` already exists), then returns the
-new approvals → `sendNotification` (category `APPROVAL`, suffix `🎉 ready to merge` if
-`count ≥ 2`). The **`🎉` badge** in the ✅ column (web) is a **derived state** (`isReady`,
-≥ 2 on an open PR) shown independently of the notifs.
-Disk state discarded for approvals (the memory seed is enough; a restart re-seeds).
+new events → `sendNotification` (category `APPROVAL`, suffix `🎉 ready to merge` if
+`count ≥ 2`; category `CHANGES_REQUESTED`, `@bob requested changes on your PR`). A single Set for both
+families is safe: a review has one state, so the keys (`repo#number:login:submittedAt`) never
+collide — and a reviewer who switches verdict submits a new review, hence a new key, hence a notif.
+⚠️ The two `diffApprovals` calls happen **before** flipping `primedReviews`, otherwise the second one
+would burst the whole backlog on the very first poll.
+The **`🎉` badge** in the ✅ column (web) is a **derived state** (`isReady`,
+≥ 2 on an open PR) shown independently of the notifs, like the red `file-diff` icon for
+`changesRequested`.
+Disk state discarded for both (the memory seed is enough; a restart re-seeds).
+
+⚠️ **Anti-duplicate.** A `request changes` carrying comments ALSO bumps the notification thread
+(`reason: author`) → an `ON_MY_PR` item for the same PR and the same author. `notifyNew` therefore
+builds `changedBy` (`repo#number:actor` of the events notified this poll) and **swallows the
+matching `ON_MY_PR` item**: one event, one notification — the review verdict, which is the more
+precise of the two. The item is still `markSeen`, so it never resurfaces later.
 
 `serve` opens the browser at startup (`openBrowser`, best-effort) **unless `--no-open`**
 (option `open: false` of `serve()`) — to be used systematically for smoke tests, otherwise
@@ -346,9 +361,9 @@ sequenceDiagram
     consequence: a review requested
     (empty signature) stays hidden until a real interaction (reply/mention/comment) — a
     re-request of review produces no event URL, so does not make it reappear. Same spirit on my
-    PRs: an **approval does not un-hide** (it is not a notification item, cf. §4) — but it still
-    **notifies**, because `approvalEvents` (like `notifications`) is computed on the **raw** data,
-    before the visible/hidden split (§14 order).
+    PRs: an **approval (or a `request changes`) does not un-hide** (neither is a notification item,
+    cf. §4) — but both still **notify**, because `approvalEvents` and `changesRequestedEvents` (like
+    `notifications`) are computed on the **raw** data, before the visible/hidden split (§14 order).
     `collectPRs` reconciles and returns `{ mine (visible), hiddenMine, hiddenMineCount,
     others (visible), hidden (hidden rows), hiddenCount,
     hiddenChanged }`. The interaction is **web-only**: a **✕** button on each row (both tables)

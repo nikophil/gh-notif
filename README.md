@@ -45,7 +45,8 @@ A third **📋 Issues** table appears only if a favorite is in « all » mode (s
 
 On **your** open PRs, from **2 approvals** the ✅ column shows **`2 🎉`**: the PR is
 **ready to merge**. Each new approval also pushes a **desktop notification** (`@bob approved your
-PR`, suffixed with `🎉 ready to merge` beyond 2).
+PR`, suffixed with `🎉 ready to merge` beyond 2). A **`request changes`** notifies the same way
+(`@bob requested changes on your PR`) — including when the reviewer left no comment at all.
 
 The **repository / PR / title / branch are clickable** and open in a new tab; the last row you
 clicked stays **discreetly highlighted** when you come back from the opened tab.

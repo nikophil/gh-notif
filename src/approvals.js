@@ -48,7 +48,11 @@ export function changesRequestedOf(reviews) {
   return out;
 }
 
-// Dedup key of an approval (no review id in GraphQL → login+date).
+// ⚠️ The three helpers below are generic over review events: they serve the
+// approvals AND the changes-requested (same shape, one shared `seen` Set in
+// serve.js — a review has a single state, so the keys never collide).
+
+// Dedup key of a review event (no review id in GraphQL → login+date).
 export function approvalKey(repo, number, login, submittedAt) {
   return `${repo}#${number}:${login}:${submittedAt}`;
 }

@@ -4,6 +4,7 @@ export const CATEGORY = {
   ON_MY_PR: 'on_my_pr',
   THREAD_REPLY: 'thread_reply',
   APPROVAL: 'approval', // approval received on MY PR (outside notif threads, cf. approvals.js)
+  CHANGES_REQUESTED: 'changes_requested', // changes requested on MY PR (same source as APPROVAL)
   // « All » mode (watched favorite, cf. ARCHITECTURE §18): events that do not
   // concern me directly, surfaced only for repos covered by a favorite in
   // « all » mode (subscribed threads of a GitHub-watched repo).
