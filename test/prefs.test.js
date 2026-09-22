@@ -8,7 +8,7 @@ import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredCheck
 test('prefsPath respects XDG_STATE_HOME', () => {
   const prev = process.env.XDG_STATE_HOME;
   process.env.XDG_STATE_HOME = '/xdg';
-  assert.equal(prefsPath(), '/xdg/gh-notif/prefs-v1.json');
+  assert.equal(prefsPath(), join('/xdg', 'gh-notif', 'prefs-v1.json'));
   if (prev === undefined) delete process.env.XDG_STATE_HOME; else process.env.XDG_STATE_HOME = prev;
 });
 

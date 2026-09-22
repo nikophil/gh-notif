@@ -371,6 +371,74 @@ relaunches the old definition, the one loaded in memory.
 > ⚠️ Same warning as under Linux: never kill the process by hand, the **child node process**
 > survives and keeps the port busy. Go through `launchctl kickstart -k` / `bootout`.
 
+### Launch at startup (Windows · Task Scheduler)
+
+Windows has no systemd/launchd: the equivalent is a **scheduled task triggered at logon**, which
+runs inside your session. A *real* Windows service (NSSM, WinSW) runs as `LOCAL SYSTEM` or another
+account, which has neither your `gh` auth (`%AppData%\GitHub CLI`) nor your state — same trap as the
+« *user* service, not system » above.
+
+```powershell
+$node  = "$env:ProgramFiles\nodejs\node.exe"
+$entry = "$env:LOCALAPPDATA\GitHub CLI\extensions\gh-notif\gh-notif"
+
+# conhost --headless: no console window. node launched directly: no orphan process (see below).
+$action = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\conhost.exe" `
+  -Argument "--headless `"$node`" `"$entry`" --port 7777 --no-open" `
+  -WorkingDirectory $env:USERPROFILE
+
+# 1. start at session login (equivalent of graphical-session.target / RunAtLoad)
+$atLogon = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+# 2. equivalent of Restart=always: a start attempt every minute, a no-op while it is running
+$everyMinute = New-ScheduledTaskTrigger -Once -At (Get-Date) `
+  -RepetitionInterval (New-TimeSpan -Minutes 1) -RepetitionDuration (New-TimeSpan -Days 3650)
+
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+  -ExecutionTimeLimit 0 -MultipleInstances IgnoreNew -StartWhenAvailable
+
+$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" `
+  -LogonType Interactive -RunLevel Limited
+
+Register-ScheduledTask -TaskName gh-notif -Action $action -Trigger $atLogon,$everyMinute `
+  -Settings $settings -Principal $principal
+```
+
+Four points that make the task fail if you get them wrong:
+
+- **run `node` on the entrypoint, not `gh notif`**: on Windows `gh` runs the extension through the
+  `sh` of Git for Windows (`gh.exe → sh.exe → node.exe`) and **node detaches** from that chain.
+  Killing or stopping the task then leaves a node process holding the port, and the task restarts
+  in a loop on `EADDRINUSE` — the Linux/macOS warning below, except here you cannot even avoid it
+  by hand. With `node` launched directly, node is the task's own child: stopping the task frees the
+  port.
+- **`conhost --headless`**: `node.exe` is a console application, so without it a console window
+  pops up at every (re)start. It is also what keeps the task's process tree intact.
+- **the repeating trigger is what gives `Restart=always`**: the `-RestartCount` /
+  `-RestartInterval` settings only cover a task that **fails to start**. A task that started and
+  then died is counted as « completed », and nothing relaunches it. With the every-minute trigger
+  plus `-MultipleInstances IgnoreNew`, the attempt is a no-op while the server runs and brings it
+  back within a minute after a crash.
+- **`--no-open`**: same reason as elsewhere, plus the automatic opening does not work on Windows
+  anyway (it goes through `start`, a `cmd` builtin, not an executable).
+
+> ⚠️ **No desktop notifications on Windows**: `notify-send`/`osascript` have no equivalent here, and
+> the call is a silent no-op. Click **allow in browser** once and keep a tab open (background tab is
+> fine), otherwise the service runs without ever alerting you.
+
+Driving the task day-to-day:
+
+```powershell
+Get-ScheduledTask gh-notif | Select-Object TaskName, State   # Running / Ready (= stopped)
+Get-ScheduledTaskInfo gh-notif                               # last run, last result
+Stop-ScheduledTask  -TaskName gh-notif                       # stops (the repeating trigger restarts it within a minute)
+Start-ScheduledTask -TaskName gh-notif                       # restart (after an extension update)
+Unregister-ScheduledTask -TaskName gh-notif                  # no longer launches at login
+```
+
+There is no `journalctl` equivalent: Task Scheduler only keeps the exit status. For logs, wrap the
+command in a `.cmd` that redirects (`... >> "%LOCALAPPDATA%\gh-notif.log" 2>&1`), or read
+*Event Viewer → Applications and Services Logs → Microsoft → Windows → TaskScheduler*.
+
 ## Debug — check detection
 
 To understand *why* a PR surfaces (or not), the **`/debug`** page (🐛 link in the header) exposes the
@@ -403,6 +471,7 @@ there. Click **copy** and paste it as is; `/api/errors` returns the same as JSON
 - Desktop notifications (optional):
   - **Linux**: `notify-send` (package `libnotify-bin`)
   - **macOS**: `osascript` (built in, nothing to install)
+  - **Windows**: not supported (the **browser** channel takes over, see « Launch at startup (Windows · Task Scheduler) »)
 
 ## Installation
 

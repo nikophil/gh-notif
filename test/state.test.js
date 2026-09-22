@@ -8,7 +8,7 @@ import { loadState, saveState, isNew, markSeen, statePath } from '../src/state.j
 test('statePath respects XDG_STATE_HOME', () => {
   const prev = process.env.XDG_STATE_HOME;
   process.env.XDG_STATE_HOME = '/xdg';
-  assert.equal(statePath(), '/xdg/gh-notif/seen-v2.json');
+  assert.equal(statePath(), join('/xdg', 'gh-notif', 'seen-v2.json'));
   if (prev === undefined) delete process.env.XDG_STATE_HOME; else process.env.XDG_STATE_HOME = prev;
 });
 
