@@ -55,21 +55,22 @@ function sortableTh(html, key, sort, table = null, href = null) {
 }
 
 // Favicon: a rounded square in the foreground color holding the GitHub mark
-// knocked out in the canvas color (the look of GitHub's app icon), with a red
-// bell (octicon `bell-fill`, ~8 px) as a badge flush with the top-right corner.
+// knocked out in the canvas color (the look of GitHub's app icon), with a bell
+// (octicon `bell-fill`, ~8 px) as a badge flush with the top-right corner.
 // Embedded as an SVG data-URI (zero external asset, like the rest of the pages).
-// The square + red bell is what tells this tab apart from a github.com tab
+// The square + bell is what tells this tab apart from a github.com tab
 // (GitHub's own favicon is the bare mark in black / white). The bell sits on a
 // halo in the canvas color that detaches it from the square. Theme-aware via a
-// media query internal to the SVG: black square / white mark and halo / red bell
-// on a light tab, the inverse on a dark tab (same values as `--fg`, `--canvas`,
-// `--danger`). ⚠️ The `#` of the colors must be encoded `%23` in a data-URI
-// (otherwise interpreted as a fragment).
-const FAVICON =
-  '<link rel="icon" href="data:image/svg+xml,' +
+// media query internal to the SVG: black square / white mark and halo on a light
+// tab, the inverse on a dark tab (same values as `--fg`, `--canvas`). The bell is
+// in `--fg` on a light tab, `--fg-muted` (grey) on a dark one, and turns red (`--danger`) while a notification is
+// unseen (§36: swapped by the client). ⚠️ The `#` of the colors must be encoded
+// `%23` in a data-URI (otherwise interpreted as a fragment).
+const faviconHref = (bell, bellDark) =>
+  'data:image/svg+xml,' +
   "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'>" +
-  '<style>.s{fill:%231f2328}.c{fill:%23fff}.b{fill:%23d1242f}' +
-  '@media(prefers-color-scheme:dark){.s{fill:%23e6edf3}.c{fill:%230d1117}.b{fill:%23f85149}}</style>' +
+  `<style>.s{fill:%231f2328}.c{fill:%23fff}.b{fill:${bell}}` +
+  `@media(prefers-color-scheme:dark){.s{fill:%23e6edf3}.c{fill:%230d1117}.b{fill:${bellDark}}}</style>` +
   "<rect class='s' width='16' height='16' rx='3.5'/>" +
   "<g transform='translate(2 2) scale(.75)'>" +
   "<path class='c' d='M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z'/>" +
@@ -77,7 +78,9 @@ const FAVICON =
   "<circle class='c' cx='13.1' cy='4' r='4.9'/>" +
   "<g transform='translate(8.9 -.2) scale(.52)'>" +
   "<path class='b' d='M3 5a5 5 0 0 1 10 0v2.947c0 .05.015.098.042.139l1.703 2.555A1.519 1.519 0 0 1 13.482 13H2.518a1.516 1.516 0 0 1-1.263-2.36l1.703-2.554A.255.255 0 0 0 3 7.947ZM8 16a2 2 0 0 0 1.985-1.75c.017-.137-.097-.25-.235-.25h-3.5c-.138 0-.252.113-.235.25A2 2 0 0 0 8 16Z'/>" +
-  '</g></svg>">';
+  '</g></svg>';
+const FAVICON_UNSEEN_HREF = faviconHref('%23d1242f', '%23f85149');
+const FAVICON = `<link rel="icon" href="${faviconHref('%231f2328', '%239198a1')}" id="favicon">`;
 
 // GitHub Primer color variables, single source reused for the 4 theme cases
 // (auto/system, auto/dark, forced light, forced dark) without tripling them.
@@ -1286,6 +1289,14 @@ export function renderShell({ intervalMs = 10000, scopeLabel = '', notifyEnabled
     var n = new Notification(e.title, { body: e.body, tag: e.url });
     n.onclick = function () { window.open(e.url, '_blank'); n.close(); };
   }
+  // Favicon (§36): the bell turns red when a notification fires while the tab
+  // is not looked at, and back to the foreground color once the tab has focus.
+  var favicon = document.getElementById('favicon');
+  var FAVICON_SEEN = favicon.href;
+  var FAVICON_UNSEEN = ${JSON.stringify(FAVICON_UNSEEN_HREF)};
+  var knownSeq = null;
+  function setUnseen(on) { favicon.href = on ? FAVICON_UNSEEN : FAVICON_SEEN; }
+  window.addEventListener('focus', function () { setUnseen(false); });
   var left = INTERVAL / 1000;
 
   // CI checks popover: one open at a time; closed on outside click, Escape,
@@ -1595,6 +1606,11 @@ ${TABLE_JS}
   function inject(d) {
     if (d && typeof d.chips === 'string') favs.innerHTML = d.chips;
     setContent(d.fragment, d.updatedAt);
+    if (typeof d.lastSeq === 'number') {
+      // lastSeq only grows when a notification fires (a server restart resets it).
+      if (knownSeq !== null && d.lastSeq > knownSeq && !document.hasFocus()) setUnseen(true);
+      knownSeq = d.lastSeq;
+    }
     if (canNotify() && typeof d.lastSeq === 'number') {
       // Only once the server knows this tab (seq !== null): the very first
       // response only teaches us lastSeq → no replay of past events.

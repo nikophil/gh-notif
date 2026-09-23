@@ -1150,6 +1150,14 @@ sequenceDiagram
     | `GH-PR_READY` / `GH-PR_DRAFT` | `markReady` / `convertToDraft` | dashboard toggle §30 |
     | `GH-REVIEWERS` / `GH-REQUEST_REVIEWERS` / `GH-REMOVE_REVIEWERS` | reviewer sync of the toggle | §30 |
 
+36. **Unseen-notification favicon (client-only).** The favicon's bell is in `--fg`,
+    `--fg-muted` on a dark tab; it turns red (`--danger`) when a notification fires while the tab has no focus, and
+    goes back once the tab gets the `focus` event. Signal = `lastSeq` of `GET /view`, returned
+    on **every** poll (not only with `after`): it only grows when `emit()` fires, so it works
+    whatever the channel (browser or `notify-send`) and stays silent when 🔔 is off. A server
+    restart resets it → `lastSeq < knownSeq` just re-syncs. The red variant is a second data-URI
+    (`FAVICON_UNSEEN_HREF`) swapped on `<link id="favicon">`.
+
 ## Test conventions
 
 - Pure logic (`filter`, `render` helpers, `state`, `collect`, `ciRollup`, `scope`): fixtures, no
