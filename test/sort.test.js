@@ -18,7 +18,7 @@ test('normalizeSort: valid passes, invalid/absent → default', () => {
   assert.deepEqual(normalizeSort({ key: 'nope', dir: 'asc' }), DEFAULT_SORT);
   assert.deepEqual(normalizeSort({ key: 'date', dir: 'sideways' }), DEFAULT_SORT);
   assert.deepEqual(DEFAULT_SORT, { key: 'updated', dir: 'desc' });
-  assert.deepEqual(SORT_KEYS, ['repo', 'number', 'title', 'labels', 'branch', 'date', 'review', 'updated', 'approvals', 'author', 'diff', 'files', 'status', 'triggers', 'ci']);
+  assert.deepEqual(SORT_KEYS, ['repo', 'number', 'title', 'labels', 'branch', 'behind', 'date', 'review', 'updated', 'approvals', 'author', 'diff', 'files', 'status', 'triggers', 'ci']);
 });
 
 test('normalizeSort with MINE_SORT_KEYS: every column except author, the rest → default', () => {
@@ -413,6 +413,19 @@ test('sortRows: files = changedFiles (asc → fewest first), missing at the END 
   assert.deepEqual(order(sortRows(rows, { key: 'files', dir: 'asc' })), [3, 4, 1, 2]);
   assert.deepEqual(order(sortRows(rows, { key: 'files', dir: 'desc' })), [1, 4, 3, 2]);
   assert.deepEqual(order(sortRows(rows, { key: 'files', dir: 'asc' }, MINE_SORT_KEYS)), [3, 4, 1, 2]);
+});
+
+test('sortRows: behind = behindBy of live PRs (desc → most behind first), merged/closed/unknown at the END', () => {
+  const rows = [
+    { number: 1, state: 'open', behindBy: 3 },
+    { number: 2, state: 'merged', behindBy: 50 }, // no longer has to catch up → missing
+    { number: 3, state: 'draft', behindBy: 0 },   // 0 is a real value
+    { number: 4, state: 'open', behindBy: 12 },
+    { number: 5, state: 'open' },                 // unknown → missing
+  ];
+  assert.deepEqual(toggleSort({ key: 'date', dir: 'asc' }, 'behind'), { key: 'behind', dir: 'desc' });
+  assert.deepEqual(order(sortRows(rows, { key: 'behind', dir: 'desc' })), [4, 1, 3, 2, 5]);
+  assert.deepEqual(order(sortRows(rows, { key: 'behind', dir: 'asc' }, MINE_SORT_KEYS)), [3, 1, 4, 2, 5]);
 });
 
 test('stackChildKeys: keys (repo#number) of the rows whose parent is in the table, depth-first', () => {

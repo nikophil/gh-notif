@@ -369,6 +369,7 @@ export function buildRow(e, d, ignoredForRepo = []) {
     branchRepo: d?.branchRepo ?? null,
     base: d?.base ?? null,
     defaultBranch: d?.defaultBranch ?? null,
+    behindBy: d?.behindBy ?? null, // commits of the base the PR lacks (Behind column)
     labels: d?.labels ?? [], // GitHub labels ({name, color}), Labels column of the web tables
     createdAt: d?.createdAt ?? null,
     readyAt: d?.readyAt ?? null, // draft → ready date (easter-egg gate, cf. html.js)

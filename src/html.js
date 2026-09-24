@@ -145,6 +145,14 @@ const filesCell = (r) => {
   return `<span class="diff-wrap"><button class="diff-btn" title="Files by type">${r.changedFiles}</button>${diffPopover(types, r.moreFiles ?? 0)}</span>`;
 };
 
+// Behind cell: commits of the base branch the PR lacks. Only a live PR has to
+// catch up (merged/closed → empty); up to date or unknown → empty too.
+const behindCell = (r) => {
+  if (!(r?.behindBy > 0) || (r.state !== 'open' && r.state !== 'draft')) return '';
+  const n = r.behindBy;
+  return `<span class="behind" title="${n} commit${n > 1 ? 's' : ''} behind ${escapeHtml(r.base ?? 'base')}">↓${n}</span>`;
+};
+
 // « icon » cells with an explanatory title="" on hover.
 const titled = (title, content) => `<span title="${escapeHtml(title)}">${content}</span>`;
 // ⚠️ next to the state icon when the PR conflicts with its base branch. It
@@ -437,10 +445,10 @@ export function partyWorthy(r, now) {
 // (same single-source guarantee as the colgroup: filtering both through the
 // same list cannot desynchronize them). 'act' = the ✕/⚙ column. Title is the
 // pivot column (absorbs the leftover width, §23) → never hideable.
-const MINE_COL_KEYS = ['repo', 'title', 'labels', 'branch', 'date', 'review', 'updated', 'diff', 'files', 'status', 'approvals', 'triggers', 'ci', 'act'];
-const OTHERS_COL_KEYS = ['repo', 'title', 'labels', 'branch', 'author', 'date', 'review', 'updated', 'diff', 'files', 'status', 'approvals', 'triggers', 'ci', 'act'];
+const MINE_COL_KEYS = ['repo', 'title', 'labels', 'branch', 'behind', 'date', 'review', 'updated', 'diff', 'files', 'status', 'approvals', 'triggers', 'ci', 'act'];
+const OTHERS_COL_KEYS = ['repo', 'title', 'labels', 'branch', 'behind', 'author', 'date', 'review', 'updated', 'diff', 'files', 'status', 'approvals', 'triggers', 'ci', 'act'];
 const COL_LABELS = {
-  repo: 'Repository', labels: 'Labels', branch: 'Branch', author: 'Author',
+  repo: 'Repository', labels: 'Labels', branch: 'Branch', behind: 'Behind', author: 'Author',
   date: 'Opened', review: 'In review', updated: 'Updated', diff: 'Diff', files: 'Files', status: 'Status',
   approvals: 'Approvals', triggers: 'Triggers', ci: 'CI', act: 'Hide button',
 };
@@ -530,6 +538,7 @@ function mineRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
     titleCell(r),
     labelsCell(r.labels),
     branchCell(r),
+    behindCell(r),
     dateCell('Opened', r.createdAt, now),
     reviewCell(r, now),
     dateCell('Updated', r.updatedAt, now),
@@ -555,6 +564,7 @@ function mineTable(rows, hiddenRows, now, showHidden, sort = null, ignoredChecks
     sortableTh('Title', 'title', sort, 'mine'),
     sortableTh('Labels', 'labels', sort, 'mine'),
     sortableTh('Branch', 'branch', sort, 'mine'),
+    sortableTh('Behind', 'behind', sort, 'mine'),
     sortableTh('Opened', 'date', sort, 'mine'),
     sortableTh('In review', 'review', sort, 'mine'),
     sortableTh('Updated', 'updated', sort, 'mine'),
@@ -587,6 +597,7 @@ function otherRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
     titleCell(r),
     labelsCell(r.labels),
     branchCell(r),
+    behindCell(r),
     r.author ? titled(`@${r.author}`, `@${escapeHtml(r.author)}`) : '?',
     dateCell('Opened', r.createdAt, now),
     reviewCell(r, now),
@@ -615,6 +626,7 @@ function othersTable(others, hiddenRows, now, showHidden, sort = null, ignoredCh
     th('Title', 'title'),
     th('Labels', 'labels'),
     th('Branch', 'branch'),
+    th('Behind', 'behind'),
     th('Author', 'author'),
     th('Opened', 'date'),
     th('In review', 'review'),
@@ -1024,6 +1036,7 @@ ${FAVICON}
   code.branch { display: inline-block; max-width: 18rem; overflow: hidden; text-overflow: ellipsis;
                 vertical-align: middle; background: color-mix(in srgb, var(--accent) 10%, transparent);
                 color: var(--accent); padding: .1em .35em; border-radius: 4px; font-size: .625rem; }
+  .behind { color: var(--fg-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
   /* PR labels, GitHub-look pills: each chip carries its Primer-computed colors
      (labelColors) as inline custom props; light-dark() follows the page's
      forced color-scheme, so the 4 theme cases need no extra selector. The

@@ -33,6 +33,11 @@ const PR_FRAGMENT = `fragment pr on PullRequest {
   } } } }
 }`;
 
+// Commits of the base branch the PR lacks (Behind column). `refs/pull/N/head`
+// resolves on the BASE repo, forks included, so the per-PR arg is the number
+// alone — no need to know the head branch before the batch.
+const behindField = (number) => ` behind: baseRef { compare(headRef: "refs/pull/${number}/head") { behindBy } }`;
+
 // Normalizes a rollup context (Actions CheckRun OR commit StatusContext)
 // to { name, state, url } with state ∈ 'pass'|'fail'|'pending'. Returns null if
 // the node has no usable name. SKIPPED/NEUTRAL count as non-blocking (like
@@ -89,6 +94,8 @@ function normalizePull(pr) {
     // whose parent is another PR's head → stacked-PR detection (sort.js).
     base: pr.baseRefName ?? null,
     defaultBranch: pr.baseRepository?.defaultBranchRef?.name ?? null,
+    // null when the base branch is gone or the compare failed (unknown ≠ 0).
+    behindBy: pr.behind?.compare?.behindBy ?? null,
     // GitHub labels ({ name, color } — color = 6-digit hex WITHOUT '#'), same
     // request → zero cost. Rendered as GitHub-like chips in the Labels column.
     labels: (pr.labels?.nodes ?? [])
@@ -176,10 +183,12 @@ export function makeGh(runner = defaultRunner, { onError = () => {} } = {}) {
   // One GraphQL request per PR batch (aliases p0,p1,… → one repository/pullRequest
   // each, spreading `fragment` — `...pr` by default). Returns an array aligned
   // with `chunk` (null if PR not found), each node passed through `normalize`.
-  async function graphqlPullChunk(chunk, { fragment = PR_FRAGMENT, spread = 'pr', normalize = normalizePull } = {}) {
+  // `perPr(number)` adds per-PR fields a shared fragment cannot carry (they
+  // need the PR number as an argument).
+  async function graphqlPullChunk(chunk, { fragment = PR_FRAGMENT, spread = 'pr', normalize = normalizePull, perPr = () => '' } = {}) {
     const aliases = chunk.map(({ repo, number }, i) => {
       const [owner, name] = repo.split('/');
-      return `p${i}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { pullRequest(number: ${Number(number)}) { ...${spread} } }`;
+      return `p${i}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { pullRequest(number: ${Number(number)}) { ...${spread}${perPr(Number(number))} } }`;
     });
     const query = `query {\n${aliases.join('\n')}\n}\n${fragment}`;
     let data;
@@ -291,7 +300,7 @@ export function makeGh(runner = defaultRunner, { onError = () => {} } = {}) {
     // parallel). Returns an array aligned with `prs` ([{repo, number}]); null
     // for a PR not found, and null for an entire failed chunk (degradation).
     async getPullDetailsBatch(prs) {
-      return batched(prs);
+      return batched(prs, { perPr: behindField });
     },
     // Stale-stack signals (§31) of N PRs — same batching, `stale` fragment.
     // Aligned with `prs`; null for a PR not found or a failed chunk.

@@ -1311,6 +1311,19 @@ test('renderFragment: Files is hideable via the column selector (headers/cells s
   assert.equal(ths, tds);
 });
 
+test('renderFragment: Behind column after Branch — ↓N on live PRs, empty when up to date / merged / unknown', () => {
+  const out = renderFragment({
+    mine: [myRow({ number: 1, behindBy: 12, base: 'main' }), myRow({ number: 2, behindBy: 0 })],
+    others: [otherRow({ behindBy: 1, base: 'dev' }), otherRow({ number: 8, state: 'merged', behindBy: 40 })],
+  }, { now: NOW, sort: { key: 'date', dir: 'desc' }, sortMine: { key: 'date', dir: 'desc' } });
+  const [mineTbl, othersTbl] = out.split('👥');
+  assert.match(othersTbl, /data-sort-key="branch"[^>]*>Branch<\/th><th[^>]*data-sort-key="behind"[^>]*>Behind<\/th>/);
+  assert.match(mineTbl, /data-sort-key="behind"[^>]*data-sort-table="mine"/);
+  assert.match(mineTbl, /<span class="behind" title="12 commits behind main">↓12<\/span>/);
+  assert.match(othersTbl, /title="1 commit behind dev">↓1</);
+  assert.equal((out.match(/class="behind"/g) || []).length, 2);
+});
+
 // ── Search page (§29) ───────────────────────────────────────────────────────
 test('searchUrl: the URL is the state — default sort and page 1 omitted', () => {
   assert.equal(searchUrl('author:alice org:x'), '/search?q=author%3Aalice+org%3Ax');

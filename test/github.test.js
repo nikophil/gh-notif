@@ -184,6 +184,7 @@ test('getPullDetailsBatch: one GraphQL request, alias per PR, normalized shape',
       latestOpinionatedReviews: { nodes: [{ author: { login: 'bob' }, state: 'APPROVED', submittedAt: 's1' }] },
       timelineItems: { nodes: [{ createdAt: 'ready1' }] },
       commits: { nodes: [{ commit: { statusCheckRollup: { state: 'SUCCESS' } } }] },
+      behind: { compare: { behindBy: 7 } },
     } },
     p1: { pullRequest: null }, // PR not found → null
   } });
@@ -200,6 +201,7 @@ test('getPullDetailsBatch: one GraphQL request, alias per PR, normalized shape',
   assert.equal(out[0].statusCheckRollupState, 'SUCCESS');
   assert.equal(out[0].mergeable, 'CONFLICTING');
   assert.equal(out[0].readyAt, 'ready1'); // draft → ready date (easter-egg gate)
+  assert.equal(out[0].behindBy, 7); // commits of the base the PR lacks
   assert.deepEqual(out[0].reviews, [{ author: { login: 'bob' }, state: 'APPROVED', submittedAt: 's1' }]);
   assert.equal(out[1], null);
 
@@ -212,6 +214,8 @@ test('getPullDetailsBatch: one GraphQL request, alias per PR, normalized shape',
   assert.ok(q.includes('headRefName'));
   assert.ok(q.includes('headRepository'));
   assert.ok(q.includes('mergeable'));
+  // per-PR compare against the base: the pull ref works for forks too
+  assert.ok(q.includes('pullRequest(number: 42) { ...pr behind: baseRef { compare(headRef: "refs/pull/42/head") { behindBy } } }'));
 });
 
 test('getPullDetailsBatch: mergeable absent from the response → null (never CONFLICTING by default)', async () => {

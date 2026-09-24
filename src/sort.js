@@ -5,7 +5,7 @@
 // has its own key set and its own persisted state (`sort` for « others »,
 // `sortMine` for « Your PRs »).
 
-export const SORT_KEYS = ['repo', 'number', 'title', 'labels', 'branch', 'date', 'review', 'updated', 'approvals', 'author', 'diff', 'files', 'status', 'triggers', 'ci'];
+export const SORT_KEYS = ['repo', 'number', 'title', 'labels', 'branch', 'behind', 'date', 'review', 'updated', 'approvals', 'author', 'diff', 'files', 'status', 'triggers', 'ci'];
 // « Your PRs »: every column except Author (always me).
 export const MINE_SORT_KEYS = SORT_KEYS.filter((k) => k !== 'author');
 
@@ -13,11 +13,11 @@ export const MINE_SORT_KEYS = SORT_KEYS.filter((k) => k !== 'author');
 // number → highest first (a higher number = a more recent PR within a repo),
 // approvals → least approved first (the ones that most need a review),
 // review → longest in review first (the ones waiting the most), text
-// columns (repo/title/branch/author) → alphabetical, diff/files → smallest
+// columns (repo/title/branch/author) → alphabetical, behind → most behind first, diff/files → smallest
 // first (the quick reviews — diff counts added lines only), status/triggers/ci → actionable first (open, review,
 // failing CI…).
 const DEFAULT_DIR = {
-  repo: 'asc', number: 'desc', title: 'asc', labels: 'asc', branch: 'asc',
+  repo: 'asc', number: 'desc', title: 'asc', labels: 'asc', branch: 'asc', behind: 'desc',
   date: 'desc', review: 'asc', updated: 'desc', approvals: 'asc', author: 'asc',
   diff: 'asc', files: 'asc', status: 'asc', triggers: 'asc', ci: 'asc',
 };
@@ -66,6 +66,9 @@ function valueOf(row, key) {
     return names.length ? names.join(',').toLowerCase() : null;
   }
   if (key === 'branch') return lower(row.branch);
+  // Commits behind the base: only a live PR still has to catch up (merged/closed
+  // → missing). 0 is a real value.
+  if (key === 'behind') return row.state === 'open' || row.state === 'draft' ? (row.behindBy ?? null) : null;
   if (key === 'review') {
     // In-review start = readyAt (last draft → ready) falling back on createdAt,
     // same basis as the easter egg (§21). Only an OPEN PR is in review: draft,
