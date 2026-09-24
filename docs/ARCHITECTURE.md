@@ -807,23 +807,36 @@ sequenceDiagram
     (link octicon, same `.copy` mechanics as the branch one); the `number` sort key survives
     in sort.js for persisted prefs but has no header), so the
     two levers are **shrinking the other columns** (Title absorbs what they release) and
-    **dragging Title's own edge**. Grips (`.col-grip`, invisible, accent line on hover) on every
-    `<th>` right edge except the ✕ column. **First drag freezes** every column **except Title**
-    at its current `offsetWidth` on the `<colgroup>` and switches the table to
-    `table-layout: fixed` + ellipsis on all cells: fixed layout is what allows shrinking a
-    column **below its content width** (auto layout forbids it). Title's colw entry stays
-    `null` (= keeps absorbing the leftover) **until its own grip is dragged**, which pins an
-    explicit width; in fixed layout the table then widens to the sum of its columns
-    (`max(100%, Σ cols)`), so the sections are `overflow-x: auto` (y stays hidden for the
-    rounded corners) — a Title widened beyond the page scrolls instead of being clipped. ⚠️ Fully
+    **dragging Title's own edge**. **No column is ever wider than its content, except Title.**
+    Grips (`.col-grip`, invisible, accent line on hover) only on the resizable columns:
+    Repository, Title, Labels, Branch, Author, Opened, Updated. The content-sized ones
+    (`FIT_COLS`: behind, review, diff, files, status, approvals, triggers, ci — plus ✕) have
+    none and always keep their natural width. They are tagged **server-side**: `fitClasses`
+    (html.js) puts `class="fit"` on their `th`/`td`, filtered through `dropHidden` like the
+    cells, so it stays aligned. The class halves their horizontal padding (short figures and
+    icons, 1rem of gutter each side made them look loose), and the client reads it to skip the
+    grip — a single list, no copy in the client JS. `initResize` measures every column's **natural
+    width** (`natW`) on the fresh table, still in auto layout — where every column but Title
+    sits at its content width (nowrap cells). A drag switches the table to `table-layout:
+    fixed` + ellipsis on all cells: fixed layout is what allows shrinking a column **below its
+    content width** (auto layout forbids it). Each column then gets `min(stored, natW)` — a
+    drag can shrink, never grow past the content, and a stored width goes back to the content
+    when the content shrinks (real bug: a Repository column frozen at `symfony/ticketing` width
+    stayed wide once the bare `ticketing` shipped, §14). Title stays auto (absorbs the leftover);
+    its own dragged width is a **floor**, set through the table's `min-width` (Σ others + Title):
+    an explicit narrower Title would make fixed layout spread the spare room over the other
+    columns, past their content. Widened beyond the page, the table scrolls inside its section
+    (`overflow-x: auto`, y stays hidden for the rounded corners). ⚠️ Fully
     **client-side** (shell JS of `html.js`), zero server change: (a) the tests lock « no colgroup
     without active sort » in `table()`, so the client **creates** the colgroup when missing;
-    (b) widths are a per-device display state → `localStorage` (`ghn-colw-v1`, per table
+    (b) widths are a per-device display state → `localStorage` (`ghn-colw-v2`, per table
     `mine`/`others` — identified by `th[data-sort-table="mine"]` / bare `th[data-sort-key]`; the
-    issues table has neither → not resizable), invalidated when the column count changes
-    (stale widths ignored). `#content` being re-injected at every poll, `setContent` →
-    `initResize()` re-installs grips and re-applies widths (same pattern as `markLastClicked`
-    §19). ⚠️ The mouseup ending a drag still emits a `click` — on the **common ancestor** of the
+    issues table has neither → not resizable), **keyed by column** (`data-sort-key`), so hiding
+    a column (§24) or the auto-hidden Labels (§25) never shifts the others' widths. ⚠️ v1 stored
+    them by index, with a hard-coded Title index gone stale when the PR-number column merged
+    into Title: a column next to Title absorbed the leftover instead. `#content` being
+    re-injected at every poll, `setContent` → `initResize()` re-measures, re-installs grips and
+    re-applies widths (same pattern as `markLastClicked` §19). ⚠️ The mouseup ending a drag still emits a `click` — on the **common ancestor** of the
     press and release points (the th or the table, never the grip: the pointer moved), so a
     `closest('.col-grip')` guard in the click handler can NOT catch it (real bug: every resize
     fired a sort POST). Instead the mouseup arms a one-shot `swallowClick` flag consumed by a
@@ -848,7 +861,7 @@ sequenceDiagram
     the §15 colgroup). ⚠️ `renderFragment` only renders the gear when `opts.cols` is provided —
     without it, output byte-identical (compat, same contract as `sort`). Interactions: a sort on
     a hidden column keeps applying to the data (display state ≠ sort state); the resize widths
-    (§23, localStorage) are already invalidated when the column count changes. Popover mechanics
+    (§23, localStorage) are keyed by column, so hiding one leaves the others' widths intact. Popover mechanics
     shared with the CI popover (§17: `showPop`, position:fixed, one open at a time) — plus two
     twists: checking a box re-injects `#content`, so `setContent` **re-opens** the menu that was
     open (`openColsTable`, captured before the close) — without it the menu would shut after

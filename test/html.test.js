@@ -278,7 +278,7 @@ test('renderFragment: « mine » table shows Opened, Updated and Diff like the o
   const mineSection = out.split('👥')[0];
   assert.match(mineSection, /<th>Opened<\/th>/);
   assert.match(mineSection, /<th>Updated<\/th>/);
-  assert.match(mineSection, /<th>Diff<\/th>/);
+  assert.match(mineSection, /<th class="fit">Diff<\/th>/);
   assert.match(mineSection, /title="Opened \d{4}-\d{2}-\d{2} \d{2}:\d{2}"/);   // precise date in the tooltip
   assert.match(mineSection, /title="Updated \d{4}-\d{2}-\d{2} \d{2}:\d{2}"/);  // idem for the last update
   assert.ok(mineSection.includes('<span class="add">+17</span>'));
@@ -289,9 +289,9 @@ test('renderFragment: « In review » column — bare duration since readyAt, fa
   // Never draft → basis createdAt (2026-06-22, NOW 06-24 → 2d).
   const out = renderFragment({ mine: [myRow()], others: [otherRow()] }, { now: NOW });
   const mineSection = out.split('👥')[0];
-  assert.match(mineSection, /<th>In review<\/th>/);
+  assert.match(mineSection, /<th class="fit">In review<\/th>/);
   assert.match(mineSection, /title="In review since 2026-06-22 \d{2}:\d{2}">2d</);
-  assert.match(out.split('👥')[1], /<th>In review<\/th>/); // others table too
+  assert.match(out.split('👥')[1], /<th class="fit">In review<\/th>/); // others table too
   // Long-drafted PR → basis readyAt, not createdAt.
   const ready = renderFragment({ mine: [myRow({ createdAt: '2026-06-01T12:00:00Z', readyAt: '2026-06-23T12:00:00Z' })], others: [] }, { now: NOW });
   assert.match(ready, /title="In review since 2026-06-23 \d{2}:\d{2}">1d</);
@@ -303,8 +303,16 @@ test('renderFragment: « In review » shows « – » for a draft, empty for a f
     others: [otherRow({ state: 'merged' })],
   }, { now: NOW });
   assert.ok(!out.includes('In review since'));
-  assert.match(out.split('👥')[0], /<td>–<\/td>/);      // draft → –
-  assert.doesNotMatch(out.split('👥')[1], /<td>–<\/td>/); // merged → empty
+  assert.match(out.split('👥')[0], /<td class="fit">–<\/td>/);      // draft → –
+  assert.doesNotMatch(out.split('👥')[1], /<td class="fit">–<\/td>/); // merged → empty
+});
+
+test('renderFragment: content-sized columns carry the « fit » class, aligned despite hidden columns', () => {
+  const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW, cols: { mine: ['behind'], others: [] } });
+  // review, diff, files, status, approvals, triggers, ci (behind hidden)
+  assert.equal((out.match(/<th class="fit"/g) || []).length, 7);
+  assert.equal((out.match(/<td class="fit"/g) || []).length, 7);
+  assert.match(out, /<th>Opened<\/th><th class="fit">In review<\/th>/); // resizable Opened: no class
 });
 
 test('renderFragment: « others » table shows Updated too', () => {
@@ -1293,15 +1301,15 @@ test('renderFragment: Files column (file-diff octicon header) after Diff, in bot
   assert.match(othersTbl, /data-sort-key="diff"[^>]*>Diff<\/th><th[^>]*data-sort-key="files"[^>]*><abbr title="Changed files"[^>]*><svg/);
   assert.match(mineTbl, /data-sort-key="files"[^>]*data-sort-table="mine"/);
   // plain count without a per-type breakdown (compat: no button, no popover)
-  assert.match(mineTbl, /<td>4<\/td>/);
-  assert.match(othersTbl, /<td>9<\/td>/);
+  assert.match(mineTbl, /<td class="fit">4<\/td>/);
+  assert.match(othersTbl, /<td class="fit">9<\/td>/);
   assert.ok(!out.includes('diff-btn'));
 });
 
 test('renderFragment: no changedFiles (older snapshot) → empty Files cell', () => {
   const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW });
   // …+17 −4</td><td></td><td>🟢 status cell
-  assert.match(out, /−4<\/span><\/td><td><\/td><td>/);
+  assert.match(out, /−4<\/span><\/td><td class="fit"><\/td><td class="fit">/);
 });
 
 test('renderFragment: the Files count opens the SAME per-type popover as the Diff figures', () => {
@@ -1319,7 +1327,7 @@ test('renderFragment: the Files count opens the SAME per-type popover as the Dif
 test('renderFragment: Files is hideable via the column selector (headers/cells stay aligned)', () => {
   const out = renderFragment({ mine: [myRow({ changedFiles: 4 })], others: [] }, { now: NOW, sortMine: { key: 'date', dir: 'desc' }, cols: { mine: ['files'], others: [] } });
   assert.doesNotMatch(out, /data-sort-key="files"/);
-  assert.doesNotMatch(out, /<td>4<\/td>/);
+  assert.doesNotMatch(out, /<td class="fit">4<\/td>/);
   assert.match(out, /data-cols-table="mine" data-cols-key="files"(?![^>]*checked)/);
   const ths = (out.match(/<th[ >]/g) || []).length;
   const tds = (out.match(/<td[ >]/g) || []).length;

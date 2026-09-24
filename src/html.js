@@ -415,7 +415,8 @@ const titleCell = (r) => {
 // link alone shrinks and truncates, the copy button / chips stay visible.
 const titleWrap = (inner) => `<span class="title-wrap">${inner}</span>`;
 
-const tableRow = (cells, cls = '', attrs = '') => `<tr${cls ? ` class="${cls}"` : ''}${attrs}>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`;
+// `tdCls` (optional): one class per cell, aligned with `cells` (cf. fitClasses).
+const tableRow = (cells, cls = '', attrs = '', tdCls = []) => `<tr${cls ? ` class="${cls}"` : ''}${attrs}>${cells.map((c, i) => `<td${tdCls[i] ? ` class="${tdCls[i]}"` : ''}>${c}</td>`).join('')}</tr>`;
 
 // Easter egg 🚀: a « mergeable » PR of mine — open, CI green, ≥ 2 approvals, no
 // conflict with the base. Derived display state (like the 🎉 badge): the row is
@@ -465,6 +466,12 @@ const GEAR_ICON =
   '<path d="M8 0a8.2 8.2 0 0 1 .701.031C9.444.095 9.99.645 10.16 1.29l.288 1.107c.018.066.079.158.212.224.231.114.454.243.668.386.123.082.233.09.299.071l1.103-.303c.644-.176 1.392.021 1.82.63.27.385.506.792.704 1.218.315.675.111 1.422-.364 1.891l-.814.806c-.049.048-.098.147-.088.294.016.257.016.515 0 .772-.01.147.038.246.088.294l.814.806c.475.469.679 1.216.364 1.891a7.977 7.977 0 0 1-.704 1.217c-.428.61-1.176.807-1.82.63l-1.102-.302c-.067-.019-.177-.011-.3.071a5.909 5.909 0 0 1-.668.386c-.133.066-.194.158-.211.224l-.29 1.106c-.168.646-.715 1.196-1.458 1.26a8.006 8.006 0 0 1-1.402 0c-.743-.064-1.289-.614-1.458-1.26l-.289-1.106c-.018-.066-.079-.158-.212-.224a5.738 5.738 0 0 1-.668-.386c-.123-.082-.233-.09-.299-.071l-1.103.303c-.644.176-1.392-.021-1.82-.63a8.12 8.12 0 0 1-.704-1.218c-.315-.675-.111-1.422.363-1.891l.815-.806c.05-.048.098-.147.088-.294a6.214 6.214 0 0 1 0-.772c.01-.147-.038-.246-.088-.294l-.815-.806C.635 6.045.431 5.298.746 4.623a7.92 7.92 0 0 1 .704-1.217c.428-.61 1.176-.807 1.82-.63l1.102.302c.067.019.177.011.3-.071.214-.143.437-.272.668-.386.133-.066.194-.158.211-.224l.29-1.106C6.009.645 6.556.095 7.299.03 7.53.01 7.764 0 8 0Zm-.571 1.525c-.036.003-.108.036-.137.146l-.289 1.105c-.147.561-.549.967-.998 1.189-.173.086-.34.183-.5.29-.417.278-.97.423-1.529.27l-1.103-.303c-.109-.03-.175.016-.195.045-.22.312-.412.644-.573.99-.014.031-.021.11.059.19l.815.806c.411.406.562.957.53 1.456a4.709 4.709 0 0 0 0 .582c.032.499-.119 1.05-.53 1.456l-.815.806c-.081.08-.073.159-.059.19.162.346.353.677.573.989.02.03.085.076.195.046l1.102-.303c.56-.153 1.113-.008 1.53.27.161.107.328.204.501.29.447.222.85.629.997 1.189l.289 1.105c.029.109.101.143.137.146a6.6 6.6 0 0 0 1.142 0c.036-.003.108-.036.137-.146l.289-1.105c.147-.561.549-.967.998-1.189.173-.086.34-.183.5-.29.417-.278.97-.423 1.529-.27l1.103.303c.109.029.175-.016.195-.045.22-.313.411-.644.573-.99.014-.031.021-.11-.059-.19l-.815-.806c-.411-.406-.562-.957-.53-1.456a4.709 4.709 0 0 0 0-.582c-.032-.499.119-1.05.53-1.456l.815-.806c.081-.08.073-.159.059-.19a6.464 6.464 0 0 0-.573-.989c-.02-.03-.085-.076-.195-.046l-1.102.303c-.56.153-1.113.008-1.53-.27a4.44 4.44 0 0 0-.501-.29c-.447-.222-.85-.629-.997-1.189l-.289-1.105c-.029-.11-.101-.143-.137-.146a6.6 6.6 0 0 0-1.142 0ZM11 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM9.5 8a1.5 1.5 0 1 0-3.001.001A1.5 1.5 0 0 0 9.5 8Z"></path></svg>';
 const dropHidden = (arr, keys, hidden) =>
   hidden.length ? arr.filter((_, i) => !hidden.includes(keys[i])) : arr;
+// Content-sized columns (short figures, icons): tighter horizontal padding
+// and no resize grip (§23), they always keep their natural width. The class
+// list is filtered like the cells, so it stays aligned with them.
+const FIT_COLS = new Set(['behind', 'review', 'diff', 'files', 'status', 'approvals', 'triggers', 'ci']);
+const fitClasses = (keys, hidden) =>
+  dropHidden(keys.map((k) => (FIT_COLS.has(k) ? 'fit' : '')), keys, hidden);
 
 // Gear button + checkbox popover (one per table, in the section <h2> next to
 // the stacks toggle — the header stays reachable even with the ✕ column
@@ -485,12 +492,15 @@ function colsMenu(table, keys, hidden) {
 // matching <col>: the index comes from the same `headers` array as the th,
 // so it cannot get out of sync. A <col> background is painted UNDER that of
 // the rows → the hover and the opacity of hidden rows stay readable on top.
-function table(headers, rows) {
+function table(headers, rows, thCls = []) {
   const colgroup = headers.some((h) => h?.active)
     ? `<colgroup>${headers.map((h) => (h?.active ? '<col class="sorted">' : '<col>')).join('')}</colgroup>`
     : '';
   const head = `<thead><tr>${headers
-    .map((h) => (typeof h === 'string' ? `<th>${h}</th>` : `<th${h.attrs}>${h.html}</th>`))
+    .map((h, i) => {
+      const cls = thCls[i] ? ` class="${thCls[i]}"` : '';
+      return typeof h === 'string' ? `<th${cls}>${h}</th>` : `<th${cls}${h.attrs}>${h.html}</th>`;
+    })
     .join('')}</tr></thead>`;
   const body = `<tbody>${rows.join('')}</tbody>`;
   return `<table>${colgroup}${head}${body}</table>`;
@@ -559,6 +569,7 @@ function mineRow(r, now, hidden, ignoredChecks = {}, hiddenCols = [], owner = nu
     dropHidden(cells, MINE_COL_KEYS, hiddenCols),
     rowClass(r, hidden),
     stackAttrs(r) + party,
+    fitClasses(MINE_COL_KEYS, hiddenCols),
   );
 }
 
@@ -585,7 +596,7 @@ function mineTable(rows, hiddenRows, now, showHidden, sort = null, ignoredChecks
     ...rows.map((r) => mineRow(r, now, false, ignoredChecks, hiddenCols, owner)),
     ...(showHidden ? hiddenRows.map((r) => mineRow(r, now, true, ignoredChecks, hiddenCols, owner)) : []),
   ];
-  return table(headers, trs);
+  return table(headers, trs, fitClasses(MINE_COL_KEYS, hiddenCols));
 }
 
 // Hide (✕) or restore (↩︎) button for a row (mine and others alike).
@@ -619,6 +630,7 @@ function otherRow(r, now, hidden, ignoredChecks = {}, hiddenCols = [], owner = n
     dropHidden(cells, OTHERS_COL_KEYS, hiddenCols),
     rowClass(r, hidden),
     stackAttrs(r),
+    fitClasses(OTHERS_COL_KEYS, hiddenCols),
   );
 }
 
@@ -648,7 +660,7 @@ function othersTable(others, hiddenRows, now, showHidden, sort = null, ignoredCh
     ...others.map((r) => otherRow(r, now, false, ignoredChecks, hiddenCols, owner)),
     ...(showHidden ? hiddenRows.map((r) => otherRow(r, now, true, ignoredChecks, hiddenCols, owner)) : []),
   ];
-  return table(headers, trs);
+  return table(headers, trs, fitClasses(OTHERS_COL_KEYS, hiddenCols));
 }
 
 // Watched-issue row (« all » mode): minimal columns — no CI/diff/approvals
@@ -988,6 +1000,8 @@ ${FAVICON}
   h2 .hist:hover { color: var(--accent); }
   table { border-collapse: collapse; width: 100%; }
   th, td { text-align: left; padding: .5rem 1rem; border-bottom: 1px solid var(--border-muted); white-space: nowrap; }
+  /* Content-sized columns (figures, icons — FIT_COLS): half the gutter. */
+  th.fit, td.fit { padding-left: .5rem; padding-right: .5rem; }
   tbody tr:last-child td { border-bottom: 0; }
   th { font-weight: 600; color: var(--fg-muted); font-size: .75rem; }
   th[data-sort-key], th[data-sort-href] { cursor: pointer; user-select: none; }
@@ -1002,10 +1016,11 @@ ${FAVICON}
   .title-wrap { display: flex; align-items: center; gap: .3em; min-width: 0; }
   .title-wrap > a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .title-wrap > :not(a) { flex: none; }
-  /* Resizable columns (client-side): an invisible grip on each th right edge,
-     a thin accent line on hover/drag. Once a table is resized it switches to
-     fixed layout (widths on the colgroup) — every cell then truncates like the
-     Title column, which keeps absorbing the leftover width. */
+  /* Resizable columns (client-side): an invisible grip on the right edge of
+     each resizable th, a thin accent line on hover/drag. Once a table is
+     resized it switches to fixed layout (widths on the colgroup, capped at
+     the content width) — every cell then truncates like the Title column,
+     which keeps absorbing the leftover width. */
   th { position: relative; }
   .col-grip { position: absolute; top: 0; right: 0; width: 7px; height: 100%; cursor: col-resize; }
   .col-grip::after { content: ''; position: absolute; top: 0; right: 0; width: 2px; height: 100%; }
@@ -1764,11 +1779,13 @@ ${TABLE_JS}
   // Client-only display state, like the last-clicked row: #content is
   // re-injected at every poll (innerHTML wipes the grips AND any inline
   // width), so initResize() re-installs both after each injection. Widths
-  // persist in localStorage per device (no server round-trip). The Title
-  // column keeps its auto « absorb the rest » behavior: shrinking any other
-  // column hands the space straight to the titles — the point of the feature.
-  var COLW_KEY = 'ghn-colw-v1';
-  var TITLE_COL = 2; // stays auto — absorbs whatever the others release
+  // persist in localStorage per device (no server round-trip), keyed by
+  // column (data-sort-key). No column ever grows past its content: a stored
+  // width is clamped to the natural width measured on the fresh auto-layout
+  // table, and the content-sized columns (th.fit, ✕) get no grip at all.
+  // Only Title absorbs the leftover width — shrinking any other column hands
+  // the space straight to the titles, the point of the feature.
+  var COLW_KEY = 'ghn-colw-v2'; // v1 = widths by column index
   function loadColw() {
     try { var v = JSON.parse(localStorage.getItem(COLW_KEY)); return v && typeof v === 'object' ? v : {}; }
     catch (e) { return {}; }
@@ -1782,6 +1799,7 @@ ${TABLE_JS}
     if (tbl.querySelector('th[data-sort-key]')) return 'others';
     return null;
   }
+  function colKey(th) { return th.getAttribute('data-sort-key') || ''; } // '' = ✕ column
   // The sorted-column colgroup only exists under an active sort — create one
   // otherwise (widths live on the cols, so fixed layout reads them all).
   function colsOf(tbl, n) {
@@ -1793,11 +1811,23 @@ ${TABLE_JS}
     }
     return cg.children;
   }
-  function applyWidths(tbl, id, n) {
+  // Fixed layout (the only one that shrinks a column below its content):
+  // every column at min(stored, natural) width, Title left auto so it takes
+  // the rest. Its own stored width is a floor, through the table's
+  // min-width: an explicit narrower Title would spread the spare room over
+  // the other columns, past their content.
+  function applyWidths(tbl, id) {
     var w = colw[id];
-    if (!w || w.length !== n) return; // column set changed → stale widths ignored
-    var cols = colsOf(tbl, n);
-    for (var i = 0; i < n; i++) cols[i].style.width = w[i] == null ? '' : w[i] + 'px';
+    if (!w) return;
+    var ths = tbl.querySelectorAll('thead th'), cols = colsOf(tbl, ths.length), sum = w.title || 0;
+    for (var i = 0; i < ths.length; i++) {
+      var k = colKey(ths[i]);
+      if (k === 'title') continue;
+      var px = Math.min(w[k] || Infinity, tbl.natW[i]);
+      cols[i].style.width = px + 'px';
+      sum += px;
+    }
+    tbl.style.minWidth = sum + 'px';
     tbl.classList.add('resized');
   }
   function initResize() {
@@ -1807,14 +1837,17 @@ ${TABLE_JS}
       var id = tableIdOf(tbl);
       if (!id) continue;
       var ths = tbl.querySelectorAll('thead th');
-      for (var i = 0; i < ths.length - 1; i++) { // last col (✕ button): no grip
+      // The fresh table is still in auto layout: every column but Title sits
+      // at its content width (nowrap cells) — the cap of any stored width.
+      tbl.natW = [].map.call(ths, function (th) { return Math.ceil(th.getBoundingClientRect().width); });
+      for (var i = 0; i < ths.length; i++) {
+        if (!colKey(ths[i]) || ths[i].classList.contains('fit')) continue; // content-sized: no grip
         var g = document.createElement('div');
         g.className = 'col-grip';
-        g.setAttribute('data-col', i);
         g.title = 'Drag to resize · double-click to reset';
         ths[i].appendChild(g);
       }
-      applyWidths(tbl, id, ths.length);
+      applyWidths(tbl, id);
     }
   }
   var colDrag = null;
@@ -1824,31 +1857,25 @@ ${TABLE_JS}
     e.preventDefault();
     var tbl = g.closest('table');
     var id = tableIdOf(tbl);
-    var n = tbl.querySelectorAll('thead th').length;
-    var i = +g.getAttribute('data-col');
-    // First drag freezes every column (except Title) at its current size,
-    // then fixed layout takes over: shrinking a column below its content
-    // width is exactly what auto layout forbids. Title itself only gets an
-    // explicit width when ITS grip is dragged (colw entry stays null until
-    // then) — otherwise it keeps absorbing the leftover width; widened
+    var th = g.parentElement;
+    var key = colKey(th);
+    // First drag switches the table to fixed layout at its current widths:
+    // shrinking a column below its content width is exactly what auto layout
+    // forbids. Growing stops at the content width, except for Title — widened
     // beyond the page, the table scrolls inside its section (overflow-x).
-    var startW = g.parentElement.offsetWidth; // before the freeze reflows
-    if (!colw[id] || colw[id].length !== n) {
-      var ths = tbl.querySelectorAll('thead th'), w = [];
-      for (var k = 0; k < n; k++) w.push(k === TITLE_COL ? null : ths[k].offsetWidth);
-      colw[id] = w;
-    }
-    if (colw[id][i] != null) startW = colw[id][i];
-    applyWidths(tbl, id, n);
-    colDrag = { tbl: tbl, id: id, col: i, n: n, startX: e.clientX, startW: startW };
+    colw[id] = colw[id] || {};
+    applyWidths(tbl, id);
+    colDrag = {
+      tbl: tbl, id: id, key: key, startX: e.clientX, startW: th.offsetWidth,
+      max: key === 'title' ? Infinity : tbl.natW[th.cellIndex],
+    };
     g.classList.add('dragging');
     document.body.classList.add('col-resizing');
   });
   document.addEventListener('mousemove', function (e) {
     if (!colDrag) return;
-    var w = Math.max(30, colDrag.startW + e.clientX - colDrag.startX);
-    colw[colDrag.id][colDrag.col] = w;
-    colsOf(colDrag.tbl, colDrag.n)[colDrag.col].style.width = w + 'px';
+    colw[colDrag.id][colDrag.key] = Math.min(colDrag.max, Math.max(30, colDrag.startW + e.clientX - colDrag.startX));
+    applyWidths(colDrag.tbl, colDrag.id);
   });
   document.addEventListener('mouseup', function () {
     if (!colDrag) return;
@@ -1880,6 +1907,7 @@ ${TABLE_JS}
     saveColw();
     var cols = tbl.querySelectorAll('colgroup col');
     for (var i = 0; i < cols.length; i++) cols[i].style.width = '';
+    tbl.style.minWidth = '';
     tbl.classList.remove('resized');
   });
   // Middle-click (open in a background tab) fires auxclick, not click.
