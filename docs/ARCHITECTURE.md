@@ -550,6 +550,10 @@ sequenceDiagram
     its counters.
     (b) **Label**: an org displays `symfony/*`, a repo `owner/name` (`favoriteLabel`);
     purely cosmetic, `data-fav`/stored value/URL argument stay the **raw** string.
+    Same spirit in the tables: under an active **org** favorite the owner is implied, so the
+    Repository column shows the bare repo name (`ticketing`, full name in the tooltip —
+    `repoOwner` of `renderFragment`, derived from `viewScope` in `fragmentTables`). A repo
+    favorite, « ⭐ all » and ad-hoc mode keep `owner/name`.
     (c) **Existence verified on add** (`gh.scopeExists`, CLI and web): repo → `GET /repos/o/n`,
     org → `GET /users/x` (covers orgs **and** users). Tri-state: `false` (404) → clean refusal (400 web /
     CLI error); **`null` (network, rate-limit…) → fail-open** with a warning — never block a

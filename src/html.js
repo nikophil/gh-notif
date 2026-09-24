@@ -111,6 +111,11 @@ export function escapeHtml(s) {
 const link = (url, text, tip = null) =>
   `<a href="${escapeHtml(url)}"${tip ? ` title="${escapeHtml(tip)}"` : ''} target="_blank" rel="noopener">${escapeHtml(text)}</a>`;
 
+// Repository cell. Under an org favorite (`mapado/*`), `owner` is implied:
+// bare repo name, the full name stays in the tooltip.
+const repoCell = (r, owner = null) =>
+  link(r.url, owner && r.repo.startsWith(`${owner}/`) ? r.repo.slice(owner.length + 1) : r.repo, r.repo);
+
 const diffTotals = (additions, deletions) =>
   `<span class="add">+${additions || 0}</span> <span class="del">−${deletions || 0}</span>`;
 
@@ -528,13 +533,13 @@ const stackAttrs = (r) =>
     : r.stackRoot ? ` data-stack-of="${escapeHtml(r.stackRoot)}"`
       : '';
 
-function mineRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
+function mineRow(r, now, hidden, ignoredChecks = {}, hiddenCols = [], owner = null) {
   // Hidden rows are never tagged: no party for a PR you chose not to see.
   // partyWorthy gates on the PR's age in business days (easter egg, not a badge).
   const party = !hidden && isMergeable(r) && partyWorthy(r, now)
     ? ` data-party="${escapeHtml(`${r.repo}#${r.number}`)}"` : '';
   const cells = [
-    link(r.url, r.repo, r.repo),
+    repoCell(r, owner),
     titleCell(r),
     labelsCell(r.labels),
     branchCell(r),
@@ -557,7 +562,7 @@ function mineRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
   );
 }
 
-function mineTable(rows, hiddenRows, now, showHidden, sort = null, ignoredChecks = {}, hiddenCols = []) {
+function mineTable(rows, hiddenRows, now, showHidden, sort = null, ignoredChecks = {}, hiddenCols = [], owner = null) {
   hiddenCols = dropLabelsIfEmpty([...rows, ...(showHidden ? hiddenRows : [])], hiddenCols);
   const headers = dropHidden([
     sortableTh('Repository', 'repo', sort, 'mine'),
@@ -577,8 +582,8 @@ function mineTable(rows, hiddenRows, now, showHidden, sort = null, ignoredChecks
     '',
   ], MINE_COL_KEYS, hiddenCols);
   const trs = [
-    ...rows.map((r) => mineRow(r, now, false, ignoredChecks, hiddenCols)),
-    ...(showHidden ? hiddenRows.map((r) => mineRow(r, now, true, ignoredChecks, hiddenCols)) : []),
+    ...rows.map((r) => mineRow(r, now, false, ignoredChecks, hiddenCols, owner)),
+    ...(showHidden ? hiddenRows.map((r) => mineRow(r, now, true, ignoredChecks, hiddenCols, owner)) : []),
   ];
   return table(headers, trs);
 }
@@ -591,9 +596,9 @@ function actionButton(r, hidden) {
     : `<button class="act" data-key="${key}" data-act="hide" title="Hide">✕</button>`;
 }
 
-function otherRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
+function otherRow(r, now, hidden, ignoredChecks = {}, hiddenCols = [], owner = null) {
   const cells = [
-    link(r.url, r.repo, r.repo),
+    repoCell(r, owner),
     titleCell(r),
     labelsCell(r.labels),
     branchCell(r),
@@ -618,7 +623,7 @@ function otherRow(r, now, hidden, ignoredChecks = {}, hiddenCols = []) {
 }
 
 // `hrefOf(key)` (optional, search page §29): the th link to the toggled sort.
-function othersTable(others, hiddenRows, now, showHidden, sort = null, ignoredChecks = {}, hiddenCols = [], hrefOf = null) {
+function othersTable(others, hiddenRows, now, showHidden, sort = null, ignoredChecks = {}, hiddenCols = [], hrefOf = null, owner = null) {
   hiddenCols = dropLabelsIfEmpty([...others, ...(showHidden ? hiddenRows : [])], hiddenCols);
   const th = (html, key) => sortableTh(html, key, sort, null, hrefOf ? hrefOf(key) : null);
   const headers = dropHidden([
@@ -640,8 +645,8 @@ function othersTable(others, hiddenRows, now, showHidden, sort = null, ignoredCh
     '',
   ], OTHERS_COL_KEYS, hiddenCols);
   const trs = [
-    ...others.map((r) => otherRow(r, now, false, ignoredChecks, hiddenCols)),
-    ...(showHidden ? hiddenRows.map((r) => otherRow(r, now, true, ignoredChecks, hiddenCols)) : []),
+    ...others.map((r) => otherRow(r, now, false, ignoredChecks, hiddenCols, owner)),
+    ...(showHidden ? hiddenRows.map((r) => otherRow(r, now, true, ignoredChecks, hiddenCols, owner)) : []),
   ];
   return table(headers, trs);
 }
@@ -649,9 +654,9 @@ function othersTable(others, hiddenRows, now, showHidden, sort = null, ignoredCh
 // Watched-issue row (« all » mode): minimal columns — no CI/diff/approvals
 // (meaningless for an issue), no hide button in v1. `actor` = who triggered
 // the line (opener for 🆕, commenter for 👀).
-function issueTableRow(r, now) {
+function issueTableRow(r, now, owner = null) {
   return tableRow([
-    link(r.url, r.repo),
+    repoCell(r, owner),
     titleWrap(link(r.url, `#${r.number} - ${r.title}`, r.title) + urlBtn(r)),
     r.actor ? `@${escapeHtml(r.actor)}` : '?',
     dateCell('Opened', r.createdAt, now),
@@ -660,9 +665,9 @@ function issueTableRow(r, now) {
   ]);
 }
 
-function issuesTable(rows, now) {
+function issuesTable(rows, now, owner = null) {
   const headers = ['Repository', 'Title', 'Author', 'Opened', 'Updated', TRIGGERS_TH];
-  return table(headers, rows.map((r) => issueTableRow(r, now)));
+  return table(headers, rows.map((r) => issueTableRow(r, now, owner)));
 }
 
 // HTML of the two tables (the « fragment » re-fetched in a loop by the page).
@@ -693,6 +698,9 @@ export function renderFragment(data, opts = {}) {
   // (column selector, §24). Absent → no gear button, output strictly unchanged
   // (compat, same contract as `sort`).
   const cols = opts.cols ?? null;
+  // `repoOwner` (optional) = the org of the active org favorite: the
+  // Repository column then shows bare repo names (cf. repoCell).
+  const repoOwner = opts.repoOwner ?? null;
   const mine = data?.mine ?? [];
   const hiddenMine = data?.hiddenMine ?? [];
   const hiddenMineCount = data?.hiddenMineCount ?? hiddenMine.length;
@@ -710,7 +718,7 @@ export function renderFragment(data, opts = {}) {
         ? `(${mine.length}, ${hiddenMineCount} hidden)`
         : `(${mine.length})`;
     const rows = mine.length > 0 || (showHidden && hiddenMineCount > 0)
-      ? mineTable(mine, hiddenMine, now, showHidden, sortMine, ignoredChecks, cols?.mine ?? [])
+      ? mineTable(mine, hiddenMine, now, showHidden, sortMine, ignoredChecks, cols?.mine ?? [], repoOwner)
       : '';
     const gear = cols && rows ? colsMenu('mine', MINE_COL_KEYS, cols.mine ?? []) : '';
     blocks.push(`<section><h2>📥 Your open PRs ${count}${hist}${stacksBtn('mine', mine, !!stacks.mine)}${gear}</h2>${rows}</section>`);
@@ -724,7 +732,7 @@ export function renderFragment(data, opts = {}) {
         ? `(${others.length}, ${hiddenCount} hidden)`
         : `(${others.length})`;
     const rows = others.length > 0 || (showHidden && hiddenCount > 0)
-      ? othersTable(others, hiddenRows, now, showHidden, sort, ignoredChecks, cols?.others ?? [])
+      ? othersTable(others, hiddenRows, now, showHidden, sort, ignoredChecks, cols?.others ?? [], null, repoOwner)
       : '';
     const gear = cols && rows ? colsMenu('others', OTHERS_COL_KEYS, cols.others ?? []) : '';
     blocks.push(
@@ -735,7 +743,7 @@ export function renderFragment(data, opts = {}) {
   // rows — no favorite in « all » mode ⇒ page strictly unchanged (compat).
   const issues = data?.issues ?? [];
   if (issues.length > 0) {
-    blocks.push(`<section><h2>📋 Issues (${issues.length})</h2>${issuesTable(issues, now)}</section>`);
+    blocks.push(`<section><h2>📋 Issues (${issues.length})</h2>${issuesTable(issues, now, repoOwner)}</section>`);
   }
   if (blocks.length === 0) return '<p class="empty">Nothing to report ✨</p>';
   return blocks.join('\n');

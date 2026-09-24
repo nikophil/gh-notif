@@ -58,6 +58,21 @@ test('renderFragment: link to the PR', () => {
   assert.ok(out.includes('href="https://github.com/symfony/web/pull/120"'));
 });
 
+test('renderFragment: Repository cell shows the full name by default', () => {
+  const out = renderFragment({ mine: [myRow()], others: [otherRow()] }, { now: NOW });
+  assert.match(out, /title="symfony\/web" target="_blank" rel="noopener">symfony\/web<\/a>/);
+  assert.match(out, /title="symfony\/api" target="_blank" rel="noopener">symfony\/api<\/a>/);
+});
+
+test('renderFragment: with repoOwner (org favorite), the Repository cell drops the implied owner', () => {
+  const issue = { repo: 'symfony/cli', number: 3, url: 'https://github.com/symfony/cli/issues/3', title: 'bug', triggers: ['new'] };
+  const out = renderFragment({ mine: [myRow()], others: [otherRow()], issues: [issue] }, { now: NOW, repoOwner: 'symfony' });
+  // bare repo name, the full name stays in the tooltip
+  assert.match(out, /title="symfony\/web" target="_blank" rel="noopener">web<\/a>/);
+  assert.match(out, /title="symfony\/api" target="_blank" rel="noopener">api<\/a>/);
+  assert.match(out, /title="symfony\/cli" target="_blank" rel="noopener">cli<\/a>/);
+});
+
 test('renderFragment: dangerous title escaped (no injection)', () => {
   const out = renderFragment({ mine: [myRow({ title: '[X] <script>alert(1)</script> & co' })], others: [] }, { now: NOW });
   assert.ok(out.includes('&lt;script&gt;'), 'the title must be escaped');

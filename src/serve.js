@@ -130,7 +130,9 @@ function fragmentTables(snapshot, { now, showHidden, viewScope = null, closedUrl
   }
   // `ignoredChecks` only affects the popover display (struck checks) — the CI
   // verdict itself was already recomputed at collection (§16).
-  return renderFragment(data, { now, showHidden, closedUrl, reviewedUrl, sort, sortMine, ignoredChecks, stacks: stk, cols });
+  // An org favorite implies the owner → the Repository column drops it.
+  const repoOwner = viewScope?.type === 'org' ? viewScope.value : null;
+  return renderFragment(data, { now, showHidden, closedUrl, reviewedUrl, sort, sortMine, ignoredChecks, stacks: stk, cols, repoOwner });
 }
 
 // Scope(s) that the view DISPLAYS, to contextualize the « closed ↗ » link:

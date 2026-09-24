@@ -439,6 +439,13 @@ test('GET /fragment : filtered on the active favorite (the snapshot, itself, kee
   assert.equal(snap.data.mine.length, 2);
 });
 
+test('GET /fragment : an org favorite shows bare repo names, a repo favorite or « all » the full name', () => {
+  const view = (activeFav) => handleRequest('/fragment', mixedSnapshot(), { ...OPTS, favorites: ['symfony', 'zenstruck/foundry'], activeFav }).body;
+  assert.match(view('symfony'), />web<\/a>/);
+  assert.match(view('zenstruck/foundry'), />zenstruck\/foundry<\/a>/);
+  assert.match(view(null), />symfony\/web<\/a>/);
+});
+
 test('GET /fragment without active favorite → the whole union is displayed', () => {
   const res = handleRequest('/fragment', mixedSnapshot(), { ...OPTS, favorites: ['symfony', 'zenstruck'], activeFav: null });
   assert.match(res.body, /at symfony/);
