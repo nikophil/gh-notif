@@ -675,7 +675,8 @@ sequenceDiagram
     (default `sendNotification`) — the test seam used to assert the silent seed.
 
 19. **Last-clicked row stays marked (web).** Clicking any row link (PR, title, branch)
-    marks its `<tr>` with `.clicked` (subtle accent veil) so coming back from the opened
+    marks its `<tr>` with `.clicked` (a `--fg` veil + a 3 px accent bar on its left edge)
+    so coming back from the opened
     tab shows where you left off. ⚠️ Client-only state: `#content` is re-injected
     (`innerHTML`) at every poll/action, which wipes classes AND focus — a pure CSS
     `:focus` cannot work. The client therefore keeps the clicked link's `href` (unique
@@ -694,8 +695,15 @@ sequenceDiagram
     an orphan alone does not count) and `groupStacks(rows)` (reordered copy: each child is
     pulled under its parent depth-first, annotated `stackDepth`; **every row of a stack,
     parent included, is annotated `inStack` + `stackIndex`** (block number) → `tr.stack
-    stack-a|b` background (two alternating subtle veils — accent / success — so adjacent
-    blocks read as separate units; declared before `tr:hover` so the hover still wins);
+    stack-a…d` background (four rotating hues — green / violet / red / light blue,
+    `--stack-1…4` in the theme vars — so adjacent blocks read as separate units; a first
+    version alternated accent 5 % / success 6 %, and the accent one was indistinguishable
+    from the last-clicked row §19). ⚠️ The stack hue is a `background-color`, while the
+    hover and the last-clicked row are a `--fg` veil in `background-image` (lighter on dark,
+    darker on light): the veil is painted **over** the hue instead of replacing it, so a stack
+    row keeps its color under the pointer. Any other row background (e.g. the 🚀 `tr.party`
+    keyframes) must animate `background-color`, never the `background` shorthand, which
+    would wipe the veil;
     input rows **never mutated** — the raw snapshot is shared; defensive on base cycles).
     Display: `titleCell`
     (html.js) renders a **single fixed `↳` indent marker** on a LINEAR chain (the grouped

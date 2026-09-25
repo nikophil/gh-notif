@@ -84,16 +84,23 @@ const FAVICON = `<link rel="icon" href="${faviconHref('%231f2328', '%239198a1')}
 
 // GitHub Primer color variables, single source reused for the 4 theme cases
 // (auto/system, auto/dark, forced light, forced dark) without tripling them.
+// Row tints are alpha hex (last byte = opacity: 0f ≈ 6 %, 14 ≈ 8 %, 1c ≈ 11 %,
+// 24 ≈ 14 %). --stack-1…4: green / violet / red / light blue block tints (§20).
+// --row-hover / --row-clicked: a veil of --fg — lighter on dark, darker on light.
 const LIGHT_VARS =
   '--canvas: #ffffff; --canvas-subtle: #f6f8fa; --canvas-inset: #f6f8fa;\n' +
   '    --fg: #1f2328; --fg-muted: #59636e; --border: #d1d9e0; --border-muted: #d1d9e0b3;\n' +
   '    --accent: #0969da; --success: #1a7f37; --danger: #cf222e; --attention: #9a6700;\n' +
-  '    --btn-bg: #f6f8fa; --btn-border: #1f23280f; --btn-hover: #eef1f4; --shadow: 0 1px 0 #1f23280a;';
+  '    --btn-bg: #f6f8fa; --btn-border: #1f23280f; --btn-hover: #eef1f4; --shadow: 0 1px 0 #1f23280a;\n' +
+  '    --stack-1: #1a7f3714; --stack-2: #8250df14; --stack-3: #cf222e14; --stack-4: #1b95d314;\n' +
+  '    --row-hover: #1f23280f; --row-clicked: #1f23281c;';
 const DARK_VARS =
   '--canvas: #0d1117; --canvas-subtle: #151b23; --canvas-inset: #010409;\n' +
   '    --fg: #e6edf3; --fg-muted: #9198a1; --border: #3d444d; --border-muted: #3d444db3;\n' +
   '    --accent: #4493f8; --success: #3fb950; --danger: #f85149; --attention: #d29922;\n' +
-  '    --btn-bg: #212830; --btn-border: #f0f6fc1a; --btn-hover: #2a313c; --shadow: 0 0 transparent;';
+  '    --btn-bg: #212830; --btn-border: #f0f6fc1a; --btn-hover: #2a313c; --shadow: 0 0 transparent;\n' +
+  '    --stack-1: #3fb9501c; --stack-2: #ab7df81c; --stack-3: #f851491c; --stack-4: #56c8f01c;\n' +
+  '    --row-hover: #e6edf314; --row-clicked: #e6edf324;';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
@@ -526,12 +533,12 @@ const reviewCell = (r, now) => {
   return titled(`In review since ${preciseDate(iso)}`, escapeHtml(durationSince(iso, now)));
 };
 
-// Row classes: `hid` (hidden mode) + `stack stack-a|b` (row of a stacked-PRs
-// block → tinted background, parent and children alike; the tint alternates
-// with the block's stackIndex so adjacent stacks read as separate units).
+// Row classes: `hid` (hidden mode) + `stack stack-a…d` (row of a stacked-PRs
+// block → tinted background, parent and children alike; the tint rotates over
+// 4 hues with the block's stackIndex so adjacent stacks read as separate units).
 const rowClass = (r, hidden) =>
   [
-    (r.stackDepth || r.inStack) && `stack stack-${(r.stackIndex ?? 0) % 2 ? 'b' : 'a'}`,
+    (r.stackDepth || r.inStack) && `stack stack-${'abcd'[(r.stackIndex ?? 0) % 4]}`,
     hidden && 'hid',
   ].filter(Boolean).join(' ');
 
@@ -1028,17 +1035,22 @@ ${FAVICON}
   table.resized { table-layout: fixed; }
   table.resized th, table.resized td { overflow: hidden; text-overflow: ellipsis; }
   body.col-resizing { cursor: col-resize; user-select: none; }
-  /* Stacked-PRs blocks: subtle veil on every row of a stack (parent +
-     children) so each block reads as one unit; two alternating tints tell
-     adjacent blocks apart. Declared BEFORE tr:hover (same specificity) so the
-     hover feedback still wins on top. */
-  tbody tr.stack-a { background: color-mix(in srgb, var(--accent) 5%, transparent); }
-  tbody tr.stack-b { background: color-mix(in srgb, var(--success) 6%, transparent); }
-  tbody tr:hover { background: var(--canvas-subtle); }
-  /* Last-clicked row: subtle accent veil so coming back from the PR tab shows
-     where you left off. Re-applied by the client after each fragment
-     re-injection (innerHTML wipes classes and focus alike). */
-  tbody tr.clicked { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  /* Stacked-PRs blocks: a tint on every row of a stack (parent + children) so
+     each block reads as one unit; four rotating hues tell adjacent blocks
+     apart. */
+  tbody tr.stack-a { background-color: var(--stack-1); }
+  tbody tr.stack-b { background-color: var(--stack-2); }
+  tbody tr.stack-c { background-color: var(--stack-3); }
+  tbody tr.stack-d { background-color: var(--stack-4); }
+  /* Hover and last-clicked row: a --fg veil painted OVER the stack tint
+     (background-image sits above background-color), so a stack row keeps its
+     hue under the pointer. The clicked row adds an accent bar on its left
+     edge, so coming back from the PR tab shows where you left off. Re-applied
+     by the client after each fragment re-injection (innerHTML wipes classes
+     and focus alike). */
+  tbody tr:hover { background-image: linear-gradient(var(--row-hover), var(--row-hover)); }
+  tbody tr.clicked { background-image: linear-gradient(var(--row-clicked), var(--row-clicked)); }
+  tbody tr.clicked td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
   tr.hid td { opacity: .5; }
   a { color: var(--accent); text-decoration: none; }
   a:hover { text-decoration: underline; }
@@ -1205,8 +1217,8 @@ ${FAVICON}
   .party-canvas { position: fixed; inset: 0; z-index: 50; pointer-events: none; }
   tbody tr.party { animation: ghn-party-row 3s ease-out; }
   @keyframes ghn-party-row {
-    0%, 100% { background: transparent; }
-    15%, 60% { background: color-mix(in srgb, var(--attention) 22%, transparent); }
+    0%, 100% { background-color: transparent; }
+    15%, 60% { background-color: color-mix(in srgb, var(--attention) 22%, transparent); }
   }
   .party-banner { position: fixed; top: 50%; left: 50%; z-index: 51; pointer-events: none;
                   transform: translate(-50%, -50%); background: var(--canvas); border: 1px solid var(--border);

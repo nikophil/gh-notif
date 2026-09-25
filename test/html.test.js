@@ -1179,17 +1179,17 @@ test('renderFragment: the rows of a stack carry the .stack class (block backgrou
   assert.equal((out.match(/<tr class="stack stack-a">/g) || []).length, 2, 'parent + child, not the solo row');
 });
 
-test('renderFragment: adjacent stacks alternate two block tints (stack-a / stack-b)', () => {
+test('renderFragment: adjacent stacks rotate four block tints (stack-a → stack-d, then back)', () => {
+  const block = (i) => [
+    myRow({ number: 200 + 2 * i, inStack: true, stackIndex: i }),
+    myRow({ number: 201 + 2 * i, stackDepth: 1, inStack: true, stackIndex: i }),
+  ];
   const out = renderFragment({
-    mine: [
-      myRow({ inStack: true, stackIndex: 0 }), myRow({ number: 121, stackDepth: 1, inStack: true, stackIndex: 0 }),
-      myRow({ number: 122, inStack: true, stackIndex: 1 }), myRow({ number: 123, stackDepth: 1, inStack: true, stackIndex: 1 }),
-      myRow({ number: 124 }),
-    ],
+    mine: [...[0, 1, 2, 3, 4].flatMap(block), myRow({ number: 124 })],
     others: [],
   }, { now: NOW });
-  assert.equal((out.match(/<tr class="stack stack-a">/g) || []).length, 2);
-  assert.equal((out.match(/<tr class="stack stack-b">/g) || []).length, 2);
+  assert.equal((out.match(/<tr class="stack stack-a">/g) || []).length, 4, 'blocks 0 and 4');
+  for (const t of ['b', 'c', 'd']) assert.equal((out.match(new RegExp(`<tr class="stack stack-${t}">`, 'g')) || []).length, 2);
 });
 
 test('renderFragment: single ↳ marker, root always above', () => {
