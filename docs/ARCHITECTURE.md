@@ -494,7 +494,7 @@ sequenceDiagram
     back on `notify-send`, absent → silent no-op).
 
 14. **Favorites: we COLLECT the union, we FILTER at display.** A favorite is a pinned scope
-    (`favorites: ["symfony","noctud/collection","zenstruck"]` in `prefs-v1.json`). As soon as there
+    (`favorites: ["stark","nakatomi/collection","zorg"]` in `prefs-v1.json`). As soon as there
     exists one, `collectPRs` receives an **array** of scopes — the union — and the active favorite
     (`activeFav`) is only a **display filter** (`filterDataByScope`) applied downstream.
     Intended consequences: the **desktop notifs of all the favorites** arrive continuously even
@@ -509,10 +509,10 @@ sequenceDiagram
     therefore stays **raw** in memory (it's what feeds the hiding) and only the rendering is filtered.
 
     **Union in a single search.** GitHub **OR-es** the repeated scope qualifiers — measured:
-    `repo:zenstruck/foundry` (6) + `repo:symfony/panther` (9) → both together **15** — including
+    `repo:zorg/forge` (6) + `repo:stark/panther` (9) → both together **15** — including
     when mixing `org:` and `repo:`. `scopesQualifier` therefore concatenates, and the union does **not**
     cost N searches. `ensure()` already dedupes by `repo#number`, so favorites that
-    overlap (`symfony` + `symfony/api`) do not produce a duplicate. ⚠️ Safeguard: a GitHub
+    overlap (`stark` + `stark/api`) do not produce a duplicate. ⚠️ Safeguard: a GitHub
     search query is **capped at 256 characters**; `addFavorite` refuses beyond
     `MAX_QUALIFIER_LENGTH` (200). The constraint is the **length, not the number** — 10 favorites with
     short names pass, 5 with very long names don't.
@@ -558,13 +558,13 @@ sequenceDiagram
     hidden), 📋 issues — this last badge **only when non-zero** (the Issues section itself only
     renders when non-empty, cf. §18). Computed on the **raw union**: an inactive favorite keeps
     its counters.
-    (b) **Label**: an org displays `symfony/*`, a repo `owner/name` (`favoriteLabel`);
+    (b) **Label**: an org displays `stark/*`, a repo `owner/name` (`favoriteLabel`);
     purely cosmetic, `data-fav`/stored value/URL argument stay the **raw** string.
-    ⚠️ The label typed back (`symfony/*` or `symfony/` in the scope field, `fav add`/`rm`) means
+    ⚠️ The label typed back (`stark/*` or `stark/` in the scope field, `fav add`/`rm`) means
     the **org** (`canonicalScope` in `parseScope`/`addFavorite`/`removeFavorite`): read as a repo,
-    GitHub rejects `repo:symfony/*` with a 422 and the whole poll fails (real bug).
+    GitHub rejects `repo:stark/*` with a 422 and the whole poll fails (real bug).
     Same spirit in the tables: under an active **org** favorite the owner is implied, so the
-    Repository column shows the bare repo name (`ticketing`, full name in the tooltip —
+    Repository column shows the bare repo name (`tracker`, full name in the tooltip —
     `repoOwner` of `renderFragment`, derived from `viewScope` in `fragmentTables`). A repo
     favorite, « ⭐ all » and ad-hoc mode keep `owner/name`.
     (c) **Existence verified on add** (`gh.scopeExists`, CLI and web): repo → `GET /repos/o/n`,
@@ -609,7 +609,7 @@ sequenceDiagram
     batched request, zero extra cost) and feeds the « Updated » column of BOTH tables.
 
 16. **Ignored CI jobs (per-repo blocklist).** Some jobs are deliberately of little importance
-    (e.g. `symfony/ticketing` → *Prevent merging with blocking label*, a reminder to run the
+    (e.g. `stark/tracker` → *Prevent merging with blocking label*, a reminder to run the
     migrations by hand); the GitHub rollup going `FAILURE` as soon as **one** check fails, they
     drowned the signal of the real job (`continuous-integration/jenkins/branch`). We therefore declare, **per
     repo**, a blocklist in `prefs-v1.json` (`ignoredChecks: { "owner/name": ["check name", …] }`,
@@ -842,8 +842,8 @@ sequenceDiagram
     fixed` + ellipsis on all cells: fixed layout is what allows shrinking a column **below its
     content width** (auto layout forbids it). Each column then gets `min(stored, natW)` — a
     drag can shrink, never grow past the content, and a stored width goes back to the content
-    when the content shrinks (real bug: a Repository column frozen at `symfony/ticketing` width
-    stayed wide once the bare `ticketing` shipped, §14). Title stays auto (absorbs the leftover);
+    when the content shrinks (real bug: a Repository column frozen at `stark/tracker` width
+    stayed wide once the bare `tracker` shipped, §14). Title stays auto (absorbs the leftover);
     its own dragged width is a **floor**, set through the table's `min-width` (Σ others + Title):
     an explicit narrower Title would make fixed layout spread the spare room over the other
     columns, past their content. Widened beyond the page, the table scrolls inside its section

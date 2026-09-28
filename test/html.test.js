@@ -5,12 +5,12 @@ import { escapeHtml, isMergeable, addBusinessDays, partyWorthy, labelColors, rat
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
 
 const myRow = (over = {}) => ({
-  repo: 'symfony/web', number: 120, url: 'https://github.com/symfony/web/pull/120',
+  repo: 'stark/web', number: 120, url: 'https://github.com/stark/web/pull/120',
   title: 'fix header', triggers: ['comment'], ci: 'pass', state: 'open', approvals: 0,
   createdAt: '2026-06-22T12:00:00Z', updatedAt: '2026-06-23T12:00:00Z', additions: 17, deletions: 4, ...over,
 });
 const otherRow = (over = {}) => ({
-  repo: 'symfony/api', number: 55, url: 'https://github.com/symfony/api/pull/55',
+  repo: 'stark/api', number: 55, url: 'https://github.com/stark/api/pull/55',
   title: 'perf: cache', triggers: ['review'], ci: 'pass', author: 'alice',
   createdAt: '2026-06-21T12:00:00Z', updatedAt: '2026-06-22T00:00:00Z', additions: 412, deletions: 38, state: 'open', approvals: 2, ...over,
 });
@@ -33,14 +33,14 @@ test('renderFragment: section titles with counters', () => {
 
 test('renderFragment: ✕ hide button on my PRs too', () => {
   const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW });
-  assert.match(out, /data-key="symfony\/web#120"[^>]*data-act="hide"/);
+  assert.match(out, /data-key="stark\/web#120"[^>]*data-act="hide"/);
 });
 
 test('renderFragment: my hidden rows greyed with restore button in showHidden mode', () => {
   const data = { mine: [myRow()], others: [], hiddenMine: [myRow({ number: 121, title: 'snoozed' })], hiddenMineCount: 1 };
   const on = renderFragment(data, { now: NOW, showHidden: true });
   assert.match(on, /📥 Your open PRs \(1, 1 hidden\)/);
-  assert.match(on, /data-key="symfony\/web#121"[^>]*data-act="show"/);
+  assert.match(on, /data-key="stark\/web#121"[^>]*data-act="show"/);
   const off = renderFragment(data, { now: NOW });
   assert.match(off, /📥 Your open PRs \(1, 1 hidden\)/); // counter always announced
   assert.ok(!off.includes('#121'), 'hidden row absent without showHidden');
@@ -50,27 +50,27 @@ test('renderFragment: « Your open PRs » section rendered when only hidden rows
   const data = { mine: [], others: [otherRow()], hiddenMine: [myRow({ number: 121 })], hiddenMineCount: 1 };
   const on = renderFragment(data, { now: NOW, showHidden: true });
   assert.match(on, /📥 Your open PRs \(0, 1 hidden\)/);
-  assert.match(on, /data-key="symfony\/web#121"[^>]*data-act="show"/);
+  assert.match(on, /data-key="stark\/web#121"[^>]*data-act="show"/);
 });
 
 test('renderFragment: link to the PR', () => {
   const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW });
-  assert.ok(out.includes('href="https://github.com/symfony/web/pull/120"'));
+  assert.ok(out.includes('href="https://github.com/stark/web/pull/120"'));
 });
 
 test('renderFragment: Repository cell shows the full name by default', () => {
   const out = renderFragment({ mine: [myRow()], others: [otherRow()] }, { now: NOW });
-  assert.match(out, /title="symfony\/web" target="_blank" rel="noopener">symfony\/web<\/a>/);
-  assert.match(out, /title="symfony\/api" target="_blank" rel="noopener">symfony\/api<\/a>/);
+  assert.match(out, /title="stark\/web" target="_blank" rel="noopener">stark\/web<\/a>/);
+  assert.match(out, /title="stark\/api" target="_blank" rel="noopener">stark\/api<\/a>/);
 });
 
 test('renderFragment: with repoOwner (org favorite), the Repository cell drops the implied owner', () => {
-  const issue = { repo: 'symfony/cli', number: 3, url: 'https://github.com/symfony/cli/issues/3', title: 'bug', triggers: ['new'] };
-  const out = renderFragment({ mine: [myRow()], others: [otherRow()], issues: [issue] }, { now: NOW, repoOwner: 'symfony' });
+  const issue = { repo: 'stark/cli', number: 3, url: 'https://github.com/stark/cli/issues/3', title: 'bug', triggers: ['new'] };
+  const out = renderFragment({ mine: [myRow()], others: [otherRow()], issues: [issue] }, { now: NOW, repoOwner: 'stark' });
   // bare repo name, the full name stays in the tooltip
-  assert.match(out, /title="symfony\/web" target="_blank" rel="noopener">web<\/a>/);
-  assert.match(out, /title="symfony\/api" target="_blank" rel="noopener">api<\/a>/);
-  assert.match(out, /title="symfony\/cli" target="_blank" rel="noopener">cli<\/a>/);
+  assert.match(out, /title="stark\/web" target="_blank" rel="noopener">web<\/a>/);
+  assert.match(out, /title="stark\/api" target="_blank" rel="noopener">api<\/a>/);
+  assert.match(out, /title="stark\/cli" target="_blank" rel="noopener">cli<\/a>/);
 });
 
 test('renderFragment: dangerous title escaped (no injection)', () => {
@@ -113,14 +113,14 @@ test('renderFragment: the conflict icon also appears on others\' PRs', () => {
 // ── draft ⇄ ready toggle on MY PRs (state icon = button + confirmation popover) ─
 test('renderFragment: my draft PR → the 📝 is a button proposing « ready for review »', () => {
   const out = renderFragment({ mine: [myRow({ state: 'draft' })], others: [] }, { now: NOW });
-  assert.match(out, /<button class="state-btn" data-key="symfony\/web#120" data-to="ready" title="Draft — click to mark as ready for review">📝<\/button>/);
-  assert.match(out, /<div class="state-pop" hidden>[\s\S]*Mark #120 as ready for review\?[\s\S]*<button class="state-ok" data-key="symfony\/web#120" data-to="ready">Ready for review<\/button>/);
+  assert.match(out, /<button class="state-btn" data-key="stark\/web#120" data-to="ready" title="Draft — click to mark as ready for review">📝<\/button>/);
+  assert.match(out, /<div class="state-pop" hidden>[\s\S]*Mark #120 as ready for review\?[\s\S]*<button class="state-ok" data-key="stark\/web#120" data-to="ready">Ready for review<\/button>/);
 });
 
 test('renderFragment: my open PR → the 🟢 is a button proposing « convert to draft » (warns about reviewers)', () => {
   const out = renderFragment({ mine: [myRow({ state: 'open' })], others: [] }, { now: NOW });
-  assert.match(out, /<button class="state-btn" data-key="symfony\/web#120" data-to="draft" title="Open — click to convert to draft">🟢<\/button>/);
-  assert.match(out, /<div class="state-pop" hidden>[\s\S]*Convert #120 back to draft\? Its requested reviewers will be removed, and re-requested once it is ready again\.[\s\S]*<button class="state-ok" data-key="symfony\/web#120" data-to="draft">Convert to draft<\/button>/);
+  assert.match(out, /<button class="state-btn" data-key="stark\/web#120" data-to="draft" title="Open — click to convert to draft">🟢<\/button>/);
+  assert.match(out, /<div class="state-pop" hidden>[\s\S]*Convert #120 back to draft\? Its requested reviewers will be removed, and re-requested once it is ready again\.[\s\S]*<button class="state-ok" data-key="stark\/web#120" data-to="draft">Convert to draft<\/button>/);
 });
 
 test('renderFragment: no state button on merged/closed, on others\' PRs, nor on hidden rows', () => {
@@ -205,7 +205,7 @@ test('renderFragment: no data-party on a mergeable PR in review for less than 2 
 
 test('renderFragment: mergeable row of MINE tagged data-party (easter egg)', () => {
   const out = renderFragment({ mine: [myRow({ approvals: 2 })], others: [] }, { now: NOW });
-  assert.match(out, /<tr data-party="symfony\/web#120">/);
+  assert.match(out, /<tr data-party="stark\/web#120">/);
 });
 
 test('renderFragment: no data-party below threshold, on conflict, red CI, or others\' PRs', () => {
@@ -339,12 +339,12 @@ test('renderFragment: Branch column (both tables), GitHub-like chip + copy butto
 test('renderFragment: the branch chip links to the tree of the head repo', () => {
   const out = renderFragment(
     {
-      mine: [myRow({ branch: 'feat/login', branchRepo: 'symfony/web' })],
+      mine: [myRow({ branch: 'feat/login', branchRepo: 'stark/web' })],
       others: [otherRow({ branch: 'fix/cache', branchRepo: 'fork/api' })], // PR from a fork
     },
     { now: NOW },
   );
-  assert.ok(out.includes('href="https://github.com/symfony/web/tree/feat/login"'));
+  assert.ok(out.includes('href="https://github.com/stark/web/tree/feat/login"'));
   assert.ok(out.includes('href="https://github.com/fork/api/tree/fix/cache"'));
 });
 
@@ -353,7 +353,7 @@ test('renderFragment: branch link falls back on the base repo, URL-encodes the r
     { mine: [myRow({ branch: 'feat/a#b', branchRepo: null })], others: [] },
     { now: NOW },
   );
-  assert.ok(out.includes('href="https://github.com/symfony/web/tree/feat/a%23b"'));
+  assert.ok(out.includes('href="https://github.com/stark/web/tree/feat/a%23b"'));
 });
 
 test('labelColors: Primer formulas — dark color → white text (light) / lightened pastel (dark)', () => {
@@ -424,7 +424,7 @@ test('renderFragment: Status/Triggers headers are icon-only (label in the toolti
 
 test('renderFragment: Title cell = « #number - title », no PR column of its own', () => {
   const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW });
-  assert.match(out, /<a href="https:\/\/github\.com\/symfony\/web\/pull\/120" title="fix header" target="_blank" rel="noopener">#120 - fix header<\/a>/);
+  assert.match(out, /<a href="https:\/\/github\.com\/stark\/web\/pull\/120" title="fix header" target="_blank" rel="noopener">#120 - fix header<\/a>/);
   assert.doesNotMatch(out, />#120<\/a>/);
   assert.doesNotMatch(out, /<th[^>]*>PR<\/th>/);
   assert.doesNotMatch(out, /data-cols-key="number"/);
@@ -434,7 +434,7 @@ test('renderFragment: PR-URL copy button (link glyph) right after the Title link
   const out = renderFragment({ mine: [myRow({ branch: 'feat/x' })], others: [] }, { now: NOW });
   assert.ok(!out.includes('data-copy="120"'));
   assert.equal((out.match(/data-copy=/g) || []).length, 2);
-  assert.match(out, /#120 - fix header<\/a><button class="copy" data-copy="https:\/\/github\.com\/symfony\/web\/pull\/120" title="Copy PR URL">/);
+  assert.match(out, /#120 - fix header<\/a><button class="copy" data-copy="https:\/\/github\.com\/stark\/web\/pull\/120" title="Copy PR URL">/);
   assert.match(out, /feat\/x<\/code><\/a><button class="copy" data-copy="feat\/x" title="Copy branch name">/);
 });
 
@@ -465,25 +465,25 @@ test('renderFragment: links in a new tab (_blank + noopener)', () => {
 test('renderFragment: hide button (✕) on « others » AND « mine » rows', () => {
   const out = renderFragment({ mine: [myRow()], others: [otherRow()] }, { now: NOW });
   // an action button targeting the others' PR
-  assert.match(out, /class="act"[^>]*data-key="symfony\/api#55"[^>]*data-act="hide"/);
+  assert.match(out, /class="act"[^>]*data-key="stark\/api#55"[^>]*data-act="hide"/);
   // and one targeting mine (same mechanism since « hide your own PRs »)
-  assert.match(out, /class="act"[^>]*data-key="symfony\/web#120"[^>]*data-act="hide"/);
+  assert.match(out, /class="act"[^>]*data-key="stark\/web#120"[^>]*data-act="hide"/);
 });
 
 test('renderFragment: showHidden shows hidden rows (greyed out + restore)', () => {
   const data = {
     mine: [],
     others: [otherRow()],
-    hidden: [otherRow({ repo: 'symfony/old', number: 9, title: 'old PR' })],
+    hidden: [otherRow({ repo: 'stark/old', number: 9, title: 'old PR' })],
     hiddenCount: 1,
   };
   const shown = renderFragment(data, { now: NOW, showHidden: true });
   assert.match(shown, /class="hid"/);                       // greyed-out row
-  assert.match(shown, /data-key="symfony\/old#9"[^>]*data-act="show"/); // restore button
+  assert.match(shown, /data-key="stark\/old#9"[^>]*data-act="show"/); // restore button
   assert.match(shown, /1 hidden/);                          // counter in the title
   // without showHidden: the hidden row does not appear
   const hiddenView = renderFragment(data, { now: NOW, showHidden: false });
-  assert.ok(!hiddenView.includes('symfony/old#9'));
+  assert.ok(!hiddenView.includes('stark/old#9'));
   assert.match(hiddenView, /1 hidden/); // counter shown even collapsed
 });
 
@@ -557,7 +557,7 @@ test('renderLoading: spinner + label + data-loading sentinel', () => {
 });
 
 test('renderLoading: contextual scope label (and escapes it)', () => {
-  assert.match(renderLoading('noctud'), /Loading pull requests for noctud/);
+  assert.match(renderLoading('nakatomi'), /Loading pull requests for nakatomi/);
   // A favorite value is user-controlled → escaped like everywhere else.
   assert.match(renderLoading('a&b'), /a&amp;b/);
 });
@@ -709,11 +709,11 @@ test('renderDebug: empty → neutral message', () => {
 // ── CI checks popover (click on the ✗/🟡 icon of the CI column) ─────────────
 
 const failChecks = [
-  { name: 'behat', state: 'fail', url: 'https://github.com/symfony/web/runs/1' },
+  { name: 'behat', state: 'fail', url: 'https://github.com/stark/web/runs/1' },
   { name: 'jenkins/branch', state: 'fail', url: null },
-  { name: 'blocking label', state: 'pending', url: 'https://github.com/symfony/web/runs/2' },
-  { name: 'phpstan', state: 'pass', url: 'https://github.com/symfony/web/runs/3' },
-  { name: 'mago', state: 'pass', url: 'https://github.com/symfony/web/runs/4' },
+  { name: 'blocking label', state: 'pending', url: 'https://github.com/stark/web/runs/2' },
+  { name: 'phpstan', state: 'pass', url: 'https://github.com/stark/web/runs/3' },
+  { name: 'mago', state: 'pass', url: 'https://github.com/stark/web/runs/4' },
 ];
 
 test('renderFragment: CI fail → clickable icon + popover grouped à la GitHub', () => {
@@ -726,7 +726,7 @@ test('renderFragment: CI fail → clickable icon + popover grouped à la GitHub'
   assert.ok(out.indexOf('failing check') < out.indexOf('pending check'), 'failing before pending');
   assert.ok(out.indexOf('pending check') < out.indexOf('successful check'), 'pending before successful');
   // each check with a URL links to its run in a new tab
-  assert.match(out, /href="https:\/\/github\.com\/symfony\/web\/runs\/1" target="_blank" rel="noopener">behat</);
+  assert.match(out, /href="https:\/\/github\.com\/stark\/web\/runs\/1" target="_blank" rel="noopener">behat</);
   // a check without URL stays plain text (no dead link)
   assert.ok(!/href[^>]*>jenkins\/branch</.test(out), 'no link without URL');
   assert.ok(out.includes('jenkins/branch'), 'the linkless check is still listed');
@@ -734,24 +734,24 @@ test('renderFragment: CI fail → clickable icon + popover grouped à la GitHub'
 
 test('renderFragment: CI pending → popover too (running checks clickable)', () => {
   const checks = [
-    { name: 'build', state: 'pending', url: 'https://github.com/symfony/api/runs/9' },
+    { name: 'build', state: 'pending', url: 'https://github.com/stark/api/runs/9' },
     { name: 'lint', state: 'pass', url: null },
   ];
   const out = renderFragment({ mine: [], others: [otherRow({ ci: 'pending', checks })] }, { now: NOW });
   assert.match(out, /button class="ci-btn"/);
   assert.match(out, /1 pending check</);
-  assert.match(out, /href="https:\/\/github\.com\/symfony\/api\/runs\/9" target="_blank" rel="noopener">build</);
+  assert.match(out, /href="https:\/\/github\.com\/stark\/api\/runs\/9" target="_blank" rel="noopener">build</);
 });
 
 test('renderFragment: CI pass → popover too (all runs reachable from the green check)', () => {
   const checks = [
-    { name: 'phpstan', state: 'pass', url: 'https://github.com/symfony/web/runs/3' },
+    { name: 'phpstan', state: 'pass', url: 'https://github.com/stark/web/runs/3' },
     { name: 'mago', state: 'pass', url: null },
   ];
   const out = renderFragment({ mine: [myRow({ ci: 'pass', checks })], others: [] }, { now: NOW });
   assert.match(out, /button class="ci-btn"/);
   assert.match(out, /2 successful checks/);
-  assert.match(out, /href="https:\/\/github\.com\/symfony\/web\/runs\/3" target="_blank" rel="noopener">phpstan</);
+  assert.match(out, /href="https:\/\/github\.com\/stark\/web\/runs\/3" target="_blank" rel="noopener">phpstan</);
 });
 
 test('renderFragment: no check detail → icon not clickable (no popover)', () => {
@@ -770,7 +770,7 @@ test('renderFragment: ignored checks (repo blocklist) struck/greyed in the popov
   ];
   const out = renderFragment(
     { mine: [], others: [otherRow({ ci: 'fail', checks })] },
-    { now: NOW, ignoredChecks: { 'symfony/api': ['flaky'] } },
+    { now: NOW, ignoredChecks: { 'stark/api': ['flaky'] } },
   );
   // the ignored check is struck (its line carries .ignored), the real one is not
   assert.match(out, /<li class="ci-check ignored">[^]*?flaky/);
@@ -788,25 +788,25 @@ test('renderFragment: dangerous check name and URL escaped in the popover', () =
 
 test('renderDebug: « Checks by repo » section — DISTINCT checks per repo, ignored checked/struck', () => {
   const rows = [
-    { repo: 'symfony/ticketing', number: 60, ci: 'pass', checks: [
+    { repo: 'stark/tracker', number: 60, ci: 'pass', checks: [
       { name: 'continuous-integration/jenkins/branch', state: 'pass' },
       { name: 'Check Pull Requests label for merge block', state: 'fail' },
       { name: 'x<script>', state: 'pending' },
     ] },
-    { repo: 'symfony/ticketing', number: 61, ci: 'fail', checks: [
+    { repo: 'stark/tracker', number: 61, ci: 'fail', checks: [
       { name: 'continuous-integration/jenkins/branch', state: 'fail' }, // same check, other PR
       { name: 'behat', state: 'fail' },
     ] },
   ];
-  const out = renderDebug([], { rows, ignoredChecks: { 'symfony/ticketing': ['Check Pull Requests label for merge block'] } });
+  const out = renderDebug([], { rows, ignoredChecks: { 'stark/tracker': ['Check Pull Requests label for merge block'] } });
   assert.match(out, /Checks by repo/);
-  assert.match(out, /symfony\/ticketing/);
+  assert.match(out, /stark\/tracker/);
   // jenkins appears ONLY once despite 2 PRs (distinct checks per repo)
   assert.equal((out.match(/data-name="continuous-integration\/jenkins\/branch"/g) || []).length, 1);
   assert.match(out, /data-name="behat"/); // check from another PR of the same repo
   // the ignored job is checked + struck; the important job is not
   assert.match(out, /<del>Check Pull Requests label for merge block<\/del>/);
-  assert.match(out, /data-repo="symfony\/ticketing"[^>]*data-name="Check Pull Requests label for merge block"[^>]*checked/);
+  assert.match(out, /data-repo="stark\/tracker"[^>]*data-name="Check Pull Requests label for merge block"[^>]*checked/);
   assert.ok(!/data-name="continuous-integration\/jenkins\/branch"[^>]*checked/.test(out), 'jenkins not checked');
   // dangerous check name escaped (anti-injection)
   assert.match(out, /x&lt;script&gt;/);
@@ -834,44 +834,44 @@ test('renderDebugShell: standalone page that polls /debug-fragment, back link, n
 // ── Favorites bar (web) ───────────────────────────────────────────────────
 
 test('renderFavorites: active chip marked .on, « ⭐ all » active if no favorite', () => {
-  const list = ['symfony', 'zenstruck'];
-  const active = renderFavorites(list, 'symfony');
-  assert.match(active, /<button data-fav="symfony" class="on">symfony\/\*<\/button>/);
+  const list = ['stark', 'zorg'];
+  const active = renderFavorites(list, 'stark');
+  assert.match(active, /<button data-fav="stark" class="on">stark\/\*<\/button>/);
   assert.doesNotMatch(active, /<button data-fav="" class="on"/); // « all » not active
   const all = renderFavorites(list, null);
   assert.match(all, /<button data-fav="" class="on"/);
-  assert.doesNotMatch(all, /data-fav="symfony" class="on"/);
+  assert.doesNotMatch(all, /data-fav="stark" class="on"/);
 });
 
 test('renderFavorites: an org shows as « org/* », a repo as-is — data-fav stays raw', () => {
-  const html = renderFavorites(['symfony', 'noctud/collection'], null);
-  assert.match(html, /data-fav="symfony"[^>]*>symfony\/\*</);            // decorated label…
-  assert.match(html, /data-fav-rm="symfony"/);                          // …raw value for the API
-  assert.match(html, /data-fav="noctud\/collection"[^>]*>noctud\/collection</); // repo unchanged
+  const html = renderFavorites(['stark', 'nakatomi/collection'], null);
+  assert.match(html, /data-fav="stark"[^>]*>stark\/\*</);            // decorated label…
+  assert.match(html, /data-fav-rm="stark"/);                          // …raw value for the API
+  assert.match(html, /data-fav="nakatomi\/collection"[^>]*>nakatomi\/collection</); // repo unchanged
 });
 
 test('renderFavorites: one counter per panel (📥/👥/📋) per chip and on « all »', () => {
   const counts = {
     total: { mine: 2, others: 8, issues: 3 },
-    byFav: { symfony: { mine: 1, others: 5, issues: 0 }, zenstruck: { mine: 1, others: 3, issues: 3 } },
+    byFav: { stark: { mine: 1, others: 5, issues: 0 }, zorg: { mine: 1, others: 3, issues: 3 } },
   };
-  const html = renderFavorites(['symfony', 'zenstruck'], null, { counts });
+  const html = renderFavorites(['stark', 'zorg'], null, { counts });
   // the triplet is parenthesized, icon and digit separated by U+2009 (thin space)
   assert.match(html, /⭐ all <span class="fav-n">\(<span title="Your open PRs">📥\u20092<\/span> <span title="Activity on others' PRs">👥\u20098<\/span> <span title="Issues">📋\u20093<\/span>\)<\/span>/);
   // issues at 0 → no 📋 badge (the Issues panel itself only renders when non-empty)
-  assert.match(html, /symfony\/\* <span class="fav-n">\(<span title="Your open PRs">📥\u20091<\/span> <span title="Activity on others' PRs">👥\u20095<\/span>\)<\/span>/);
-  assert.match(html, /zenstruck\/\* <span class="fav-n">\(<span title="Your open PRs">📥\u20091<\/span> <span title="Activity on others' PRs">👥\u20093<\/span> <span title="Issues">📋\u20093<\/span>\)<\/span>/);
+  assert.match(html, /stark\/\* <span class="fav-n">\(<span title="Your open PRs">📥\u20091<\/span> <span title="Activity on others' PRs">👥\u20095<\/span>\)<\/span>/);
+  assert.match(html, /zorg\/\* <span class="fav-n">\(<span title="Your open PRs">📥\u20091<\/span> <span title="Activity on others' PRs">👥\u20093<\/span> <span title="Issues">📋\u20093<\/span>\)<\/span>/);
 });
 
 test('renderFavorites: favorite absent from counters → zeros; without counts → no badge', () => {
-  const html = renderFavorites(['symfony'], null, { counts: { total: { mine: 0, others: 0, issues: 0 }, byFav: {} } });
-  assert.match(html, /symfony\/\* <span class="fav-n">\(<span title="Your open PRs">📥\u20090<\/span> <span title="Activity on others' PRs">👥\u20090<\/span>\)<\/span>/);
-  assert.doesNotMatch(renderFavorites(['symfony'], null), /fav-n/);
+  const html = renderFavorites(['stark'], null, { counts: { total: { mine: 0, others: 0, issues: 0 }, byFav: {} } });
+  assert.match(html, /stark\/\* <span class="fav-n">\(<span title="Your open PRs">📥\u20090<\/span> <span title="Activity on others' PRs">👥\u20090<\/span>\)<\/span>/);
+  assert.doesNotMatch(renderFavorites(['stark'], null), /fav-n/);
 });
 
 test('renderFavorites: each chip has its removal cross', () => {
-  const html = renderFavorites(['symfony'], null);
-  assert.match(html, /data-fav-rm="symfony"/);
+  const html = renderFavorites(['stark'], null);
+  assert.match(html, /data-fav-rm="stark"/);
 });
 
 test('renderFavorites: empty list → empty string (no visual change)', () => {
@@ -880,7 +880,7 @@ test('renderFavorites: empty list → empty string (no visual change)', () => {
 });
 
 test('renderFavorites: ad-hoc mode → greyed-out bar, no active chip', () => {
-  const html = renderFavorites(['symfony'], 'symfony', { adhoc: true });
+  const html = renderFavorites(['stark'], 'stark', { adhoc: true });
   assert.match(html, /class="favs adhoc"/);
   assert.doesNotMatch(html, /class="on"/);
 });
@@ -893,9 +893,9 @@ test('renderFavorites escapes the values (anti-injection: user input)', () => {
 });
 
 test('renderShell: integrates the favorites bar and the ⭐ pin button', () => {
-  const html = renderShell({ favorites: ['symfony'], activeFav: 'symfony' });
+  const html = renderShell({ favorites: ['stark'], activeFav: 'stark' });
   assert.match(html, /id="favs"/);
-  assert.match(html, /data-fav="symfony" class="on"/);
+  assert.match(html, /data-fav="stark" class="on"/);
   assert.match(html, /id="scope-fav"/);
 });
 
@@ -1084,7 +1084,7 @@ test('renderShell: col.sorted style present (discreet veil on the sorted column)
 // ── « All » mode (watched favorites): issues section, 🆕/👀 triggers, chip button ──
 
 const issueRow = (over = {}) => ({
-  repo: 'zenstruck/foundry', number: 900, url: 'https://github.com/zenstruck/foundry/issues/900',
+  repo: 'zorg/forge', number: 900, url: 'https://github.com/zorg/forge/issues/900',
   title: 'Bug report', actor: 'alice', createdAt: '2026-06-23T12:00:00Z', updatedAt: '2026-06-24T10:00:00Z',
   triggers: ['new'],
   ...over,
@@ -1093,7 +1093,7 @@ const issueRow = (over = {}) => ({
 test('renderFragment: issues section rendered only when there are rows', () => {
   const html = renderFragment({ mine: [], others: [], issues: [issueRow()] }, { now: NOW });
   assert.match(html, /Issues \(1\)/);
-  assert.match(html, /https:\/\/github\.com\/zenstruck\/foundry\/issues\/900/);
+  assert.match(html, /https:\/\/github\.com\/zorg\/forge\/issues\/900/);
   assert.match(html, /#900/);
   assert.match(html, /Bug report/);
   assert.match(html, /@alice/);
@@ -1116,23 +1116,23 @@ test('renderFragment: 🆕/👀 triggers shown on an « others » PR row', () =>
 });
 
 test('renderFavorites: mode button per chip (data-fav-mode raw), « all » state marked', () => {
-  const html = renderFavorites(['symfony', 'zenstruck/foundry'], null, { favModes: { 'zenstruck/foundry': 'all' } });
-  assert.match(html, /data-fav-mode="symfony"/);
-  assert.match(html, /data-fav-mode="zenstruck\/foundry"/);
+  const html = renderFavorites(['stark', 'zorg/forge'], null, { favModes: { 'zorg/forge': 'all' } });
+  assert.match(html, /data-fav-mode="stark"/);
+  assert.match(html, /data-fav-mode="zorg\/forge"/);
   // the « all » chip carries the .all class on its mode button, the normal one doesn't
-  assert.match(html, /class="chip-mode all" data-fav-mode="zenstruck\/foundry"/);
-  assert.match(html, /class="chip-mode" data-fav-mode="symfony"/);
+  assert.match(html, /class="chip-mode all" data-fav-mode="zorg\/forge"/);
+  assert.match(html, /class="chip-mode" data-fav-mode="stark"/);
 });
 
 test('renderFavorites: without favModes → mode buttons in normal state (compat)', () => {
-  const html = renderFavorites(['symfony'], null);
-  assert.match(html, /class="chip-mode" data-fav-mode="symfony"/);
+  const html = renderFavorites(['stark'], null);
+  assert.match(html, /class="chip-mode" data-fav-mode="stark"/);
   assert.doesNotMatch(html, /chip-mode all/);
 });
 
 test('renderShell: forwards favModes to the chips and wires POST /fav/mode', () => {
-  const html = renderShell({ favorites: ['zenstruck/foundry'], favModes: { 'zenstruck/foundry': 'all' } });
-  assert.match(html, /class="chip-mode all" data-fav-mode="zenstruck\/foundry"/);
+  const html = renderShell({ favorites: ['zorg/forge'], favModes: { 'zorg/forge': 'all' } });
+  assert.match(html, /class="chip-mode all" data-fav-mode="zorg\/forge"/);
   assert.match(html, /\/fav\/mode/);
 });
 
@@ -1383,7 +1383,7 @@ test('renderSearchFragment: summary, others-like table without ⚡/✕, th links
   );
   assert.match(out, /1 PR · upd /);
   assert.match(out, /href="https:\/\/github.com\/pulls\?q=x"/);
-  assert.match(out, /symfony\/api/);
+  assert.match(out, /stark\/api/);
   assert.ok(!out.includes('<b>'), 'query escaped');
   assert.ok(!out.includes('data-act="hide"'), 'no hide button');
   assert.ok(!out.includes('Triggers'), 'no ⚡ column');
@@ -1448,13 +1448,13 @@ test('renderFragment: a stack root gets a fold button + data-stack-root, its chi
     mine: [],
     others: [
       otherRow({ number: 1, inStack: true, stackIndex: 0, stackKids: 2 }),
-      otherRow({ number: 2, inStack: true, stackIndex: 0, stackDepth: 1, stackRoot: 'symfony/api#1' }),
-      otherRow({ number: 3, inStack: true, stackIndex: 0, stackDepth: 2, stackRoot: 'symfony/api#1' }),
+      otherRow({ number: 2, inStack: true, stackIndex: 0, stackDepth: 1, stackRoot: 'stark/api#1' }),
+      otherRow({ number: 3, inStack: true, stackIndex: 0, stackDepth: 2, stackRoot: 'stark/api#1' }),
       otherRow({ number: 4 }),
     ],
   }, { now: NOW });
-  assert.equal((out.match(/<tr class="stack stack-a" data-stack-root="symfony\/api#1">/g) || []).length, 1);
-  assert.equal((out.match(/<tr class="stack stack-a" data-stack-of="symfony\/api#1">/g) || []).length, 2);
+  assert.equal((out.match(/<tr class="stack stack-a" data-stack-root="stark\/api#1">/g) || []).length, 1);
+  assert.equal((out.match(/<tr class="stack stack-a" data-stack-of="stark\/api#1">/g) || []).length, 2);
   assert.equal((out.match(/class="stack-fold"/g) || []).length, 1, 'one button, on the root only');
   assert.ok(out.includes('<span class="stack-fold-n">+2</span>'));
 });

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { collectNotifications, collectPending, collectPRs, collectSearch, searchQuery, buildRow, diffByType, ciFromState, ciFromChecks, ciOf, recomputeCi, prState, countApprovals, scopeMatches, scopeQualifier, toScopeList, matchesAnyScope, scopesQualifier, mergeReviewComments, watermarkOf } from '../src/collect.js';
 
-const ME = 'nikophil';
+const ME = 'me';
 
 function fakeGh(over = {}) {
   return {
@@ -150,24 +150,24 @@ test('collectPending maps the search items', async () => {
 
 // ── scope ──────────────────────────────────────────────────────────────────
 test('scopeMatches: null=everything, org=prefix, repo=exact', () => {
-  assert.equal(scopeMatches(null, 'symfony/ticketing'), true);
-  assert.equal(scopeMatches({ type: 'org', value: 'symfony' }, 'symfony/ticketing'), true);
-  assert.equal(scopeMatches({ type: 'org', value: 'symfony' }, 'other/repo'), false);
-  assert.equal(scopeMatches({ type: 'org', value: 'map' }, 'symfony/x'), false); // not a plain string startsWith
-  assert.equal(scopeMatches({ type: 'repo', value: 'symfony/ticketing' }, 'symfony/ticketing'), true);
-  assert.equal(scopeMatches({ type: 'repo', value: 'symfony/ticketing' }, 'symfony/web'), false);
+  assert.equal(scopeMatches(null, 'stark/tracker'), true);
+  assert.equal(scopeMatches({ type: 'org', value: 'stark' }, 'stark/tracker'), true);
+  assert.equal(scopeMatches({ type: 'org', value: 'stark' }, 'other/repo'), false);
+  assert.equal(scopeMatches({ type: 'org', value: 'map' }, 'stark/x'), false); // not a plain string startsWith
+  assert.equal(scopeMatches({ type: 'repo', value: 'stark/tracker' }, 'stark/tracker'), true);
+  assert.equal(scopeMatches({ type: 'repo', value: 'stark/tracker' }, 'stark/web'), false);
 });
 
 test('scopeQualifier', () => {
   assert.equal(scopeQualifier(null), '');
-  assert.equal(scopeQualifier({ type: 'org', value: 'symfony' }), ' org:symfony');
-  assert.equal(scopeQualifier({ type: 'repo', value: 'symfony/web' }), ' repo:symfony/web');
+  assert.equal(scopeQualifier({ type: 'org', value: 'stark' }), ' org:stark');
+  assert.equal(scopeQualifier({ type: 'repo', value: 'stark/web' }), ' repo:stark/web');
 });
 
 // ── Multiple scopes (union of favorites) ─────────────────────────────────
 
 test('toScopeList: null/object/array → null or non-empty array', () => {
-  const org = { type: 'org', value: 'symfony' };
+  const org = { type: 'org', value: 'stark' };
   assert.equal(toScopeList(null), null);
   assert.equal(toScopeList([]), null);       // empty array = no filter
   assert.equal(toScopeList([null]), null);   // null entries pruned
@@ -176,23 +176,23 @@ test('toScopeList: null/object/array → null or non-empty array', () => {
 });
 
 test('matchesAnyScope: union of org + repo, null → everything passes', () => {
-  const scopes = [{ type: 'org', value: 'symfony' }, { type: 'repo', value: 'noctud/collection' }];
-  assert.equal(matchesAnyScope(scopes, 'symfony/api'), true);
-  assert.equal(matchesAnyScope(scopes, 'noctud/collection'), true);
-  assert.equal(matchesAnyScope(scopes, 'noctud/other'), false); // repo ≠ org
-  assert.equal(matchesAnyScope(scopes, 'zenstruck/foundry'), false);
+  const scopes = [{ type: 'org', value: 'stark' }, { type: 'repo', value: 'nakatomi/collection' }];
+  assert.equal(matchesAnyScope(scopes, 'stark/api'), true);
+  assert.equal(matchesAnyScope(scopes, 'nakatomi/collection'), true);
+  assert.equal(matchesAnyScope(scopes, 'nakatomi/other'), false); // repo ≠ org
+  assert.equal(matchesAnyScope(scopes, 'zorg/forge'), false);
   assert.equal(matchesAnyScope(null, 'anything/whatever'), true);
   assert.equal(matchesAnyScope([], 'anything/whatever'), true);
   // backward-compat: a single scope behaves as before
-  assert.equal(matchesAnyScope({ type: 'org', value: 'symfony' }, 'symfony/api'), true);
+  assert.equal(matchesAnyScope({ type: 'org', value: 'stark' }, 'stark/api'), true);
 });
 
 test('scopesQualifier: union OR-ed by GitHub in a single search', () => {
   assert.equal(scopesQualifier(null), '');
   assert.equal(scopesQualifier([]), '');
   assert.equal(
-    scopesQualifier([{ type: 'org', value: 'symfony' }, { type: 'repo', value: 'noctud/collection' }]),
-    ' org:symfony repo:noctud/collection',
+    scopesQualifier([{ type: 'org', value: 'stark' }, { type: 'repo', value: 'nakatomi/collection' }]),
+    ' org:stark repo:nakatomi/collection',
   );
 });
 
@@ -200,25 +200,25 @@ test('scopesQualifier: the real use case stays well under 256 characters', () =>
   // Beyond 256 characters, GitHub rejects the search — that's what
   // MAX_QUALIFIER_LENGTH (favorites.js) protects against on add.
   const scopes = [
-    { type: 'org', value: 'symfony' },
-    { type: 'repo', value: 'noctud/collection' },
-    { type: 'org', value: 'zenstruck' },
+    { type: 'org', value: 'stark' },
+    { type: 'repo', value: 'nakatomi/collection' },
+    { type: 'org', value: 'zorg' },
   ];
-  assert.equal(scopesQualifier(scopes), ' org:symfony repo:noctud/collection org:zenstruck');
+  assert.equal(scopesQualifier(scopes), ' org:stark repo:nakatomi/collection org:zorg');
   const q = `is:open is:pr review-requested:@me${scopesQualifier(scopes)}`;
   assert.ok(q.length < 256, `query of ${q.length} characters`);
 });
 
 test('collectNotifications filters on the union of scopes (favorites)', async () => {
-  const symfony = { ...reviewReqThread, id: 'tm', repository: { full_name: 'symfony/api' }, subject: { ...reviewReqThread.subject, url: 'https://api.github.com/repos/symfony/api/pulls/1' } };
-  const zen = { ...reviewReqThread, id: 'tz', repository: { full_name: 'zenstruck/foundry' }, subject: { ...reviewReqThread.subject, url: 'https://api.github.com/repos/zenstruck/foundry/pulls/2' } };
+  const stark = { ...reviewReqThread, id: 'tm', repository: { full_name: 'stark/api' }, subject: { ...reviewReqThread.subject, url: 'https://api.github.com/repos/stark/api/pulls/1' } };
+  const zen = { ...reviewReqThread, id: 'tz', repository: { full_name: 'zorg/forge' }, subject: { ...reviewReqThread.subject, url: 'https://api.github.com/repos/zorg/forge/pulls/2' } };
   const outside = { ...reviewReqThread, id: 'tx', repository: { full_name: 'other/repo' }, subject: { ...reviewReqThread.subject, url: 'https://api.github.com/repos/other/repo/pulls/3' } };
   const debug = [];
-  await collectNotifications(fakeGh({ notifications: [symfony, zen, outside] }), ME, {
-    scope: [{ type: 'org', value: 'symfony' }, { type: 'org', value: 'zenstruck' }],
+  await collectNotifications(fakeGh({ notifications: [stark, zen, outside] }), ME, {
+    scope: [{ type: 'org', value: 'stark' }, { type: 'org', value: 'zorg' }],
     debug,
   });
-  assert.deepEqual(debug.map((d) => d.repo), ['symfony/api', 'zenstruck/foundry']);
+  assert.deepEqual(debug.map((d) => d.repo), ['stark/api', 'zorg/forge']);
 });
 
 test('collectPRs passes the union qualifier to both searches', async () => {
@@ -228,10 +228,10 @@ test('collectPRs passes the union qualifier to both searches', async () => {
     async searchReviewRequested(q) { seen.push(['pending', q]); return []; },
     async searchAuthored(q) { seen.push(['authored', q]); return []; },
   };
-  await collectPRs(gh, ME, { scope: [{ type: 'org', value: 'symfony' }, { type: 'repo', value: 'noctud/collection' }] });
+  await collectPRs(gh, ME, { scope: [{ type: 'org', value: 'stark' }, { type: 'repo', value: 'nakatomi/collection' }] });
   assert.deepEqual(seen, [
-    ['pending', ' org:symfony repo:noctud/collection'],
-    ['authored', ' org:symfony repo:noctud/collection'],
+    ['pending', ' org:stark repo:nakatomi/collection'],
+    ['authored', ' org:stark repo:nakatomi/collection'],
   ]);
 });
 
@@ -297,11 +297,11 @@ test('ciOf: recomputes via ciFromChecks if blocklist, otherwise falls back to ci
 test('recomputeCi: recomputes the ci of mine/others/hidden from row.checks, 0 refetch', () => {
   const mk = (repo, ci, checks) => ({ repo, number: 1, ci, checks, statusCheckRollupState: 'FAILURE' });
   const data = {
-    mine: [mk('symfony/ticketing', 'fail', [{ name: 'jenkins', state: 'fail' }, { name: 'behat', state: 'pass' }])],
+    mine: [mk('stark/tracker', 'fail', [{ name: 'jenkins', state: 'fail' }, { name: 'behat', state: 'pass' }])],
     others: [mk('o/r', 'fail', [{ name: 'x', state: 'fail' }])],
-    hidden: [mk('symfony/ticketing', 'fail', [{ name: 'jenkins', state: 'fail' }])],
+    hidden: [mk('stark/tracker', 'fail', [{ name: 'jenkins', state: 'fail' }])],
   };
-  recomputeCi(data, { 'symfony/ticketing': ['jenkins'] });
+  recomputeCi(data, { 'stark/tracker': ['jenkins'] });
   assert.equal(data.mine[0].ci, 'pass');   // jenkins ignored → behat remains (pass)
   assert.equal(data.hidden[0].ci, 'none');  // jenkins ignored → nothing left
   assert.equal(data.others[0].ci, 'fail');  // repo without blocklist → ciFromState(FAILURE)
@@ -418,11 +418,11 @@ test('collectPRs: the per-repo blocklist recomputes the CI (red ignored job → 
     { name: 'Check Pull Requests label for merge block', state: 'fail' },
   ];
   const gh = fakeGh({
-    search: [{ number: 60, title: 'To review', html_url: 'https://github.com/symfony/ticketing/pull/60', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/symfony/ticketing' }],
+    search: [{ number: 60, title: 'To review', html_url: 'https://github.com/stark/tracker/pull/60', updated_at: '2026-06-20T09:00:00Z', repository_url: 'https://api.github.com/repos/stark/tracker' }],
     // GitHub rollup = FAILURE (the red label job), but the real job is green
     details: () => ({ number: 60, title: 'To review', author: { login: 'carol' }, createdAt: '2026-06-19T09:00:00Z', additions: 1, deletions: 1, statusCheckRollupState: 'FAILURE', checks }),
   });
-  const opts = { ignoredChecks: { 'symfony/ticketing': ['Check Pull Requests label for merge block'] } };
+  const opts = { ignoredChecks: { 'stark/tracker': ['Check Pull Requests label for merge block'] } };
   const { others } = await collectPRs(gh, ME, opts);
   assert.equal(others[0].ci, 'pass');                 // recomputed without the ignored job
   assert.deepEqual(others[0].checks, checks);         // raw list exposed (debug view)
@@ -502,9 +502,9 @@ test('collectPRs: merged PR, review requested, NO reply to my thread → ignored
     notifications: [reviewReqThread], // o/r#42, sticky reason review_requested
     search: [],                        // merged so absent from review-requested:@me (is:open)
     reviewComments: [
-      { id: 1, user: { login: 'bjulien' }, created_at: '2026-06-23T09:00:00Z', html_url: 'root' },
+      { id: 1, user: { login: 'bert' }, created_at: '2026-06-23T09:00:00Z', html_url: 'root' },
       { id: 2, in_reply_to_id: 1, user: { login: ME }, created_at: '2026-06-23T12:00:00Z', html_url: 'mine' },
-    ], // I replied to bjulien, but no one after me
+    ], // I replied to bert, but no one after me
     details: () => ({ number: 42, title: 'PR A', author: { login: 'alice' }, createdAt: '2026-06-21T12:00:00Z', additions: 1, deletions: 0, statusCheckRollupState: null }),
   });
   const { mine, others } = await collectPRs(gh, ME, {});
@@ -932,32 +932,32 @@ const watchedIssueThread = {
   id: 'w1', reason: 'subscribed', updated_at: '2026-08-01T12:00:00Z', last_read_at: null,
   subject: {
     title: 'Bug report',
-    url: 'https://api.github.com/repos/zenstruck/foundry/issues/900',
-    latest_comment_url: 'https://api.github.com/repos/zenstruck/foundry/issues/900',
+    url: 'https://api.github.com/repos/zorg/forge/issues/900',
+    latest_comment_url: 'https://api.github.com/repos/zorg/forge/issues/900',
     type: 'Issue',
   },
-  repository: { full_name: 'zenstruck/foundry' },
+  repository: { full_name: 'zorg/forge' },
 };
 
 const watchedPrThread = {
   id: 'w2', reason: 'subscribed', updated_at: '2026-08-01T13:00:00Z', last_read_at: null,
   subject: {
     title: 'A new PR',
-    url: 'https://api.github.com/repos/zenstruck/foundry/pulls/901',
-    latest_comment_url: 'https://api.github.com/repos/zenstruck/foundry/pulls/901',
+    url: 'https://api.github.com/repos/zorg/forge/pulls/901',
+    latest_comment_url: 'https://api.github.com/repos/zorg/forge/pulls/901',
     type: 'PullRequest',
   },
-  repository: { full_name: 'zenstruck/foundry' },
+  repository: { full_name: 'zorg/forge' },
 };
 
-const inFoundry = (repo) => repo === 'zenstruck/foundry';
+const inForge = (repo) => repo === 'zorg/forge';
 
 test('collectNotifications: Issue thread kept only for a watchAll repo', async () => {
   const gh = fakeGh({
     notifications: [watchedIssueThread],
-    comment: { user: { login: 'alice' }, created_at: '2026-08-01T12:00:00Z', html_url: 'https://github.com/zenstruck/foundry/issues/900' },
+    comment: { user: { login: 'alice' }, created_at: '2026-08-01T12:00:00Z', html_url: 'https://github.com/zorg/forge/issues/900' },
   });
-  const kept = await collectNotifications(gh, ME, { watchAll: inFoundry });
+  const kept = await collectNotifications(gh, ME, { watchAll: inForge });
   assert.equal(kept.length, 1);
   assert.equal(kept[0].category, 'new_issue');
   // without watchAll: dropped as before (compat)
@@ -971,19 +971,19 @@ test('collectNotifications: an Issue thread does not fetch review-comments (pull
     comment: { user: { login: 'alice' }, created_at: '2026-08-01T12:00:00Z', html_url: 'i900' },
   });
   gh.getReviewComments = async () => { reviewCalls += 1; return []; };
-  await collectNotifications(gh, ME, { watchAll: inFoundry });
+  await collectNotifications(gh, ME, { watchAll: inForge });
   assert.equal(reviewCalls, 0);
 });
 
 test('collectPRs: watched issue → data.issues row, absent from the PR tables', async () => {
   const gh = fakeGh({
     notifications: [watchedIssueThread],
-    comment: { user: { login: 'alice' }, created_at: '2026-08-01T12:00:00Z', html_url: 'https://github.com/zenstruck/foundry/issues/900' },
+    comment: { user: { login: 'alice' }, created_at: '2026-08-01T12:00:00Z', html_url: 'https://github.com/zorg/forge/issues/900' },
   });
-  const { issues, others, mine, notifications } = await collectPRs(gh, ME, { watchAll: inFoundry });
+  const { issues, others, mine, notifications } = await collectPRs(gh, ME, { watchAll: inForge });
   assert.deepEqual(issues, [{
-    repo: 'zenstruck/foundry', number: 900, title: 'Bug report',
-    url: 'https://github.com/zenstruck/foundry/issues/900',
+    repo: 'zorg/forge', number: 900, title: 'Bug report',
+    url: 'https://github.com/zorg/forge/issues/900',
     actor: 'alice', createdAt: '2026-08-01T12:00:00Z', updatedAt: '2026-08-01T12:00:00Z',
     triggers: ['new'],
   }]);
@@ -996,10 +996,10 @@ test('collectPRs: watched issue → data.issues row, absent from the PR tables',
 test('collectPRs: watched third-party PR → « others » row with the new trigger', async () => {
   const gh = fakeGh({
     notifications: [watchedPrThread],
-    comment: { user: { login: 'alice' }, created_at: '2026-08-01T13:00:00Z', html_url: 'https://github.com/zenstruck/foundry/pull/901' },
+    comment: { user: { login: 'alice' }, created_at: '2026-08-01T13:00:00Z', html_url: 'https://github.com/zorg/forge/pull/901' },
     details: (repo, number) => (number === 901 ? { author: { login: 'alice' }, title: 'A new PR', state: 'OPEN' } : null),
   });
-  const { issues, others } = await collectPRs(gh, ME, { watchAll: inFoundry });
+  const { issues, others } = await collectPRs(gh, ME, { watchAll: inForge });
   assert.equal(issues.length, 0);
   assert.equal(others.length, 1);
   assert.deepEqual(others[0].triggers, ['new']);

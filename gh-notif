@@ -27,7 +27,7 @@ Usage:
 
 Favorites (pinned scopes) :
   gh notif fav list          List favorites (⭐ = the one shown)
-  gh notif fav add <scope>   Pin an org (symfony) or a repository (owner/repo)
+  gh notif fav add <scope>   Pin an org (stark) or a repository (owner/repo)
   gh notif fav rm <scope>    Remove a favorite
 
 As soon as a favorite exists, collection covers the UNION of favorites — so the
@@ -102,7 +102,7 @@ async function resolveScope(gh, flags) {
     throw new Error('--org and --repo are mutually exclusive');
   }
   if (flags.org !== undefined) {
-    if (!flags.org) throw new Error('--org requires a value (e.g. --org symfony)');
+    if (!flags.org) throw new Error('--org requires a value (e.g. --org stark)');
     return { type: 'org', value: flags.org };
   }
   if (flags.repo !== undefined) {
@@ -124,7 +124,7 @@ async function resolveScopes(gh, flags, prefs) {
 
   let activeFav = activeFavoriteOf(prefs, favorites);
   if (flags.fav !== undefined) {
-    if (!flags.fav) throw new Error('--fav requires a value (e.g. --fav symfony)');
+    if (!flags.fav) throw new Error('--fav requires a value (e.g. --fav stark)');
     if (!favorites.includes(flags.fav)) {
       const known = favorites.length > 0 ? favorites.join(', ') : 'none (gh notif fav add <scope>)';
       throw new Error(`--fav ${flags.fav}: unknown favorite. Known favorites: ${known}`);
@@ -171,7 +171,7 @@ async function runFav(args) {
   }
 
   if (favorites.length === 0) {
-    process.stdout.write('No favorites. Add one: gh notif fav add symfony\n');
+    process.stdout.write('No favorites. Add one: gh notif fav add stark\n');
     return;
   }
   const active = activeFavoriteOf(prefs, favorites);

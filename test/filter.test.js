@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { findReplyToMe, latestOtherComment, mentionsMe, latestMentionOfMe, classify, classifyVerdict, prHtmlUrl, CATEGORY } from '../src/filter.js';
 
-const ME = 'nikophil';
+const ME = 'me';
 
 test('reply under my comment → returns the reply', () => {
   const comments = [
@@ -126,16 +126,16 @@ test('mention (never read) → MENTION with author + comment URL', () => {
 });
 
 test('mentionsMe: exact @login, not @loginXY', () => {
-  assert.equal(mentionsMe('cc @nikophil thanks', 'nikophil'), true);
-  assert.equal(mentionsMe('see @nikophil2 later', 'nikophil'), false);
-  assert.equal(mentionsMe('nothing here', 'nikophil'), false);
-  assert.equal(mentionsMe(null, 'nikophil'), false);
+  assert.equal(mentionsMe('cc @me thanks', 'me'), true);
+  assert.equal(mentionsMe('see @me2 later', 'me'), false);
+  assert.equal(mentionsMe('nothing here', 'me'), false);
+  assert.equal(mentionsMe(null, 'me'), false);
 });
 
 test('latestMentionOfMe: last comment from someone else, after since, that mentions me', () => {
   const comments = [
-    { id: 1, user: { login: 'alice' }, created_at: '2026-06-26T08:00:00Z', body: 'cc @nikophil' },
-    { id: 2, user: { login: ME }, created_at: '2026-06-26T09:00:00Z', body: '@nikophil (myself)' },
+    { id: 1, user: { login: 'alice' }, created_at: '2026-06-26T08:00:00Z', body: 'cc @me' },
+    { id: 2, user: { login: ME }, created_at: '2026-06-26T09:00:00Z', body: '@me (myself)' },
     { id: 3, user: { login: 'bob' }, created_at: '2026-06-26T07:00:00Z', body: 'without mention' },
   ];
   assert.equal(latestMentionOfMe(comments, ME, '2026-06-25T00:00:00Z')?.id, 1); // alice, mentions me
@@ -150,20 +150,20 @@ test('regression #7014: sticky mention, re-bumped merged PR, already read, no re
 });
 
 test('regression #6431: sticky mention, recent third-party comment WITHOUT @me → null', () => {
-  // lnahiro posts a root comment (not a reply to my thread) without mentioning me.
+  // leo posts a root comment (not a reply to my thread) without mentioning me.
   const insp = { latestComment: null, reviewComments: [
-    { id: 1, user: { login: 'lnahiro' }, created_at: '2026-06-26T08:01:00Z', in_reply_to_id: null, body: "can't we filter via monolog?", html_url: 'x' },
+    { id: 1, user: { login: 'leo' }, created_at: '2026-06-26T08:01:00Z', in_reply_to_id: null, body: "can't we filter via the logger?", html_url: 'x' },
   ] };
   const t = prThread({ reason: 'mention', last_read_at: '2026-06-25T12:30:00Z' });
   assert.equal(classify(t, ME, insp), null);
 });
 
 test('mention already read BUT new @me by someone else → MENTION', () => {
-  const insp = { latestComment: { user: { login: 'lnahiro' }, created_at: '2026-06-26T08:01:00Z', body: 'cc @nikophil ?', html_url: 'https://github.com/o/r/pull/42#discussion_r9' }, reviewComments: [] };
+  const insp = { latestComment: { user: { login: 'leo' }, created_at: '2026-06-26T08:01:00Z', body: 'cc @me ?', html_url: 'https://github.com/o/r/pull/42#discussion_r9' }, reviewComments: [] };
   const t = prThread({ reason: 'mention', last_read_at: '2026-06-25T12:30:00Z' });
   const item = classify(t, ME, insp);
   assert.equal(item.category, CATEGORY.MENTION);
-  assert.equal(item.actor, 'lnahiro');
+  assert.equal(item.actor, 'leo');
   assert.equal(item.url, 'https://github.com/o/r/pull/42#discussion_r9');
 });
 
@@ -192,19 +192,19 @@ test('latestOtherComment: last comment from someone else, filtered by since', ()
 
 test('author: (inline) review comment from someone else on my PR → ON_MY_PR (#7015)', () => {
   // Real case #7015: no latest_comment_url, but a root review-comment from
-  // lnahiro. The author branch must detect it via the review-comments.
+  // leo. The author branch must detect it via the review-comments.
   const insp = { latestComment: null, reviewComments: [
-    { id: 1, user: { login: 'lnahiro' }, created_at: '2026-06-25T12:06:59Z', html_url: 'https://github.com/o/r/pull/7015#discussion_r9' },
+    { id: 1, user: { login: 'leo' }, created_at: '2026-06-25T12:06:59Z', html_url: 'https://github.com/o/r/pull/7015#discussion_r9' },
   ] };
   const item = classify(prThread({ reason: 'author' }), ME, insp);
   assert.equal(item.category, CATEGORY.ON_MY_PR);
-  assert.equal(item.actor, 'lnahiro');
+  assert.equal(item.actor, 'leo');
   assert.equal(item.url, 'https://github.com/o/r/pull/7015#discussion_r9');
 });
 
 test('author: review-comment already read (< last_read_at) → null', () => {
   const insp = { latestComment: null, reviewComments: [
-    { id: 1, user: { login: 'lnahiro' }, created_at: '2026-06-25T12:06:00Z', html_url: 'x' },
+    { id: 1, user: { login: 'leo' }, created_at: '2026-06-25T12:06:00Z', html_url: 'x' },
   ] };
   const t = prThread({ reason: 'author', last_read_at: '2026-06-25T12:09:00Z' });
   assert.equal(classify(t, ME, insp), null);
@@ -228,15 +228,15 @@ test('comment with reply to my thread → THREAD_REPLY', () => {
 
 test('reason=mention sticky but real reply in my thread → THREAD_REPLY (takes precedence over mention)', () => {
   // Real case: I was mentioned on the PR (reason stays "mention"), but
-  // the real event is a reply from lnahiro in a thread where I participated.
+  // the real event is a reply from leo in a thread where I participated.
   const insp = { latestComment: null, reviewComments: [
-    { id: 1, user: { login: 'lnahiro' }, created_at: '2026-06-24T13:00:00Z', html_url: 'root' },
+    { id: 1, user: { login: 'leo' }, created_at: '2026-06-24T13:00:00Z', html_url: 'root' },
     { id: 2, in_reply_to_id: 1, user: { login: ME }, created_at: '2026-06-24T13:05:00Z', html_url: 'mine' },
-    { id: 3, in_reply_to_id: 1, user: { login: 'lnahiro' }, created_at: '2026-06-24T13:07:00Z', html_url: 'https://github.com/o/r/pull/42#discussion_r3' },
+    { id: 3, in_reply_to_id: 1, user: { login: 'leo' }, created_at: '2026-06-24T13:07:00Z', html_url: 'https://github.com/o/r/pull/42#discussion_r3' },
   ] };
   const item = classify(prThread({ reason: 'mention' }), ME, insp);
   assert.equal(item.category, CATEGORY.THREAD_REPLY);
-  assert.equal(item.actor, 'lnahiro');
+  assert.equal(item.actor, 'leo');
   assert.equal(item.url, 'https://github.com/o/r/pull/42#discussion_r3');
 });
 
@@ -244,9 +244,9 @@ test('regression #6993: re-bumped notif, old reply already read (< last_read_at)
   // Third-party activity (exchange between two others in main comments)
   // re-bumps a review_requested notif. The only "reply to me" is old
   // (06/20) and already read (last_read_at = 06/24) → must not re-trigger.
-  const insp = { latestComment: { user: { login: 'lnahiro' }, html_url: 'x' }, reviewComments: [
+  const insp = { latestComment: { user: { login: 'leo' }, html_url: 'x' }, reviewComments: [
     { id: 1, user: { login: ME }, created_at: '2026-06-19T13:50:00Z', html_url: 'mine' },
-    { id: 2, in_reply_to_id: 1, user: { login: 'Nickinthebox' }, created_at: '2026-06-20T06:57:00Z', html_url: 'old-reply' },
+    { id: 2, in_reply_to_id: 1, user: { login: 'Nina' }, created_at: '2026-06-20T06:57:00Z', html_url: 'old-reply' },
   ] };
   const t = prThread({ reason: 'review_requested', last_read_at: '2026-06-24T14:44:49Z' });
   const item = classify(t, ME, insp);
@@ -326,18 +326,18 @@ const issueThread = (over = {}) => ({
   last_read_at: null,
   subject: {
     title: 'Bug report',
-    url: 'https://api.github.com/repos/zenstruck/foundry/issues/900',
-    latest_comment_url: 'https://api.github.com/repos/zenstruck/foundry/issues/900',
+    url: 'https://api.github.com/repos/zorg/forge/issues/900',
+    latest_comment_url: 'https://api.github.com/repos/zorg/forge/issues/900',
     type: 'Issue',
   },
-  repository: { full_name: 'zenstruck/foundry' },
+  repository: { full_name: 'zorg/forge' },
   ...over,
 });
 
 const issueSelf = (over = {}) => ({
   user: { login: 'alice' },
   created_at: '2026-08-01T12:00:00Z',
-  html_url: 'https://github.com/zenstruck/foundry/issues/900',
+  html_url: 'https://github.com/zorg/forge/issues/900',
   ...over,
 });
 
@@ -346,7 +346,7 @@ test('watchAll: new issue → NEW_ISSUE (opener as actor, issue html url, create
   const { item, reason } = classifyVerdict(issueThread(), ME, insp, { watchAll: true });
   assert.equal(item.category, CATEGORY.NEW_ISSUE);
   assert.equal(item.actor, 'alice');
-  assert.equal(item.url, 'https://github.com/zenstruck/foundry/issues/900');
+  assert.equal(item.url, 'https://github.com/zorg/forge/issues/900');
   assert.equal(item.subjectType, 'issue');
   assert.equal(item.createdAt, '2026-08-01T12:00:00Z');
   assert.match(reason, /new issue/);
@@ -354,7 +354,7 @@ test('watchAll: new issue → NEW_ISSUE (opener as actor, issue html url, create
 
 test('watchAll: third-party comment on a watched issue → ACTIVITY', () => {
   const t = issueThread({
-    subject: { ...issueThread().subject, latest_comment_url: 'https://api.github.com/repos/zenstruck/foundry/issues/comments/1' },
+    subject: { ...issueThread().subject, latest_comment_url: 'https://api.github.com/repos/zorg/forge/issues/comments/1' },
   });
   const insp = { latestComment: { user: { login: 'bob' }, created_at: '2026-08-02T09:00:00Z', html_url: 'c1' }, reviewComments: [] };
   const { item } = classifyVerdict(t, ME, insp, { watchAll: true });
@@ -403,7 +403,7 @@ test('watchAll: subscribed PR without watchAll → still noise (compat)', () => 
 
 test('watchAll: my own comment on a watched thread → null (no self-notification)', () => {
   const t = issueThread({
-    subject: { ...issueThread().subject, latest_comment_url: 'https://api.github.com/repos/zenstruck/foundry/issues/comments/2' },
+    subject: { ...issueThread().subject, latest_comment_url: 'https://api.github.com/repos/zorg/forge/issues/comments/2' },
   });
   const insp = { latestComment: { user: { login: ME }, created_at: '2026-08-02T09:00:00Z', html_url: 'c2' }, reviewComments: [] };
   assert.equal(classifyVerdict(t, ME, insp, { watchAll: true }).item, null);
@@ -418,7 +418,7 @@ test('watchAll: already-read creation re-bumped without a comment (close/label) 
 test('watchAll: already-read comment (created_at ≤ last_read_at) → null', () => {
   const t = issueThread({
     last_read_at: '2026-08-02T10:00:00Z',
-    subject: { ...issueThread().subject, latest_comment_url: 'https://api.github.com/repos/zenstruck/foundry/issues/comments/3' },
+    subject: { ...issueThread().subject, latest_comment_url: 'https://api.github.com/repos/zorg/forge/issues/comments/3' },
   });
   const insp = { latestComment: { user: { login: 'bob' }, created_at: '2026-08-02T09:00:00Z', html_url: 'c3' }, reviewComments: [] };
   assert.equal(classifyVerdict(t, ME, insp, { watchAll: true }).item, null);

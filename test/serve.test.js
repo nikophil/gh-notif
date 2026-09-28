@@ -9,7 +9,7 @@ const OPTS = { now: NOW, intervalMs: 10000 };
 
 const okSnapshot = () => ({
   data: {
-    mine: [{ repo: 'symfony/web', number: 1, url: 'u', title: 't', triggers: ['comment'], ci: 'pass', state: 'open', approvals: 0 }],
+    mine: [{ repo: 'stark/web', number: 1, url: 'u', title: 't', triggers: ['comment'], ci: 'pass', state: 'open', approvals: 0 }],
     others: [],
   },
   updatedAt: NOW,
@@ -71,7 +71,7 @@ test('GET /fragment forwards ignoredChecks → ignored check struck in the CI po
     { name: 'real', state: 'fail', url: 'https://x.test/2' },
     { name: 'flaky', state: 'fail', url: 'https://x.test/1' },
   ];
-  const res = handleRequest('/fragment', snap, { ...OPTS, ignoredChecks: { 'symfony/web': ['flaky'] } });
+  const res = handleRequest('/fragment', snap, { ...OPTS, ignoredChecks: { 'stark/web': ['flaky'] } });
   assert.match(res.body, /<li class="ci-check ignored">[^]*?flaky/);
 });
 
@@ -135,8 +135,8 @@ test('GET /api/debug → JSON of the debug table', () => {
 });
 
 test('GET / pre-fills the scope field with the current scope', () => {
-  const res = handleRequest('/', okSnapshot(), { ...OPTS, scope: { type: 'org', value: 'symfony' } });
-  assert.match(res.body, /id="scope"[^>]*value="symfony"/);
+  const res = handleRequest('/', okSnapshot(), { ...OPTS, scope: { type: 'org', value: 'stark' } });
+  assert.match(res.body, /id="scope"[^>]*value="stark"/);
 });
 
 test('GET / : notifs checkbox checked by default, unchecked if notifyEnabled=false', () => {
@@ -215,14 +215,14 @@ test('parseScope : empty → null, org, owner/repo', () => {
   assert.equal(parseScope(''), null);
   assert.equal(parseScope('   '), null);
   assert.equal(parseScope(null), null);
-  assert.deepEqual(parseScope('symfony'), { type: 'org', value: 'symfony' });
-  assert.deepEqual(parseScope('symfony/web'), { type: 'repo', value: 'symfony/web' });
-  assert.deepEqual(parseScope('  symfony/web  '), { type: 'repo', value: 'symfony/web' });
+  assert.deepEqual(parseScope('stark'), { type: 'org', value: 'stark' });
+  assert.deepEqual(parseScope('stark/web'), { type: 'repo', value: 'stark/web' });
+  assert.deepEqual(parseScope('  stark/web  '), { type: 'repo', value: 'stark/web' });
 });
 
 test('scopeLabel : null → "", otherwise the value', () => {
   assert.equal(scopeLabel(null), '');
-  assert.equal(scopeLabel({ type: 'org', value: 'symfony' }), 'symfony');
+  assert.equal(scopeLabel({ type: 'org', value: 'stark' }), 'stark');
 });
 
 // ── integration: POST /hide hides the PR (stub gh, real server) ─────────────
@@ -232,7 +232,7 @@ test('POST /hide hides one of the others\' PRs then restores it', async () => {
     getCurrentUser: async () => 'me',
     listNotifications: async () => [],
     searchReviewRequested: async () => [
-      { repository_url: 'https://api.github.com/repos/symfony/web', number: 42, title: 't', html_url: 'u', updated_at: '2026-06-24T00:00:00Z' },
+      { repository_url: 'https://api.github.com/repos/stark/web', number: 42, title: 't', html_url: 'u', updated_at: '2026-06-24T00:00:00Z' },
     ],
     searchAuthored: async () => [],
     getPullDetailsBatch: async (prs) => prs.map((p) => ({
@@ -251,16 +251,16 @@ test('POST /hide hides one of the others\' PRs then restores it', async () => {
   try {
     await new Promise((r) => setTimeout(r, 250)); // 1st poll
     const frag1 = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
-    assert.match(frag1, /symfony\/web#42/, 'the PR is visible at first');
+    assert.match(frag1, /stark\/web#42/, 'the PR is visible at first');
 
     // hides the PR
-    await fetch(`http://localhost:${PORT}/hide?key=${encodeURIComponent('symfony/web#42')}`, { method: 'POST' });
+    await fetch(`http://localhost:${PORT}/hide?key=${encodeURIComponent('stark/web#42')}`, { method: 'POST' });
     const frag2 = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
-    assert.ok(!frag2.includes('symfony/web#42'), 'the PR is hidden (absent)');
+    assert.ok(!frag2.includes('stark/web#42'), 'the PR is hidden (absent)');
 
     // visible again in showHidden mode
     const frag3 = await (await fetch(`http://localhost:${PORT}/fragment?hidden=1`)).text();
-    assert.match(frag3, /symfony\/web#42/, 'reappears in « show hidden » mode');
+    assert.match(frag3, /stark\/web#42/, 'reappears in « show hidden » mode');
   } finally {
     server.close();
   }
@@ -274,7 +274,7 @@ test('POST /hide hides one of MY PRs then shows it in hidden mode', async () => 
     listNotifications: async () => [],
     searchReviewRequested: async () => [],
     searchAuthored: async () => [
-      { repository_url: 'https://api.github.com/repos/symfony/web', number: 43, title: 't', html_url: 'u', updated_at: '2026-06-24T00:00:00Z' },
+      { repository_url: 'https://api.github.com/repos/stark/web', number: 43, title: 't', html_url: 'u', updated_at: '2026-06-24T00:00:00Z' },
     ],
     getPullDetailsBatch: async (prs) => prs.map((p) => ({
       number: p.number, title: 't', author: { login: 'me' }, createdAt: '2026-06-24T00:00:00Z',
@@ -292,16 +292,16 @@ test('POST /hide hides one of MY PRs then shows it in hidden mode', async () => 
   try {
     await new Promise((r) => setTimeout(r, 250)); // 1st poll
     const frag1 = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
-    assert.match(frag1, /symfony\/web#43/, 'my PR is visible at first');
+    assert.match(frag1, /stark\/web#43/, 'my PR is visible at first');
 
     // hides MY PR (same endpoint as the others)
-    await fetch(`http://localhost:${PORT}/hide?key=${encodeURIComponent('symfony/web#43')}`, { method: 'POST' });
+    await fetch(`http://localhost:${PORT}/hide?key=${encodeURIComponent('stark/web#43')}`, { method: 'POST' });
     const frag2 = await (await fetch(`http://localhost:${PORT}/fragment`)).text();
-    assert.ok(!frag2.includes('symfony/web#43'), 'my PR is hidden (absent)');
+    assert.ok(!frag2.includes('stark/web#43'), 'my PR is hidden (absent)');
 
     // visible again in showHidden mode, with a restore button
     const frag3 = await (await fetch(`http://localhost:${PORT}/fragment?hidden=1`)).text();
-    assert.match(frag3, /data-key="symfony\/web#43"[^>]*data-act="show"/, 'reappears greyed in « show hidden » mode');
+    assert.match(frag3, /data-key="stark\/web#43"[^>]*data-act="show"/, 'reappears greyed in « show hidden » mode');
   } finally {
     server.close();
     rmSync(tmp, { recursive: true, force: true });
@@ -433,69 +433,69 @@ test('POST /theme persists the theme, is reflected in the page, does not lose no
 const mixedSnapshot = () => ({
   data: {
     mine: [
-      { repo: 'symfony/web', number: 1, url: 'u', title: 'at symfony', triggers: [], ci: 'pass', state: 'open', approvals: 0 },
-      { repo: 'zenstruck/foundry', number: 2, url: 'u', title: 'at zenstruck', triggers: [], ci: 'pass', state: 'open', approvals: 0 },
+      { repo: 'stark/web', number: 1, url: 'u', title: 'at stark', triggers: [], ci: 'pass', state: 'open', approvals: 0 },
+      { repo: 'zorg/forge', number: 2, url: 'u', title: 'at zorg', triggers: [], ci: 'pass', state: 'open', approvals: 0 },
     ],
     others: [],
-    debug: [{ repo: 'symfony/web', number: 1, verdict: { kept: true, reason: 'r' } },
-            { repo: 'zenstruck/foundry', number: 2, verdict: { kept: true, reason: 'r' } }],
+    debug: [{ repo: 'stark/web', number: 1, verdict: { kept: true, reason: 'r' } },
+            { repo: 'zorg/forge', number: 2, verdict: { kept: true, reason: 'r' } }],
   },
   updatedAt: NOW,
   error: null,
 });
 
 test('GET / : the favorite chips are in the page, the active one marked', () => {
-  const res = handleRequest('/', okSnapshot(), { ...OPTS, favorites: ['symfony', 'zenstruck'], activeFav: 'symfony' });
-  assert.match(res.body, /data-fav="symfony" class="on"/);
-  assert.match(res.body, /data-fav="zenstruck"/);
+  const res = handleRequest('/', okSnapshot(), { ...OPTS, favorites: ['stark', 'zorg'], activeFav: 'stark' });
+  assert.match(res.body, /data-fav="stark" class="on"/);
+  assert.match(res.body, /data-fav="zorg"/);
 });
 
 test('GET /fragment : filtered on the active favorite (the snapshot, itself, keeps the union)', () => {
   const snap = mixedSnapshot();
-  const res = handleRequest('/fragment', snap, { ...OPTS, favorites: ['symfony', 'zenstruck'], activeFav: 'symfony' });
-  assert.match(res.body, /at symfony/);
-  assert.doesNotMatch(res.body, /at zenstruck/);
+  const res = handleRequest('/fragment', snap, { ...OPTS, favorites: ['stark', 'zorg'], activeFav: 'stark' });
+  assert.match(res.body, /at stark/);
+  assert.doesNotMatch(res.body, /at zorg/);
   // ⚠️ the snapshot is NOT mutated: it is what feeds the desktop notifs
   assert.equal(snap.data.mine.length, 2);
 });
 
 test('GET /fragment : an org favorite shows bare repo names, a repo favorite or « all » the full name', () => {
-  const view = (activeFav) => handleRequest('/fragment', mixedSnapshot(), { ...OPTS, favorites: ['symfony', 'zenstruck/foundry'], activeFav }).body;
-  assert.match(view('symfony'), />web<\/a>/);
-  assert.match(view('zenstruck/foundry'), />zenstruck\/foundry<\/a>/);
-  assert.match(view(null), />symfony\/web<\/a>/);
+  const view = (activeFav) => handleRequest('/fragment', mixedSnapshot(), { ...OPTS, favorites: ['stark', 'zorg/forge'], activeFav }).body;
+  assert.match(view('stark'), />web<\/a>/);
+  assert.match(view('zorg/forge'), />zorg\/forge<\/a>/);
+  assert.match(view(null), />stark\/web<\/a>/);
 });
 
 test('GET /fragment without active favorite → the whole union is displayed', () => {
-  const res = handleRequest('/fragment', mixedSnapshot(), { ...OPTS, favorites: ['symfony', 'zenstruck'], activeFav: null });
-  assert.match(res.body, /at symfony/);
-  assert.match(res.body, /at zenstruck/);
+  const res = handleRequest('/fragment', mixedSnapshot(), { ...OPTS, favorites: ['stark', 'zorg'], activeFav: null });
+  assert.match(res.body, /at stark/);
+  assert.match(res.body, /at zorg/);
 });
 
 test('ad-hoc mode: an entered scope takes precedence, the active favorite does not re-filter', () => {
   const res = handleRequest('/fragment', mixedSnapshot(), {
-    ...OPTS, favorites: ['symfony'], activeFav: 'symfony', adhoc: true, scope: { type: 'org', value: 'zenstruck' },
+    ...OPTS, favorites: ['stark'], activeFav: 'stark', adhoc: true, scope: { type: 'org', value: 'zorg' },
   });
-  assert.match(res.body, /at zenstruck/); // the collection already did the filtering
+  assert.match(res.body, /at zorg/); // the collection already did the filtering
 });
 
 test('GET / in ad-hoc mode: greyed chips and none active', () => {
   const res = handleRequest('/', okSnapshot(), {
-    ...OPTS, favorites: ['symfony'], activeFav: 'symfony', adhoc: true, scope: { type: 'org', value: 'zenstruck' },
+    ...OPTS, favorites: ['stark'], activeFav: 'stark', adhoc: true, scope: { type: 'org', value: 'zorg' },
   });
   assert.match(res.body, /class="favs adhoc"/);
-  assert.doesNotMatch(res.body, /data-fav="symfony" class="on"/);
+  assert.doesNotMatch(res.body, /data-fav="stark" class="on"/);
 });
 
 test('GET /debug-fragment also follows the active favorite', () => {
-  const res = handleRequest('/debug-fragment', mixedSnapshot(), { ...OPTS, favorites: ['symfony'], activeFav: 'symfony' });
-  assert.match(res.body, /symfony\/web/);
-  assert.doesNotMatch(res.body, /zenstruck/);
+  const res = handleRequest('/debug-fragment', mixedSnapshot(), { ...OPTS, favorites: ['stark'], activeFav: 'stark' });
+  assert.match(res.body, /stark\/web/);
+  assert.doesNotMatch(res.body, /zorg/);
 });
 
 test('scopeLabel : in favorites mode (scope = array) the field stays empty', () => {
-  assert.equal(scopeLabel([{ type: 'org', value: 'symfony' }, { type: 'org', value: 'zenstruck' }]), '');
-  assert.equal(scopeLabel({ type: 'org', value: 'symfony' }), 'symfony');
+  assert.equal(scopeLabel([{ type: 'org', value: 'stark' }, { type: 'org', value: 'zorg' }]), '');
+  assert.equal(scopeLabel({ type: 'org', value: 'stark' }), 'stark');
 });
 
 // ── integration: /fav* routes (add, select, remove, persistence) ────────────
@@ -510,7 +510,7 @@ test('POST /fav* : pins, filters, removes — and loses neither notify nor theme
   const gh = {
     getCurrentUser: async () => 'me',
     listNotifications: async () => [],
-    searchReviewRequested: async (q) => { searches.push(q); return [pr('symfony/web', 1, 'at symfony'), pr('zenstruck/foundry', 2, 'at zenstruck')]; },
+    searchReviewRequested: async (q) => { searches.push(q); return [pr('stark/web', 1, 'at stark'), pr('zorg/forge', 2, 'at zorg')]; },
     searchAuthored: async () => [],
     getPullDetailsBatch: async (prs) => prs.map(() => ({ author: { login: 'alice' }, state: 'OPEN', additions: 1, deletions: 0, reviews: [] })),
     getComment: async () => null,
@@ -532,50 +532,50 @@ test('POST /fav* : pins, filters, removes — and loses neither notify nor theme
 
     // Pins two favorites. The response leaves BEFORE the re-poll (instant chip):
     // the chip is already in the response, the existence was verified.
-    await post('/fav/add?value=symfony');
-    const added = await (await post('/fav/add?value=zenstruck')).json();
-    assert.match(added.chips, /data-fav="symfony"/);
-    assert.match(added.chips, /data-fav="zenstruck"/);
-    assert.deepEqual(checked, [{ type: 'org', value: 'symfony' }, { type: 'org', value: 'zenstruck' }]);
+    await post('/fav/add?value=stark');
+    const added = await (await post('/fav/add?value=zorg')).json();
+    assert.match(added.chips, /data-fav="stark"/);
+    assert.match(added.chips, /data-fav="zorg"/);
+    assert.deepEqual(checked, [{ type: 'org', value: 'stark' }, { type: 'org', value: 'zorg' }]);
     // Adding a favorite SELECTS it: the view filters on the just-pinned scope.
-    assert.match(added.chips, /data-fav="zenstruck" class="on"/);
-    assert.match(added.fragment, /at zenstruck/);
-    assert.doesNotMatch(added.fragment, /at symfony/);
+    assert.match(added.chips, /data-fav="zorg" class="on"/);
+    assert.match(added.fragment, /at zorg/);
+    assert.doesNotMatch(added.fragment, /at stark/);
 
     // The background refresh completes: the collection indeed covers the union
     // (a single OR-ed search). We let the async poll settle.
     await new Promise((r) => setTimeout(r, 200));
-    assert.equal(searches.at(-1), ' org:symfony org:zenstruck');
+    assert.equal(searches.at(-1), ' org:stark org:zorg');
 
     // /view (client poll): chips with per-panel counters + updatedAt.
     const view = await (await fetch(`http://localhost:${PORT}/view`)).json();
     assert.match(view.chips, /⭐ all <span class="fav-n">\(<span[^>]*>📥\u20090<\/span> <span[^>]*>👥\u20092<\/span>\)<\/span>/);
-    assert.match(view.chips, /symfony\/\* <span class="fav-n">\(<span[^>]*>📥\u20090<\/span> <span[^>]*>👥\u20091<\/span>\)<\/span>/);
-    assert.match(view.chips, /zenstruck\/\* <span class="fav-n">\(<span[^>]*>📥\u20090<\/span> <span[^>]*>👥\u20091<\/span>\)<\/span>/);
+    assert.match(view.chips, /stark\/\* <span class="fav-n">\(<span[^>]*>📥\u20090<\/span> <span[^>]*>👥\u20091<\/span>\)<\/span>/);
+    assert.match(view.chips, /zorg\/\* <span class="fav-n">\(<span[^>]*>📥\u20090<\/span> <span[^>]*>👥\u20091<\/span>\)<\/span>/);
     assert.ok(view.updatedAt > 0, 'updatedAt exposed for the client probe');
 
     // Selects a favorite: display filter, WITHOUT a new search.
     const before = searches.length;
-    const selected = await (await post('/fav?value=symfony')).json();
+    const selected = await (await post('/fav?value=stark')).json();
     assert.equal(searches.length, before, 'switching favorite must cost no request');
-    assert.match(selected.fragment, /at symfony/);
-    assert.doesNotMatch(selected.fragment, /at zenstruck/);
-    assert.match(selected.chips, /data-fav="symfony" class="on"/);
+    assert.match(selected.fragment, /at stark/);
+    assert.doesNotMatch(selected.fragment, /at zorg/);
+    assert.match(selected.chips, /data-fav="stark" class="on"/);
     // The counter of the other favorite stays visible even when we are not looking at it.
-    assert.match(selected.chips, /zenstruck\/\* <span class="fav-n">\(<span[^>]*>📥\u20090<\/span> <span[^>]*>👥\u20091<\/span>\)<\/span>/);
+    assert.match(selected.chips, /zorg\/\* <span class="fav-n">\(<span[^>]*>📥\u20090<\/span> <span[^>]*>👥\u20091<\/span>\)<\/span>/);
 
     // Persisted, without overwriting notify/theme (lost-key trap).
     let prefs = loadPrefs(prefsPath());
-    assert.deepEqual(prefs.favorites, ['symfony', 'zenstruck']);
-    assert.equal(prefs.activeFav, 'symfony');
+    assert.deepEqual(prefs.favorites, ['stark', 'zorg']);
+    assert.equal(prefs.activeFav, 'stark');
     assert.equal(prefs.notify, false);
     assert.equal(prefs.theme, 'dark');
 
     // Removing the active favorite falls back to « all ».
-    const removed = await (await post('/fav/rm?value=symfony')).json();
-    assert.doesNotMatch(removed.chips, /data-fav="symfony"/);
+    const removed = await (await post('/fav/rm?value=stark')).json();
+    assert.doesNotMatch(removed.chips, /data-fav="stark"/);
     prefs = loadPrefs(prefsPath());
-    assert.deepEqual(prefs.favorites, ['zenstruck']);
+    assert.deepEqual(prefs.favorites, ['zorg']);
     assert.equal(prefs.activeFav, null);
 
     // Unknown value → « all », no error.
@@ -685,20 +685,20 @@ test('GET /view : reviewCoverage opt → « ratio (counts) » in the fragment', 
 test('GET /view : JSON {chips, fragment, updatedAt}, counters from the snapshot', () => {
   const snap = mixedSnapshot();
   snap.data.others = [
-    { repo: 'symfony/front', number: 7, url: 'u', title: 'also', triggers: ['review'], ci: 'pass', author: 'bob', createdAt: '2026-06-21T12:00:00Z', additions: 1, deletions: 0, state: 'open', approvals: 0 },
+    { repo: 'stark/front', number: 7, url: 'u', title: 'also', triggers: ['review'], ci: 'pass', author: 'bob', createdAt: '2026-06-21T12:00:00Z', additions: 1, deletions: 0, state: 'open', approvals: 0 },
   ];
-  const res = handleRequest('/view', snap, { ...OPTS, favorites: ['symfony', 'zenstruck'], activeFav: 'zenstruck' });
+  const res = handleRequest('/view', snap, { ...OPTS, favorites: ['stark', 'zorg'], activeFav: 'zorg' });
   assert.equal(res.type, 'application/json; charset=utf-8');
   const d = JSON.parse(res.body);
   assert.equal(d.updatedAt, NOW);
-  // Counters = one per panel, computed on the UNION (symfony counts even
-  // if the active favorite is zenstruck).
-  assert.match(d.chips, /symfony\/\* <span class="fav-n">\(<span[^>]*>📥\u20091<\/span> <span[^>]*>👥\u20091<\/span>\)<\/span>/);
-  assert.match(d.chips, /zenstruck\/\* <span class="fav-n">\(<span[^>]*>📥\u20091<\/span> <span[^>]*>👥\u20090<\/span>\)<\/span>/);
-  assert.match(d.chips, /data-fav="zenstruck" class="on"/);
+  // Counters = one per panel, computed on the UNION (stark counts even
+  // if the active favorite is zorg).
+  assert.match(d.chips, /stark\/\* <span class="fav-n">\(<span[^>]*>📥\u20091<\/span> <span[^>]*>👥\u20091<\/span>\)<\/span>/);
+  assert.match(d.chips, /zorg\/\* <span class="fav-n">\(<span[^>]*>📥\u20091<\/span> <span[^>]*>👥\u20090<\/span>\)<\/span>/);
+  assert.match(d.chips, /data-fav="zorg" class="on"/);
   // The fragment, itself, is filtered on the active favorite.
-  assert.match(d.fragment, /at zenstruck/);
-  assert.doesNotMatch(d.fragment, /at symfony/);
+  assert.match(d.fragment, /at zorg/);
+  assert.doesNotMatch(d.fragment, /at stark/);
 });
 
 test('GET /view : events after the given seq, none without `after`, lastSeq always', () => {
@@ -721,13 +721,13 @@ test('GET /fragment : « closed » link contextualized (ad-hoc > active favorite
   let res = handleRequest('/fragment', okSnapshot(), OPTS);
   assert.ok(res.body.includes('href="/search?q=is%3Apr%20author%3A%40me%20is%3Aclosed"'));
   // Active favorite → its qualifier alone.
-  res = handleRequest('/fragment', okSnapshot(), { ...OPTS, favorites: ['symfony', 'a/b'], activeFav: 'symfony' });
-  assert.ok(res.body.includes('is%3Aclosed%20org%3Asymfony"'));
+  res = handleRequest('/fragment', okSnapshot(), { ...OPTS, favorites: ['stark', 'a/b'], activeFav: 'stark' });
+  assert.ok(res.body.includes('is%3Aclosed%20org%3Astark"'));
   // « All » with favorites → union.
-  res = handleRequest('/fragment', okSnapshot(), { ...OPTS, favorites: ['symfony', 'a/b'], activeFav: null });
-  assert.ok(res.body.includes('org%3Asymfony%20repo%3Aa%2Fb"'));
+  res = handleRequest('/fragment', okSnapshot(), { ...OPTS, favorites: ['stark', 'a/b'], activeFav: null });
+  assert.ok(res.body.includes('org%3Astark%20repo%3Aa%2Fb"'));
   // Ad-hoc mode → the entered scope takes precedence over the favorites.
-  res = handleRequest('/fragment', okSnapshot(), { ...OPTS, favorites: ['symfony'], activeFav: 'symfony', scope: { type: 'repo', value: 'x/y' }, adhoc: true });
+  res = handleRequest('/fragment', okSnapshot(), { ...OPTS, favorites: ['stark'], activeFav: 'stark', scope: { type: 'repo', value: 'x/y' }, adhoc: true });
   assert.ok(res.body.includes('is%3Aclosed%20repo%3Ax%2Fy"'));
 });
 
@@ -863,10 +863,10 @@ test('POST /fav/mode: toggles « all » mode, auto-watches, silent seed (no burs
   const issueThread = {
     id: 'w1', reason: 'subscribed', updated_at: '2026-08-01T12:00:00Z', last_read_at: null,
     subject: {
-      title: 'Bug report', url: 'https://api.github.com/repos/zenstruck/foundry/issues/900',
-      latest_comment_url: 'https://api.github.com/repos/zenstruck/foundry/issues/900', type: 'Issue',
+      title: 'Bug report', url: 'https://api.github.com/repos/zorg/forge/issues/900',
+      latest_comment_url: 'https://api.github.com/repos/zorg/forge/issues/900', type: 'Issue',
     },
-    repository: { full_name: 'zenstruck/foundry' },
+    repository: { full_name: 'zorg/forge' },
   };
   const watched = [];
   const notified = [];
@@ -876,7 +876,7 @@ test('POST /fav/mode: toggles « all » mode, auto-watches, silent seed (no burs
     searchReviewRequested: async () => [],
     searchAuthored: async () => [],
     getPullDetailsBatch: async (prs) => prs.map(() => null),
-    getComment: async () => ({ user: { login: 'alice' }, created_at: '2026-08-01T12:00:00Z', html_url: 'https://github.com/zenstruck/foundry/issues/900' }),
+    getComment: async () => ({ user: { login: 'alice' }, created_at: '2026-08-01T12:00:00Z', html_url: 'https://github.com/zorg/forge/issues/900' }),
     getReviewComments: async () => [],
     scopeExists: async () => true,
     setRepoSubscription: async (repo) => { watched.push(repo); return true; },
@@ -889,7 +889,7 @@ test('POST /fav/mode: toggles « all » mode, auto-watches, silent seed (no burs
   const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false, notifier: (i) => notified.push(i) });
   const post = (p) => fetch(`http://localhost:${PORT}${p}`, { method: 'POST' });
   const view = async () => (await fetch(`http://localhost:${PORT}/view`)).json();
-  const fav = encodeURIComponent('zenstruck/foundry');
+  const fav = encodeURIComponent('zorg/forge');
   try {
     await new Promise((r) => setTimeout(r, 150)); // 1st poll (silent seed of the state)
     await post(`/fav/add?value=${fav}`);
@@ -899,8 +899,8 @@ test('POST /fav/mode: toggles « all » mode, auto-watches, silent seed (no burs
     // Enable « all » mode: chip marked, persisted, repo auto-watched.
     const on = await (await post(`/fav/mode?value=${fav}`)).json();
     assert.match(on.chips, /chip-mode all/);
-    assert.equal(loadPrefs(prefsPath()).favModes['zenstruck/foundry'], 'all');
-    assert.deepEqual(watched, ['zenstruck/foundry']);
+    assert.equal(loadPrefs(prefsPath()).favModes['zorg/forge'], 'all');
+    assert.deepEqual(watched, ['zorg/forge']);
     await new Promise((r) => setTimeout(r, 250)); // background refresh, all mode
     const v2 = await view();
     assert.match(v2.fragment, /Issues \(1\)/);
@@ -915,14 +915,14 @@ test('POST /fav/mode: toggles « all » mode, auto-watches, silent seed (no burs
     assert.deepEqual(loadPrefs(prefsPath()).favModes, {});
     await new Promise((r) => setTimeout(r, 250));
     assert.doesNotMatch((await view()).fragment, /Issues \(/);
-    assert.deepEqual(watched, ['zenstruck/foundry']);
+    assert.deepEqual(watched, ['zorg/forge']);
 
     // Unknown favorite → clean 400.
     assert.equal((await post('/fav/mode?value=nope')).status, 400);
 
     // Removing a favorite cleans its mode key up.
     await post(`/fav/mode?value=${fav}`); // re-enable
-    assert.equal(loadPrefs(prefsPath()).favModes['zenstruck/foundry'], 'all');
+    assert.equal(loadPrefs(prefsPath()).favModes['zorg/forge'], 'all');
     await post(`/fav/rm?value=${fav}`);
     assert.deepEqual(loadPrefs(prefsPath()).favModes, {});
   } finally {
@@ -1338,7 +1338,7 @@ test('search page: one fetch per query, sort/page from the cache, refresh refetc
     searchPRs: async () => {
       searches++;
       if (fail) throw new Error('gh: API rate limit exceeded (HTTP 403)');
-      return { items: Array.from({ length: 30 }, (_, i) => ({ repository_url: 'https://api.github.com/repos/symfony/web', number: i + 1, title: `t${i + 1}`, html_url: `https://github.com/symfony/web/pull/${i + 1}` })), total: 30 };
+      return { items: Array.from({ length: 30 }, (_, i) => ({ repository_url: 'https://api.github.com/repos/stark/web', number: i + 1, title: `t${i + 1}`, html_url: `https://github.com/stark/web/pull/${i + 1}` })), total: 30 };
     },
     getPullDetailsBatch: async (prs) => prs.map((p) => ({
       number: p.number, title: `t${p.number}`, author: { login: 'alice' }, createdAt: '2026-06-01T00:00:00Z',
@@ -1402,10 +1402,10 @@ test('POST /ready and /draft call gh, update the row at once, 400 on unknown PR 
     getCurrentUser: async () => 'me',
     listNotifications: async () => [],
     searchReviewRequested: async () => [
-      { repository_url: 'https://api.github.com/repos/symfony/web', number: 7, title: 't', html_url: 'u', updated_at: '2026-06-24T00:00:00Z' },
+      { repository_url: 'https://api.github.com/repos/stark/web', number: 7, title: 't', html_url: 'u', updated_at: '2026-06-24T00:00:00Z' },
     ],
     searchAuthored: async () => [
-      { repository_url: 'https://api.github.com/repos/symfony/web', number: 43, title: 't', html_url: 'u', updated_at: '2026-06-24T00:00:00Z' },
+      { repository_url: 'https://api.github.com/repos/stark/web', number: 43, title: 't', html_url: 'u', updated_at: '2026-06-24T00:00:00Z' },
     ],
     getPullDetailsBatch: async (prs) => prs.map((p) => ({
       number: p.number, title: 't', author: { login: p.number === 7 ? 'alice' : 'me' }, createdAt: '2026-06-24T00:00:00Z',
@@ -1422,31 +1422,31 @@ test('POST /ready and /draft call gh, update the row at once, 400 on unknown PR 
 
   const PORT = 7812;
   const base = `http://localhost:${PORT}`;
-  const key = encodeURIComponent('symfony/web#43');
+  const key = encodeURIComponent('stark/web#43');
   const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false });
   try {
     await new Promise((r) => setTimeout(r, 250)); // 1st poll
     const frag0 = await (await fetch(`${base}/fragment`)).text();
-    assert.match(frag0, /data-key="symfony\/web#43" data-to="ready"/, 'draft at first');
+    assert.match(frag0, /data-key="stark\/web#43" data-to="ready"/, 'draft at first');
     assert.equal((frag0.match(/In review since/g) || []).length, 1, 'only the others\' open PR is in review');
 
     // draft → ready: gh called, the row shows 🟢 right away (no re-poll needed)
     const r1 = await fetch(`${base}/ready?key=${key}`, { method: 'POST' });
     assert.equal(r1.status, 200);
-    assert.deepEqual(calls, [['ready', 'symfony/web', 43]]);
+    assert.deepEqual(calls, [['ready', 'stark/web', 43]]);
     const d1 = await r1.json();
-    assert.match(d1.fragment, /data-key="symfony\/web#43" data-to="draft"/, 'now open');
+    assert.match(d1.fragment, /data-key="stark\/web#43" data-to="draft"/, 'now open');
     assert.doesNotMatch(d1.fragment, /data-to="ready"/);
     assert.equal((d1.fragment.match(/In review since/g) || []).length, 2, 'the review clock of my PR starts now');
 
     // ready → draft
     const r2 = await fetch(`${base}/draft?key=${key}`, { method: 'POST' });
     assert.equal(r2.status, 200);
-    assert.deepEqual(calls.at(-1), ['draft', 'symfony/web', 43]);
-    assert.match((await r2.json()).fragment, /data-key="symfony\/web#43" data-to="ready"/, 'draft again');
+    assert.deepEqual(calls.at(-1), ['draft', 'stark/web', 43]);
+    assert.match((await r2.json()).fragment, /data-key="stark\/web#43" data-to="ready"/, 'draft again');
 
     // not one of MY PRs (others' #7) or unknown → 400, gh untouched
-    const bad1 = await fetch(`${base}/ready?key=${encodeURIComponent('symfony/web#7')}`, { method: 'POST' });
+    const bad1 = await fetch(`${base}/ready?key=${encodeURIComponent('stark/web#7')}`, { method: 'POST' });
     assert.equal(bad1.status, 400);
     const bad2 = await fetch(`${base}/draft?key=nope`, { method: 'POST' });
     assert.equal(bad2.status, 400);
@@ -1458,7 +1458,7 @@ test('POST /ready and /draft call gh, update the row at once, 400 on unknown PR 
     assert.equal(r3.status, 400);
     assert.equal(await r3.text(), fail);
     const frag3 = await (await fetch(`${base}/fragment`)).text();
-    assert.match(frag3, /data-key="symfony\/web#43" data-to="ready"/, 'still a draft');
+    assert.match(frag3, /data-key="stark\/web#43" data-to="ready"/, 'still a draft');
   } finally {
     server.close();
     rmSync(tmp, { recursive: true, force: true });

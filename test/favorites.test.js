@@ -11,15 +11,15 @@ test('parseScope: empty → null, with « / » → repo, otherwise org', () => {
   assert.equal(parseScope(''), null);
   assert.equal(parseScope('   '), null);
   assert.equal(parseScope(null), null);
-  assert.deepEqual(parseScope('symfony'), { type: 'org', value: 'symfony' });
-  assert.deepEqual(parseScope(' noctud/collection '), { type: 'repo', value: 'noctud/collection' });
+  assert.deepEqual(parseScope('stark'), { type: 'org', value: 'stark' });
+  assert.deepEqual(parseScope(' nakatomi/collection '), { type: 'repo', value: 'nakatomi/collection' });
 });
 
 test('normalizeFavorites: dedup, trim, ignore unusable values', () => {
-  assert.deepEqual(normalizeFavorites(['symfony', ' symfony ', 'zenstruck']), ['symfony', 'zenstruck']);
+  assert.deepEqual(normalizeFavorites(['stark', ' stark ', 'zorg']), ['stark', 'zorg']);
   assert.deepEqual(normalizeFavorites(['', '   ', null, 42, {}, 'a']), ['a']);
   assert.deepEqual(normalizeFavorites(undefined), []);
-  assert.deepEqual(normalizeFavorites('symfony'), []); // tampered file: not an array
+  assert.deepEqual(normalizeFavorites('stark'), []); // tampered file: not an array
 });
 
 test('normalizeFavorites preserves insertion order', () => {
@@ -27,9 +27,9 @@ test('normalizeFavorites preserves insertion order', () => {
 });
 
 test('addFavorite: appends at the end, idempotent, refuses empty', () => {
-  assert.deepEqual(addFavorite([], 'symfony'), ['symfony']);
-  assert.deepEqual(addFavorite(['symfony'], 'zenstruck'), ['symfony', 'zenstruck']);
-  assert.deepEqual(addFavorite(['symfony'], ' symfony '), ['symfony']); // already there → unchanged
+  assert.deepEqual(addFavorite([], 'stark'), ['stark']);
+  assert.deepEqual(addFavorite(['stark'], 'zorg'), ['stark', 'zorg']);
+  assert.deepEqual(addFavorite(['stark'], ' stark '), ['stark']); // already there → unchanged
   assert.throws(() => addFavorite([], '  '), /requires a value/);
 });
 
@@ -76,94 +76,94 @@ test('removeFavorite: removes, no-op on absent value', () => {
 });
 
 test('favoriteScopes: list → scopes, empty list → null (= no filter)', () => {
-  assert.deepEqual(favoriteScopes(['symfony', 'noctud/collection']), [
-    { type: 'org', value: 'symfony' },
-    { type: 'repo', value: 'noctud/collection' },
+  assert.deepEqual(favoriteScopes(['stark', 'nakatomi/collection']), [
+    { type: 'org', value: 'stark' },
+    { type: 'repo', value: 'nakatomi/collection' },
   ]);
   assert.equal(favoriteScopes([]), null);
   assert.equal(favoriteScopes(undefined), null);
 });
 
 test('activeFavoriteOf: null if absent, unknown, or removed from the list', () => {
-  assert.equal(activeFavoriteOf({ activeFav: 'symfony' }, ['symfony', 'z']), 'symfony');
-  assert.equal(activeFavoriteOf({ activeFav: 'symfony' }, ['z']), null); // removed since
-  assert.equal(activeFavoriteOf({}, ['symfony']), null);
-  assert.equal(activeFavoriteOf({ activeFav: 42 }, ['symfony']), null); // tampered file
-  assert.equal(activeFavoriteOf(null, ['symfony']), null);
+  assert.equal(activeFavoriteOf({ activeFav: 'stark' }, ['stark', 'z']), 'stark');
+  assert.equal(activeFavoriteOf({ activeFav: 'stark' }, ['z']), null); // removed since
+  assert.equal(activeFavoriteOf({}, ['stark']), null);
+  assert.equal(activeFavoriteOf({ activeFav: 42 }, ['stark']), null); // tampered file
+  assert.equal(activeFavoriteOf(null, ['stark']), null);
 });
 
 test('cycleFavorite: all → 1st → … → last → all', () => {
-  const list = ['symfony', 'noctud/collection', 'zenstruck'];
-  assert.equal(cycleFavorite(list, null), 'symfony');
-  assert.equal(cycleFavorite(list, 'symfony'), 'noctud/collection');
-  assert.equal(cycleFavorite(list, 'noctud/collection'), 'zenstruck');
-  assert.equal(cycleFavorite(list, 'zenstruck'), null); // full loop
+  const list = ['stark', 'nakatomi/collection', 'zorg'];
+  assert.equal(cycleFavorite(list, null), 'stark');
+  assert.equal(cycleFavorite(list, 'stark'), 'nakatomi/collection');
+  assert.equal(cycleFavorite(list, 'nakatomi/collection'), 'zorg');
+  assert.equal(cycleFavorite(list, 'zorg'), null); // full loop
 });
 
 test('cycleFavorite: empty list stays on null, unknown active restarts from the beginning', () => {
   assert.equal(cycleFavorite([], null), null);
-  assert.equal(cycleFavorite([], 'symfony'), null);
+  assert.equal(cycleFavorite([], 'stark'), null);
   assert.equal(cycleFavorite(['a', 'b'], 'vanished'), 'a');
 });
 
 // Example data: two perimeters mixed, as after a collection on the union.
 const data = () => ({
-  mine: [{ repo: 'symfony/api', number: 1 }, { repo: 'zenstruck/foundry', number: 2 }],
-  others: [{ repo: 'symfony/front', number: 3 }, { repo: 'zenstruck/foundry', number: 4 }],
-  hidden: [{ repo: 'zenstruck/foundry', number: 5 }],
+  mine: [{ repo: 'stark/api', number: 1 }, { repo: 'zorg/forge', number: 2 }],
+  others: [{ repo: 'stark/front', number: 3 }, { repo: 'zorg/forge', number: 4 }],
+  hidden: [{ repo: 'zorg/forge', number: 5 }],
   hiddenCount: 1,
-  notifications: [{ repo: 'symfony/api', number: 1 }, { repo: 'zenstruck/foundry', number: 2 }],
-  debug: [{ repo: 'symfony/api' }, { repo: 'zenstruck/foundry' }],
-  approvalEvents: [{ repo: 'zenstruck/foundry' }],
+  notifications: [{ repo: 'stark/api', number: 1 }, { repo: 'zorg/forge', number: 2 }],
+  debug: [{ repo: 'stark/api' }, { repo: 'zorg/forge' }],
+  approvalEvents: [{ repo: 'zorg/forge' }],
 });
 
 test('filterDataByScope: filters all lists and recomputes hiddenCount', () => {
-  const out = filterDataByScope(data(), { type: 'org', value: 'symfony' });
+  const out = filterDataByScope(data(), { type: 'org', value: 'stark' });
   assert.deepEqual(out.mine.map((r) => r.number), [1]);
   assert.deepEqual(out.others.map((r) => r.number), [3]);
   assert.deepEqual(out.hidden, []);
   assert.equal(out.hiddenCount, 0); // recomputed, not inherited from the original 1
   assert.deepEqual(out.notifications.map((r) => r.number), [1]);
-  assert.deepEqual(out.debug, [{ repo: 'symfony/api' }]);
+  assert.deepEqual(out.debug, [{ repo: 'stark/api' }]);
 });
 
 test('filterDataByScope: precise repo scope', () => {
-  const out = filterDataByScope(data(), { type: 'repo', value: 'zenstruck/foundry' });
+  const out = filterDataByScope(data(), { type: 'repo', value: 'zorg/forge' });
   assert.deepEqual(out.mine.map((r) => r.number), [2]);
   assert.deepEqual(out.others.map((r) => r.number), [4]);
   assert.equal(out.hiddenCount, 1);
 });
 
 test('filterDataByScope: filters hiddenMine and recomputes hiddenMineCount', () => {
-  const d = { ...data(), hiddenMine: [{ repo: 'symfony/api', number: 6 }, { repo: 'zenstruck/foundry', number: 7 }], hiddenMineCount: 2 };
-  const out = filterDataByScope(d, { type: 'org', value: 'symfony' });
+  const d = { ...data(), hiddenMine: [{ repo: 'stark/api', number: 6 }, { repo: 'zorg/forge', number: 7 }], hiddenMineCount: 2 };
+  const out = filterDataByScope(d, { type: 'org', value: 'stark' });
   assert.deepEqual(out.hiddenMine.map((r) => r.number), [6]);
   assert.equal(out.hiddenMineCount, 1);
 });
 
 test('filterDataByScope: filters the issues rows too', () => {
-  const d = { ...data(), issues: [{ repo: 'symfony/api', number: 8 }, { repo: 'zenstruck/foundry', number: 9 }] };
-  const out = filterDataByScope(d, { type: 'org', value: 'symfony' });
+  const d = { ...data(), issues: [{ repo: 'stark/api', number: 8 }, { repo: 'zorg/forge', number: 9 }] };
+  const out = filterDataByScope(d, { type: 'org', value: 'stark' });
   assert.deepEqual(out.issues.map((r) => r.number), [8]);
 });
 
 test('repoInAllMode: repo covered by at least one « all » favorite (union)', () => {
-  const favorites = ['symfony', 'zenstruck/foundry'];
-  const modes = { 'zenstruck/foundry': 'all' };
-  assert.equal(repoInAllMode(favorites, modes, 'zenstruck/foundry'), true);
-  assert.equal(repoInAllMode(favorites, modes, 'zenstruck/browser'), false); // repo favorite ≠ other repo
-  assert.equal(repoInAllMode(favorites, modes, 'symfony/console'), false);   // favorite in normal mode
+  const favorites = ['stark', 'zorg/forge'];
+  const modes = { 'zorg/forge': 'all' };
+  assert.equal(repoInAllMode(favorites, modes, 'zorg/forge'), true);
+  assert.equal(repoInAllMode(favorites, modes, 'zorg/browser'), false); // repo favorite ≠ other repo
+  assert.equal(repoInAllMode(favorites, modes, 'stark/console'), false);   // favorite in normal mode
   // org favorite in « all » mode covers all its repos
-  assert.equal(repoInAllMode(favorites, { symfony: 'all' }, 'symfony/console'), true);
-  assert.equal(repoInAllMode(favorites, { symfony: 'all' }, 'zenstruck/foundry'), false);
+  assert.equal(repoInAllMode(favorites, { stark: 'all' }, 'stark/console'), true);
+  assert.equal(repoInAllMode(favorites, { stark: 'all' }, 'zorg/forge'), false);
 });
 
 test('repoInAllMode: stale key (removed favorite) or malformed modes → false', () => {
   // « all » mode on a favorite no longer in the list: ignored
-  assert.equal(repoInAllMode(['symfony'], { 'zenstruck/foundry': 'all' }, 'zenstruck/foundry'), false);
-  assert.equal(repoInAllMode(['symfony'], null, 'symfony/console'), false);
-  assert.equal(repoInAllMode(['symfony'], 'nope', 'symfony/console'), false);
-  assert.equal(repoInAllMode([], { symfony: 'all' }, 'symfony/console'), false);
+  assert.equal(repoInAllMode(['stark'], { 'zorg/forge': 'all' }, 'zorg/forge'), false);
+  assert.equal(repoInAllMode(['stark'], null, 'stark/console'), false);
+  assert.equal(repoInAllMode(['stark'], 'nope', 'stark/console'), false);
+  assert.equal(repoInAllMode([], { stark: 'all' }, 'stark/console'), false);
 });
 
 test('filterDataByScope: null scope → data unchanged (same references)', () => {
@@ -173,47 +173,47 @@ test('filterDataByScope: null scope → data unchanged (same references)', () =>
 
 test('filterDataByScope does not mutate the source data (the raw one serves the notifs)', () => {
   const d = data();
-  filterDataByScope(d, { type: 'org', value: 'symfony' });
+  filterDataByScope(d, { type: 'org', value: 'stark' });
   assert.equal(d.mine.length, 2);
   assert.equal(d.hiddenCount, 1);
 });
 
 test('filterDataByScope: the non-filtered keys are kept as-is', () => {
   // approvalEvents feeds the desktop notifs: it must not be filtered here.
-  const out = filterDataByScope(data(), { type: 'org', value: 'symfony' });
-  assert.deepEqual(out.approvalEvents, [{ repo: 'zenstruck/foundry' }]);
+  const out = filterDataByScope(data(), { type: 'org', value: 'stark' });
+  assert.deepEqual(out.approvalEvents, [{ repo: 'zorg/forge' }]);
 });
 
 test('favoriteLabel: org → « org/* », repo unchanged (display only)', () => {
-  assert.equal(favoriteLabel('symfony'), 'symfony/*');
-  assert.equal(favoriteLabel('noctud/collection'), 'noctud/collection');
-  assert.equal(favoriteLabel(' zenstruck '), 'zenstruck/*');
+  assert.equal(favoriteLabel('stark'), 'stark/*');
+  assert.equal(favoriteLabel('nakatomi/collection'), 'nakatomi/collection');
+  assert.equal(favoriteLabel(' zorg '), 'zorg/*');
   assert.equal(favoriteLabel(''), '');
   assert.equal(favoriteLabel(null), '');
 });
 
 test('favoriteCounts: one counter per panel (mine/others/issues) per favorite + total, on the raw union', () => {
   const data = {
-    mine: [{ repo: 'symfony/api' }],
+    mine: [{ repo: 'stark/api' }],
     others: [
-      { repo: 'symfony/api' }, { repo: 'symfony/front' },
-      { repo: 'noctud/collection' }, { repo: 'zenstruck/foundry' },
+      { repo: 'stark/api' }, { repo: 'stark/front' },
+      { repo: 'nakatomi/collection' }, { repo: 'zorg/forge' },
     ],
-    issues: [{ repo: 'zenstruck/foundry' }],
+    issues: [{ repo: 'zorg/forge' }],
   };
-  const { total, byFav } = favoriteCounts(['symfony', 'noctud/collection', 'zenstruck'], data);
+  const { total, byFav } = favoriteCounts(['stark', 'nakatomi/collection', 'zorg'], data);
   assert.deepEqual(total, { mine: 1, others: 4, issues: 1 });
   assert.deepEqual(byFav, {
-    symfony: { mine: 1, others: 2, issues: 0 },
-    'noctud/collection': { mine: 0, others: 1, issues: 0 },
-    zenstruck: { mine: 0, others: 1, issues: 1 },
+    stark: { mine: 1, others: 2, issues: 0 },
+    'nakatomi/collection': { mine: 0, others: 1, issues: 0 },
+    zorg: { mine: 0, others: 1, issues: 1 },
   });
 });
 
 test('favoriteCounts: empty/invalid list or data → zeros, no crash', () => {
   const zero = { mine: 0, others: 0, issues: 0 };
   assert.deepEqual(favoriteCounts([], {}), { total: zero, byFav: {} });
-  assert.deepEqual(favoriteCounts(['symfony'], null), { total: zero, byFav: { symfony: zero } });
+  assert.deepEqual(favoriteCounts(['stark'], null), { total: zero, byFav: { stark: zero } });
   assert.deepEqual(
     favoriteCounts(null, { others: [{ repo: 'a/b' }] }),
     { total: { mine: 0, others: 1, issues: 0 }, byFav: {} },
@@ -228,13 +228,13 @@ test('closedPRsUrl: without scope → internal search page, author:@me is:closed
 });
 
 test('closedPRsUrl: org / repo scope → qualifier added (encoded)', () => {
-  assert.ok(closedPRsUrl({ type: 'org', value: 'symfony' }).endsWith('%20org%3Asymfony'));
-  assert.ok(closedPRsUrl({ type: 'repo', value: 'noctud/collection' }).endsWith('%20repo%3Anoctud%2Fcollection'));
+  assert.ok(closedPRsUrl({ type: 'org', value: 'stark' }).endsWith('%20org%3Astark'));
+  assert.ok(closedPRsUrl({ type: 'repo', value: 'nakatomi/collection' }).endsWith('%20repo%3Anakatomi%2Fcollection'));
 });
 
 test('closedPRsUrl: union of scopes → all qualifiers (OR-ed by GitHub)', () => {
-  const url = closedPRsUrl([{ type: 'org', value: 'symfony' }, { type: 'repo', value: 'a/b' }]);
-  assert.ok(url.includes('org%3Asymfony'));
+  const url = closedPRsUrl([{ type: 'org', value: 'stark' }, { type: 'repo', value: 'a/b' }]);
+  assert.ok(url.includes('org%3Astark'));
   assert.ok(url.includes('repo%3Aa%2Fb'));
 });
 
@@ -243,15 +243,15 @@ test('reviewedPRsUrl: internal search page, reviewed-by:@me -author:@me, context
     reviewedPRsUrl(null),
     '/search?q=is%3Apr%20reviewed-by%3A%40me%20-author%3A%40me',
   );
-  assert.ok(reviewedPRsUrl({ type: 'org', value: 'symfony' }).endsWith('%20org%3Asymfony'));
+  assert.ok(reviewedPRsUrl({ type: 'org', value: 'stark' }).endsWith('%20org%3Astark'));
 });
 
 test('reviewCoverageQueries: others\' PRs I reviewed vs my PRs merged, both over a sliding year', () => {
   const now = Date.parse('2026-09-28T10:00:00Z');
-  const q = reviewCoverageQueries({ type: 'org', value: 'symfony' }, now);
-  assert.equal(q.reviewed, 'is:pr merged:>=2025-09-28 reviewed-by:@me -author:@me org:symfony');
-  assert.equal(q.merged, 'is:pr merged:>=2025-09-28 author:@me org:symfony');
-  assert.equal(q.key, ' org:symfony', 'cache key = scope only (the date moves daily)');
+  const q = reviewCoverageQueries({ type: 'org', value: 'stark' }, now);
+  assert.equal(q.reviewed, 'is:pr merged:>=2025-09-28 reviewed-by:@me -author:@me org:stark');
+  assert.equal(q.merged, 'is:pr merged:>=2025-09-28 author:@me org:stark');
+  assert.equal(q.key, ' org:stark', 'cache key = scope only (the date moves daily)');
   assert.equal(reviewCoverageQueries(null, now).merged, 'is:pr merged:>=2025-09-28 author:@me');
 });
 
@@ -261,13 +261,13 @@ test('reviewCoverageQueries: stays under the 256-char search cap at the favorite
 });
 
 test('parseScope: « owner/* » (the org label) and « owner/ » mean the org, not a repo', () => {
-  assert.deepEqual(parseScope('mapado/*'), { type: 'org', value: 'mapado' });
-  assert.deepEqual(parseScope(' mapado/ '), { type: 'org', value: 'mapado' });
-  assert.deepEqual(parseScope('mapado/ticketing'), { type: 'repo', value: 'mapado/ticketing' });
+  assert.deepEqual(parseScope('acme/*'), { type: 'org', value: 'acme' });
+  assert.deepEqual(parseScope(' acme/ '), { type: 'org', value: 'acme' });
+  assert.deepEqual(parseScope('acme/api'), { type: 'repo', value: 'acme/api' });
 });
 
 test('addFavorite/removeFavorite: « owner/* » is stored and removed as the bare org', () => {
-  assert.deepEqual(addFavorite(['mapado'], 'mapado/*'), ['mapado'], 'no duplicate');
-  assert.deepEqual(addFavorite([], 'mapado/*'), ['mapado']);
-  assert.deepEqual(removeFavorite(['mapado'], 'mapado/*'), []);
+  assert.deepEqual(addFavorite(['acme'], 'acme/*'), ['acme'], 'no duplicate');
+  assert.deepEqual(addFavorite([], 'acme/*'), ['acme']);
+  assert.deepEqual(removeFavorite(['acme'], 'acme/*'), []);
 });

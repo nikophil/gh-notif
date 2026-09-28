@@ -72,7 +72,7 @@ export function checksByRepo(rows) {
 }
 
 // ── Terminal helper for `gh notif fav list` ───────────────────────────────
-// Favorites bar: « ⭐ all · [symfony] · zenstruck », the active one in brackets
+// Favorites bar: « ⭐ all · [stark] · zorg », the active one in brackets
 // and bold. Empty list → empty string. Color auto-disabled outside a TTY.
 export function favoritesBar(favorites, active, opts) {
   const o = resolveOpts(opts);

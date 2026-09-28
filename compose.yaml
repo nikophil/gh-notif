@@ -10,7 +10,7 @@ services:
     volumes:
       - state:/data
     # Any `gh notif` flag, e.g. a favorite or a slower poll:
-    # command: ["--fav", "symfony", "--interval", "120"]
+    # command: ["--fav", "stark", "--interval", "120"]
 
 volumes:
   state:

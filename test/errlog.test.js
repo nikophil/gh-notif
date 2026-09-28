@@ -8,7 +8,7 @@ import { ERRORS_MAX, errorLine, isServerError, errorDetails, recordError, loadEr
 const ghError = (code, stderr, body = null) => Object.assign(new Error(`Command failed: gh api x\n${stderr}`), { ghCode: code, stderr, body });
 
 const GQL_500 = 'gh: Something went wrong while executing your query on 2026-09-16T14:02:42Z. Please include `54E2:3F3F47:BD0BD5A` when reporting this issue.';
-const GQL_ARGS = ['api', 'graphql', '-f', 'query=query {\np0: repository(owner: "mapado", name: "ticketing") { pullRequest(number: 7458) { ...stale } }\np1: repository(owner: "zenstruck", name: "foundry") { pullRequest(number: 892) { ...stale } }\n}\nfragment stale on PullRequest { number }'];
+const GQL_ARGS = ['api', 'graphql', '-f', 'query=query {\np0: repository(owner: "acme", name: "api") { pullRequest(number: 7458) { ...stale } }\np1: repository(owner: "zorg", name: "forge") { pullRequest(number: 892) { ...stale } }\n}\nfragment stale on PullRequest { number }'];
 
 test('isServerError: 5xx and the GraphQL internal error are GitHub-side; the rest is not', () => {
   assert.equal(isServerError('gh: Bad Gateway (HTTP 502)'), true);
@@ -21,7 +21,7 @@ test('isServerError: 5xx and the GraphQL internal error are GitHub-side; the res
 
 test('errorDetails: GraphQL errors → type + the PR behind the alias + batch size; nothing for REST', () => {
   const body = { data: { p0: null, p1: { pullRequest: { number: 892 } } }, errors: [{ path: ['p0'], message: 'Something went wrong' }, { type: 'NOT_FOUND', path: ['p1', 'pullRequest'], message: 'x' }] };
-  assert.equal(errorDetails(ghError('GH-GRAPHQL', GQL_500, body), GQL_ARGS), 'ERROR mapado/ticketing#7458, NOT_FOUND zenstruck/foundry#892 — batch of 2 PRs');
+  assert.equal(errorDetails(ghError('GH-GRAPHQL', GQL_500, body), GQL_ARGS), 'ERROR acme/api#7458, NOT_FOUND zorg/forge#892 — batch of 2 PRs');
   assert.equal(errorDetails(ghError('GH-SEARCH', 'HTTP 403', { message: 'rate limited' }), ['api', 'search/issues']), '');
   assert.equal(errorDetails(ghError('GH-SEARCH', 'HTTP 403'), []), '');
   const many = { errors: Array.from({ length: 7 }, (_, i) => ({ type: 'T', path: [`p${i}`] })) };
@@ -49,7 +49,7 @@ test('recordError: a GitHub-side error is flagged, the GraphQL details are kept'
   const body = { data: { p0: null, p1: { pullRequest: { number: 892 } } }, errors: [{ path: ['p0'], message: 'Something went wrong' }] };
   recordError(entries, ghError('GH-GRAPHQL', GQL_500, body), GQL_ARGS, 1000);
   assert.equal(entries[0].server, true);
-  assert.equal(entries[0].details, 'ERROR mapado/ticketing#7458 — batch of 2 PRs');
+  assert.equal(entries[0].details, 'ERROR acme/api#7458 — batch of 2 PRs');
   recordError(entries, ghError('GH-NOTIFS', 'gh: Bad Gateway (HTTP 502)'), ['api', '/notifications'], 2000);
   assert.equal(entries[0].server, true);
   assert.equal(entries[0].details, '');

@@ -75,16 +75,16 @@ test('writing favorites loses neither notify nor theme (overwritten-key pitfall)
   savePrefs(p, { notify: false, theme: 'dark' });
   // The right way: mutate the loaded object then re-write it IN FULL.
   const prefs = loadPrefs(p);
-  prefs.favorites = ['symfony'];
-  prefs.activeFav = 'symfony';
+  prefs.favorites = ['stark'];
+  prefs.activeFav = 'stark';
   savePrefs(p, prefs);
-  assert.deepEqual(loadPrefs(p), { notify: false, theme: 'dark', favorites: ['symfony'], activeFav: 'symfony', sort: null, sortMine: null, ignoredChecks: {}, favModes: {} });
+  assert.deepEqual(loadPrefs(p), { notify: false, theme: 'dark', favorites: ['stark'], activeFav: 'stark', sort: null, sortMine: null, ignoredChecks: {}, favModes: {} });
   rmSync(dir, { recursive: true, force: true });
 });
 
 test('loadPrefs: the favorites array is not shared between calls', () => {
   const a = loadPrefs('/nope/nope/prefs.json');
-  a.favorites.push('symfony'); // accidental mutation of the first object
+  a.favorites.push('stark'); // accidental mutation of the first object
   assert.deepEqual(loadPrefs('/nope/nope/prefs.json').favorites, []); // DEFAULTS intact
 });
 
@@ -118,15 +118,15 @@ test('ignoredChecksOf: map empty by default, tolerates absent/malformed', () => 
   assert.deepEqual(ignoredChecksOf({}), {});
   assert.deepEqual(ignoredChecksOf({ ignoredChecks: null }), {});
   assert.deepEqual(ignoredChecksOf({ ignoredChecks: 'nope' }), {}); // invalid type → {}
-  const m = { 'symfony/ticketing': ['Check Pull Requests label for merge block'] };
+  const m = { 'stark/tracker': ['Check Pull Requests label for merge block'] };
   assert.deepEqual(ignoredChecksOf({ ignoredChecks: m }), m);
 });
 
 test('ignoredChecksFor: list of a repo ignored jobs ([] if absent/invalid)', () => {
-  const prefs = { ignoredChecks: { 'symfony/ticketing': ['Check Pull Requests label for merge block'] } };
-  assert.deepEqual(ignoredChecksFor(prefs, 'symfony/ticketing'), ['Check Pull Requests label for merge block']);
+  const prefs = { ignoredChecks: { 'stark/tracker': ['Check Pull Requests label for merge block'] } };
+  assert.deepEqual(ignoredChecksFor(prefs, 'stark/tracker'), ['Check Pull Requests label for merge block']);
   assert.deepEqual(ignoredChecksFor(prefs, 'other/repo'), []);
-  assert.deepEqual(ignoredChecksFor({}, 'symfony/ticketing'), []);
+  assert.deepEqual(ignoredChecksFor({}, 'stark/tracker'), []);
   assert.deepEqual(ignoredChecksFor({ ignoredChecks: { 'o/r': 'oops' } }, 'o/r'), []); // non-array value → []
 });
 
@@ -145,16 +145,16 @@ test('ignoredChecks: round-trip and fresh instance (no shared reference)', () =>
 test('toggleIgnoredCheck: adds, removes, creates the repo, deletes the key if empty', () => {
   const prefs = { ignoredChecks: {} };
   // add (creates the repo)
-  toggleIgnoredCheck(prefs, 'symfony/ticketing', 'behat');
-  assert.deepEqual(prefs.ignoredChecks, { 'symfony/ticketing': ['behat'] });
+  toggleIgnoredCheck(prefs, 'stark/tracker', 'behat');
+  assert.deepEqual(prefs.ignoredChecks, { 'stark/tracker': ['behat'] });
   // add a second one
-  toggleIgnoredCheck(prefs, 'symfony/ticketing', 'phpstan');
-  assert.deepEqual(prefs.ignoredChecks['symfony/ticketing'], ['behat', 'phpstan']);
+  toggleIgnoredCheck(prefs, 'stark/tracker', 'phpstan');
+  assert.deepEqual(prefs.ignoredChecks['stark/tracker'], ['behat', 'phpstan']);
   // remove behat
-  toggleIgnoredCheck(prefs, 'symfony/ticketing', 'behat');
-  assert.deepEqual(prefs.ignoredChecks['symfony/ticketing'], ['phpstan']);
+  toggleIgnoredCheck(prefs, 'stark/tracker', 'behat');
+  assert.deepEqual(prefs.ignoredChecks['stark/tracker'], ['phpstan']);
   // remove the last one → the repo key disappears (clean map)
-  toggleIgnoredCheck(prefs, 'symfony/ticketing', 'phpstan');
+  toggleIgnoredCheck(prefs, 'stark/tracker', 'phpstan');
   assert.deepEqual(prefs.ignoredChecks, {});
 });
 
@@ -164,27 +164,27 @@ test('favModesOf: empty map by default, tolerates absent/malformed', () => {
   assert.deepEqual(favModesOf({ favModes: null }), {});
   assert.deepEqual(favModesOf({ favModes: 'nope' }), {}); // invalid type → {}
   assert.deepEqual(favModesOf({ favModes: ['all'] }), {}); // array → {}
-  const m = { 'zenstruck/foundry': 'all' };
+  const m = { 'zorg/forge': 'all' };
   assert.deepEqual(favModesOf({ favModes: m }), m);
 });
 
 test('toggleFavMode: enables « all » mode, disabling deletes the key (clean map)', () => {
   const prefs = { favModes: {} };
-  toggleFavMode(prefs, 'zenstruck/foundry');
-  assert.deepEqual(prefs.favModes, { 'zenstruck/foundry': 'all' });
-  toggleFavMode(prefs, 'symfony');
-  assert.deepEqual(prefs.favModes, { 'zenstruck/foundry': 'all', symfony: 'all' });
-  toggleFavMode(prefs, 'zenstruck/foundry'); // back to normal → key removed
-  assert.deepEqual(prefs.favModes, { symfony: 'all' });
+  toggleFavMode(prefs, 'zorg/forge');
+  assert.deepEqual(prefs.favModes, { 'zorg/forge': 'all' });
+  toggleFavMode(prefs, 'stark');
+  assert.deepEqual(prefs.favModes, { 'zorg/forge': 'all', stark: 'all' });
+  toggleFavMode(prefs, 'zorg/forge'); // back to normal → key removed
+  assert.deepEqual(prefs.favModes, { stark: 'all' });
 });
 
 test('toggleFavMode: tolerates absent/malformed favModes', () => {
   const prefs = {};
-  toggleFavMode(prefs, 'symfony');
-  assert.deepEqual(prefs.favModes, { symfony: 'all' }); // created
+  toggleFavMode(prefs, 'stark');
+  assert.deepEqual(prefs.favModes, { stark: 'all' }); // created
   const broken = { favModes: 'oops' };
-  toggleFavMode(broken, 'symfony');
-  assert.deepEqual(broken.favModes, { symfony: 'all' }); // replaced by a real map
+  toggleFavMode(broken, 'stark');
+  assert.deepEqual(broken.favModes, { stark: 'all' }); // replaced by a real map
 });
 
 test('favModes: round-trip without losing the other keys, fresh instance', () => {
@@ -192,15 +192,15 @@ test('favModes: round-trip without losing the other keys, fresh instance', () =>
   const p = join(dir, 'prefs.json');
   savePrefs(p, { notify: false, theme: 'dark' });
   const prefs = loadPrefs(p);
-  toggleFavMode(prefs, 'zenstruck/foundry');
+  toggleFavMode(prefs, 'zorg/forge');
   savePrefs(p, prefs); // mutate + rewrite IN FULL (usual pitfall)
   const back = loadPrefs(p);
-  assert.deepEqual(back.favModes, { 'zenstruck/foundry': 'all' });
+  assert.deepEqual(back.favModes, { 'zorg/forge': 'all' });
   assert.equal(back.notify, false);
   assert.equal(back.theme, 'dark');
   // two loadPrefs of a missing file don't share the same map
   const a = loadPrefs('/nope/x');
-  a.favModes.symfony = 'all';
+  a.favModes.stark = 'all';
   assert.deepEqual(loadPrefs('/nope/x').favModes, {});
   rmSync(dir, { recursive: true, force: true });
 });
