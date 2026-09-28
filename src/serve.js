@@ -22,7 +22,7 @@ import { sendNotification, browserEvent } from './notify.js';
 import { isRateLimitError, nextBackoffSeconds } from './ratelimit.js';
 import { isServerError, errorLine } from './errlog.js';
 import { startSpinner } from './spinner.js';
-import { renderShell, renderFragment, renderLoading, renderDebug, renderDebugShell, renderErrorsSection, renderFavorites, renderSearchShell, renderSearchFragment, renderUpdateBanner, escapeHtml } from './html.js';
+import { renderShell, renderFragment, renderLoading, renderDebug, renderDebugShell, renderErrorsSection, renderFavorites, renderSearchShell, renderSearchFragment, renderUpdateBanner, renderStaleBanner, escapeHtml } from './html.js';
 import { UPGRADE_COMMANDS } from './update.js';
 
 const POLL_SECONDS = 60;
@@ -101,8 +101,11 @@ function fragmentBody(snapshot, opts = {}) {
 }
 
 function fragmentTables(snapshot, { now, showHidden, viewScope = null, closedUrl = null, reviewedUrl = null, reviewCoverage = null, sort = null, sortMine = null, ignoredChecks = {}, stacks = null, cols = null } = {}) {
-  if (snapshot.error) return `<p class="empty offline">⚠️ Error: ${escapeHtml(snapshot.error)}</p>`;
+  // A failed poll only takes the page over when there is nothing to show yet;
+  // otherwise the last good tables stay, under a « stale » banner (§39).
+  if (snapshot.error && !snapshot.updatedAt) return `<p class="empty offline">⚠️ Error: ${escapeHtml(snapshot.error)}</p>`;
   if (!snapshot.updatedAt) return renderLoading(viewScope?.value ?? '');
+  const stale = renderStaleBanner(snapshot.error, snapshot.updatedAt, now);
   let data = filterDataByScope(snapshot.data ?? { mine: [], others: [] }, viewScope);
   // Display sort of the « others » table (the hidden ones follow, consistency in
   // ?hidden=1 mode) and of « Your PRs » (independent state, its own key set).
@@ -134,7 +137,7 @@ function fragmentTables(snapshot, { now, showHidden, viewScope = null, closedUrl
   // verdict itself was already recomputed at collection (§16).
   // An org favorite implies the owner → the Repository column drops it.
   const repoOwner = viewScope?.type === 'org' ? viewScope.value : null;
-  return renderFragment(data, { now, showHidden, closedUrl, reviewedUrl, reviewCoverage, sort, sortMine, ignoredChecks, stacks: stk, cols, repoOwner });
+  return stale + renderFragment(data, { now, showHidden, closedUrl, reviewedUrl, reviewCoverage, sort, sortMine, ignoredChecks, stacks: stk, cols, repoOwner });
 }
 
 // Scope(s) that the view DISPLAYS, to contextualize the « closed ↗ » link:
@@ -152,12 +155,13 @@ function debugBody(snapshot, { now, viewScope = null, ignoredChecks = {}, errors
   return debugMain(snapshot, { now, viewScope, ignoredChecks }) + renderErrorsSection(errors, now);
 }
 function debugMain(snapshot, { now, viewScope, ignoredChecks }) {
-  if (snapshot.error) return `<p class="empty offline">⚠️ Error: ${escapeHtml(snapshot.error)}</p>`;
+  if (snapshot.error && !snapshot.updatedAt) return `<p class="empty offline">⚠️ Error: ${escapeHtml(snapshot.error)}</p>`;
   if (!snapshot.updatedAt) return renderLoading(viewScope?.value ?? '');
+  const stale = renderStaleBanner(snapshot.error, snapshot.updatedAt, now);
   const data = filterDataByScope(snapshot.data ?? {}, viewScope);
   // rows = mine + others (hidden included) → « Checks by PR » section (job names for the blocklist).
   const rows = [...(data.mine ?? []), ...(data.hiddenMine ?? []), ...(data.others ?? []), ...(data.hidden ?? [])];
-  return renderDebug(data?.debug ?? [], { now, rows, ignoredChecks });
+  return stale + renderDebug(data?.debug ?? [], { now, rows, ignoredChecks });
 }
 
 // Routing of the reads (GET) — pure, no I/O. Testable without a socket.

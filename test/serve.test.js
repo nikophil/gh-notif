@@ -37,6 +37,26 @@ test('GET /fragment (snapshot in error) → 200, escaped message, no crash', () 
   assert.ok(!res.body.includes('<x>'), 'error message escaped');
 });
 
+test('GET /fragment : failed poll AFTER a good one → last tables kept + « stale » banner', () => {
+  const snap = { data: { mine: [{ repo: 'o/r', number: 1, url: 'u', title: 'kept row', triggers: [], state: 'open' }], others: [] }, updatedAt: NOW - 3 * 60000, error: '[GH-SEARCH] connection reset <x>' };
+  const res = handleRequest('/fragment', snap, OPTS);
+  assert.match(res.body, /class="update stale">⚠️ Last update failed — showing data from 3min ago\./);
+  assert.match(res.body, /\[GH-SEARCH\] connection reset &lt;x&gt;/, 'error escaped');
+  assert.match(res.body, /kept row/, 'tables still rendered');
+  assert.ok(!res.body.includes('class="empty offline"'));
+});
+
+test('GET /fragment : no error → no stale banner', () => {
+  const res = handleRequest('/fragment', { data: { mine: [], others: [] }, updatedAt: NOW, error: null }, OPTS);
+  assert.ok(!res.body.includes('Last update failed'));
+});
+
+test('GET /debug-fragment : failed poll after a good one → banner + debug still rendered', () => {
+  const res = handleRequest('/debug-fragment', { data: { mine: [], others: [], debug: [] }, updatedAt: NOW - 60000, error: 'boom' }, OPTS);
+  assert.match(res.body, /Last update failed/);
+  assert.ok(!res.body.includes('class="empty offline"'));
+});
+
 test('GET /fragment before the first poll (updatedAt null) → loading spinner', () => {
   const res = handleRequest('/fragment', { data: null, updatedAt: null, error: null }, OPTS);
   assert.equal(res.status, 200);

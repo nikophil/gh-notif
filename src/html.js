@@ -810,6 +810,15 @@ export function renderLoading(scopeLabel = '') {
 // `tag` newer than the installed extension is published. Nothing is installed
 // for the user: the block just shows the commands to run, each with its copy
 // button. Falsy `tag` → empty string (no visual change).
+// A failed poll AFTER a successful one (network blip, rate-limit, 5xx): the
+// last good tables stay on screen and this banner says they are stale and why.
+// Only a failure with no data at all yet replaces the tables (fragmentTables).
+export function renderStaleBanner(error, updatedAt, now = Date.now()) {
+  if (!error || !updatedAt) return '';
+  const age = relativeDate(new Date(updatedAt).toISOString(), now);
+  return `<p class="update stale">⚠️ Last update failed — showing data from ${age}. <span class="stale-err">${escapeHtml(error)}</span></p>`;
+}
+
 export function renderUpdateBanner(tag, commands = []) {
   if (!tag) return '';
   const cmds = commands.map((c) => `<span class="cmd"><code>${escapeHtml(c)}</code>${copyBtn(c, 'Copy command')}</span>`).join('');
@@ -1236,6 +1245,9 @@ ${FAVICON}
             border: 1px solid color-mix(in srgb, var(--attention) 40%, var(--canvas));
             display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .5rem; }
   .update .cmd { display: inline-flex; align-items: center; }
+  .update.stale { background: color-mix(in srgb, var(--danger) 8%, var(--canvas));
+                  border-color: color-mix(in srgb, var(--danger) 35%, var(--canvas)); }
+  .update.stale .stale-err { color: var(--fg-muted); font-size: .75rem; overflow-wrap: anywhere; }
   .update code { font-size: .75rem; padding: .1rem .4rem; border-radius: 4px;
                  background: var(--canvas-subtle); border: 1px solid var(--border); }
   .update button.copy { opacity: .7; }

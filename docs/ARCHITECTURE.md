@@ -1222,6 +1222,17 @@ sequenceDiagram
     absent or `merged = 0` → nothing (byte-identical compat).
     `reviewed-by` counts any submitted review, comment-only included (GitHub's semantics).
 
+39. **A failed poll never hides the tables (stale banner).** Before, any poll error
+    (network blip, rate-limit, 5xx) set `snapshot.error` and `fragmentTables` replaced the whole
+    page with the message — one `connection reset by peer` and every PR vanished for a minute.
+    Now the full-page error only shows when there is **nothing to show yet** (`updatedAt`
+    null, i.e. the very first poll failed); otherwise the last good data stays (collection
+    never clears `snapshot.data` on failure) under `renderStaleBanner` (html.js): « ⚠️ Last
+    update failed — showing data from 3min ago. <error with its GH code> », red-tinted variant
+    of the `.update` banner. Same rule on `/debug`. `updatedAt` keeps the last **success**, so
+    the header stamp (`upd HH:MM:SS`) was already honest and still is; the next successful
+    poll clears `error` and the banner.
+
 ## Test conventions
 
 - Pure logic (`filter`, `render` helpers, `state`, `collect`, `ciRollup`, `scope`): fixtures, no
