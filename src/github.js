@@ -313,6 +313,13 @@ export function makeGh(runner = defaultRunner, { onError = () => {} } = {}) {
     async searchAuthored(qualifier = '') {
       return searchIssues(`is:open is:pr author:@me${qualifier}`);
     },
+    // Review coverage (§38): only GitHub's total_count matters → one page of 1.
+    // A timed-out search (incomplete_results) undercounts → thrown, never cached.
+    async countPRs(q) {
+      const out = parseJson(await run('SEARCH', ['api', '-X', 'GET', 'search/issues', '-f', `q=${q}`, '-f', 'per_page=1']));
+      if (out?.incomplete_results) throw new Error(`incomplete search count (${q})`);
+      return out?.total_count ?? 0;
+    },
     // Search page (§29): free query → the `max` most recently UPDATED matches
     // (GitHub-side order; our own sort applies downstream on that capped set)
     // + GitHub's total_count, so the page can say « 200 of 1234 ».

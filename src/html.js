@@ -697,16 +697,43 @@ function issuesTable(rows, now, owner = null) {
 // is provided, the « Your PRs » section is rendered even empty (access to history).
 // `reviewedUrl` (optional): same contract for the « others » section — external
 // « my reviews ↗ » link to the PRs I reviewed (cf. reviewedPRsUrl).
+// `reviewCoverage` (optional) = `{ reviewed, merged }` counts (§38): « 1.76 reviews/merge (804/457) »
+// next to that link; absent or merged = 0 → nothing (compat).
 // `sort` (optional) = sort state `{key,dir}` of the « others » table — clickable
 // headers + indicator; absent → bare th (compat). `sortMine` (optional) = same
 // for « Your PRs » (Opened/Updated columns only), independent state.
 // `ignoredChecks` (optional) = per-repo blocklist (§16): strikes the ignored
 // checks inside the CI popover.
+// Review ratio color (§38): GitHub label hex (no #), then the same Primer
+// recipe as the PR labels (labelColors). ≥ 2 = I review twice what I ship →
+// light green; below, a ramp down to red.
+export const RATIO_COLORS = [
+  [2, 'a2eeae'],
+  [1.5, 'd4ed8e'],
+  [1, 'fbca04'],
+  [0.5, 'f9a55a'],
+  [0, 'd73a4a'],
+];
+export function ratioColor(ratio) {
+  return RATIO_COLORS.find(([min]) => ratio >= min)[1];
+}
+
+// « ratio: 1.76 » GitHub-label pill — PRs I reviewed / PRs of mine merged,
+// sliding year (§38). Counts only (integers from GitHub), nothing to escape.
+function coverageBadge(c) {
+  if (!c || !(c.merged > 0)) return '';
+  const ratio = c.reviewed / c.merged;
+  const k = labelColors(ratioColor(ratio));
+  const style = `--lbl-bg-l:${k.bgLight};--lbl-fg-l:${k.fgLight};--lbl-bg-d:${k.bgDark};--lbl-fg-d:${k.fgDark};--lbl-bd-d:${k.bdDark}`;
+  return ` <span class="lbl ratio" style="${style}" title="reviewed: ${c.reviewed} - merged: ${c.merged} (last 12 months)">ratio: ${ratio.toFixed(2)}</span>`;
+}
+
 export function renderFragment(data, opts = {}) {
   const now = opts.now ?? Date.now();
   const showHidden = !!opts.showHidden;
   const closedUrl = opts.closedUrl ?? null;
   const reviewedUrl = opts.reviewedUrl ?? null;
+  const coverage = opts.reviewCoverage ?? null;
   const sort = opts.sort ?? null;
   const sortMine = opts.sortMine ?? null;
   const ignoredChecks = opts.ignoredChecks ?? {};
@@ -744,7 +771,7 @@ export function renderFragment(data, opts = {}) {
   }
   if (others.length > 0 || reviewedUrl || (showHidden && hiddenCount > 0)) {
     const hist = reviewedUrl
-      ? ` <a class="hist" href="${escapeHtml(reviewedUrl)}" target="_blank" rel="noopener">my reviews ↗</a>`
+      ? ` <a class="hist" href="${escapeHtml(reviewedUrl)}" target="_blank" rel="noopener">my reviews ↗</a>${coverageBadge(coverage)}`
       : '';
     const count =
       hiddenCount > 0
@@ -1005,6 +1032,7 @@ ${FAVICON}
   /* « closed ↗ » link: discreet in the section title. */
   h2 .hist { font-size: .75rem; font-weight: 400; color: var(--fg-muted); }
   h2 .hist:hover { color: var(--accent); }
+  h2 .lbl.ratio { vertical-align: middle; cursor: help; }
   table { border-collapse: collapse; width: 100%; }
   th, td { text-align: left; padding: .5rem 1rem; border-bottom: 1px solid var(--border-muted); white-space: nowrap; }
   /* Content-sized columns (figures, icons — FIT_COLS): half the gutter. */

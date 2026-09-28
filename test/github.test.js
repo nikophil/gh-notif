@@ -566,3 +566,17 @@ test('getStaleSignals: empty input → no request; a failed request → nulls (n
   const failing = makeGh(async () => { throw new Error('boom'); });
   assert.deepEqual(await failing.getStaleSignals([{ repo: 'o/r', number: 7 }]), [null]);
 });
+
+test('countPRs: one page of 1, returns total_count', async () => {
+  const runner = fakeRunner([['search/issues', JSON.stringify({ total_count: 42, incomplete_results: false, items: [{}] })]]);
+  const gh = makeGh(runner);
+  assert.equal(await gh.countPRs('is:pr reviewed-by:@me'), 42);
+  const args = runner.calls[0].join(' ');
+  assert.ok(args.includes('q=is:pr reviewed-by:@me'));
+  assert.ok(args.includes('per_page=1'));
+});
+
+test('countPRs: a timed-out search (incomplete_results) throws — an undercount must not be cached', async () => {
+  const gh = makeGh(fakeRunner([['search/issues', JSON.stringify({ total_count: 3, incomplete_results: true, items: [] })]]));
+  await assert.rejects(gh.countPRs('is:pr'), /incomplete/);
+});

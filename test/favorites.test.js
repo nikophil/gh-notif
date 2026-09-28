@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   MAX_QUALIFIER_LENGTH, parseScope, normalizeFavorites, addFavorite, removeFavorite,
   favoriteScopes, activeFavoriteOf, cycleFavorite, filterDataByScope, favoriteLabel, favoriteCounts,
-  closedPRsUrl, reviewedPRsUrl, repoInAllMode,
+  closedPRsUrl, reviewedPRsUrl, reviewCoverageQueries, repoInAllMode,
 } from '../src/favorites.js';
 import { scopesQualifier } from '../src/collect.js';
 
@@ -244,6 +244,20 @@ test('reviewedPRsUrl: internal search page, reviewed-by:@me -author:@me, context
     '/search?q=is%3Apr%20reviewed-by%3A%40me%20-author%3A%40me',
   );
   assert.ok(reviewedPRsUrl({ type: 'org', value: 'symfony' }).endsWith('%20org%3Asymfony'));
+});
+
+test('reviewCoverageQueries: others\' PRs I reviewed vs my PRs merged, both over a sliding year', () => {
+  const now = Date.parse('2026-09-28T10:00:00Z');
+  const q = reviewCoverageQueries({ type: 'org', value: 'symfony' }, now);
+  assert.equal(q.reviewed, 'is:pr merged:>=2025-09-28 reviewed-by:@me -author:@me org:symfony');
+  assert.equal(q.merged, 'is:pr merged:>=2025-09-28 author:@me org:symfony');
+  assert.equal(q.key, ' org:symfony', 'cache key = scope only (the date moves daily)');
+  assert.equal(reviewCoverageQueries(null, now).merged, 'is:pr merged:>=2025-09-28 author:@me');
+});
+
+test('reviewCoverageQueries: stays under the 256-char search cap at the favorites budget', () => {
+  const q = reviewCoverageQueries(null, 0);
+  assert.ok(q.reviewed.length + MAX_QUALIFIER_LENGTH <= 256);
 });
 
 test('parseScope: « owner/* » (the org label) and « owner/ » mean the org, not a repo', () => {

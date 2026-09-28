@@ -157,6 +157,23 @@ export function reviewedPRsUrl(scopes) {
   return `/search?q=${encodeURIComponent(`is:pr reviewed-by:@me -author:@me${scopesQualifier(scopes)}`)}`;
 }
 
+// Review ratio (§38): the two searches whose GitHub `total_count` give « PRs I
+// reviewed / PRs of mine merged », both over a sliding year (merged date on
+// both sides). `merged:>=` implies is:merged (dropped to stay under the
+// 256-char query cap with MAX_QUALIFIER_LENGTH). `key` = cache key — the
+// scope alone, the date moves daily.
+export const COVERAGE_DAYS = 365;
+export function reviewCoverageQueries(scopes, now = Date.now()) {
+  const since = new Date(now - COVERAGE_DAYS * 86400000).toISOString().slice(0, 10);
+  const qualifier = scopesQualifier(scopes);
+  const base = `is:pr merged:>=${since}`;
+  return {
+    key: qualifier,
+    reviewed: `${base} reviewed-by:@me -author:@me${qualifier}`,
+    merged: `${base} author:@me${qualifier}`,
+  };
+}
+
 // DISPLAY filter: restricts already-collected data to a scope.
 // ⚠️ Apply only downstream of collectPRs AND notifyNew — filtering upstream
 // would break the desktop notifs of inactive favorites, the pruning of `hidden`

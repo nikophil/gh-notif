@@ -657,6 +657,11 @@ test('POST /refresh right after a poll → no new GitHub collection', async () =
 });
 
 // ── /view (handleRequest, pure) ─────────────────────────────────────────────
+test('GET /view : reviewCoverage opt → « ratio (counts) » in the fragment', () => {
+  const d = JSON.parse(handleRequest('/view', mixedSnapshot(), { ...OPTS, reviewCoverage: { reviewed: 1, merged: 4 } }).body);
+  assert.match(d.fragment, /ratio: 0\.25/);
+});
+
 test('GET /view : JSON {chips, fragment, updatedAt}, counters from the snapshot', () => {
   const snap = mixedSnapshot();
   snap.data.others = [

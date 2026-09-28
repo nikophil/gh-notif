@@ -14,7 +14,7 @@ import { statePath, loadState, saveState, isNew, markSeen } from './state.js';
 import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, setStacks, stacksSeenOf, hiddenColsOf, toggleHiddenCol } from './prefs.js';
 import {
   parseScope, normalizeFavorites, addFavorite, removeFavorite,
-  favoriteScopes, activeFavoriteOf, filterDataByScope, favoriteCounts, closedPRsUrl, reviewedPRsUrl, repoInAllMode,
+  favoriteScopes, activeFavoriteOf, filterDataByScope, favoriteCounts, closedPRsUrl, reviewedPRsUrl, reviewCoverageQueries, repoInAllMode,
 } from './favorites.js';
 import { diffApprovals } from './approvals.js';
 import { normalizeSort, toggleSort, sortRows, groupStacks, stackChildKeys, SORT_KEYS, MINE_SORT_KEYS, DEFAULT_SORT } from './sort.js';
@@ -34,6 +34,8 @@ const UPDATE_CHECK_MS = 3_600_000; // hourly `git fetch` of the install (§32)
 const SEARCH_MAX = 200;
 const SEARCH_PAGE = 25;
 const SEARCH_TTL_MS = 5 * 60_000;
+const COVERAGE_TTL_MS = 3_600_000; // review ratio (§38): hourly
+const COVERAGE_RETRY_MS = 60_000; // …and 1 min after a failure (a transient network error must not hide it for long)
 export const SEARCH_DEFAULT_QUERY = 'is:open author:@me';
 
 // `parseScope` lives in favorites.js (pure module, without node:http) because the CLI
@@ -98,7 +100,7 @@ function fragmentBody(snapshot, opts = {}) {
   return renderUpdateBanner(snapshot.updateTag, UPGRADE_COMMANDS) + fragmentTables(snapshot, opts);
 }
 
-function fragmentTables(snapshot, { now, showHidden, viewScope = null, closedUrl = null, reviewedUrl = null, sort = null, sortMine = null, ignoredChecks = {}, stacks = null, cols = null } = {}) {
+function fragmentTables(snapshot, { now, showHidden, viewScope = null, closedUrl = null, reviewedUrl = null, reviewCoverage = null, sort = null, sortMine = null, ignoredChecks = {}, stacks = null, cols = null } = {}) {
   if (snapshot.error) return `<p class="empty offline">⚠️ Error: ${escapeHtml(snapshot.error)}</p>`;
   if (!snapshot.updatedAt) return renderLoading(viewScope?.value ?? '');
   let data = filterDataByScope(snapshot.data ?? { mine: [], others: [] }, viewScope);
@@ -132,7 +134,7 @@ function fragmentTables(snapshot, { now, showHidden, viewScope = null, closedUrl
   // verdict itself was already recomputed at collection (§16).
   // An org favorite implies the owner → the Repository column drops it.
   const repoOwner = viewScope?.type === 'org' ? viewScope.value : null;
-  return renderFragment(data, { now, showHidden, closedUrl, reviewedUrl, sort, sortMine, ignoredChecks, stacks: stk, cols, repoOwner });
+  return renderFragment(data, { now, showHidden, closedUrl, reviewedUrl, reviewCoverage, sort, sortMine, ignoredChecks, stacks: stk, cols, repoOwner });
 }
 
 // Scope(s) that the view DISPLAYS, to contextualize the « closed ↗ » link:
@@ -163,7 +165,7 @@ export function handleRequest(pathname, snapshot, opts = {}) {
   const {
     now, intervalMs, showHidden, scope, notifyEnabled = true, theme = 'auto',
     favorites = [], activeFav = null, adhoc = false, sort = null, sortMine = null, ignoredChecks = {},
-    favModes = null, stacks = null, cols = null, searchQ = '', events = [], after = null, errors = [],
+    favModes = null, stacks = null, cols = null, searchQ = '', events = [], after = null, errors = [], reviewCoverage = null,
   } = opts;
   // Search page shell (§29): the query comes from the URL (pre-filled field);
   // the data itself goes through /search-fragment (I/O, outside this pure router).
@@ -183,14 +185,14 @@ export function handleRequest(pathname, snapshot, opts = {}) {
     return { status: 200, type: 'text/html; charset=utf-8', body: renderShell({ intervalMs, scopeLabel: scopeLabel(scope), notifyEnabled, theme, favorites, activeFav, adhoc, counts, favModes }) };
   }
   if (pathname === '/fragment') {
-    return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, reviewedUrl, sort, sortMine, ignoredChecks, stacks, cols }) };
+    return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, reviewedUrl, reviewCoverage, sort, sortMine, ignoredChecks, stacks, cols }) };
   }
   // Unified poll of the client: filtered tables + favorites bar (up-to-date counters)
   // + updatedAt (the client probes until it changes after an add/remove).
   if (pathname === '/view') {
     return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify({
       chips: renderFavorites(favorites, activeFav, { adhoc, counts, favModes }),
-      fragment: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, reviewedUrl, sort, sortMine, ignoredChecks, stacks, cols }),
+      fragment: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, reviewedUrl, reviewCoverage, sort, sortMine, ignoredChecks, stacks, cols }),
       updatedAt: snapshot.updatedAt,
       // Browser notifications (§34): `after` present ⇒ the client can show them;
       // '' = its first poll (it only learns lastSeq), 'N' = everything newer than N.
@@ -436,6 +438,27 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   // bar lives in the <header> (outside #content), so we return both
   // pieces and the client injects them separately — the counters stay up to date.
   // (Unlike /notify & /theme, whose widget has nothing to re-render → 204.)
+  // Review ratio (§38): two count-only searches per displayed scope, NEVER in
+  // the poll — fetched in the background when a view asks for a missing/stale
+  // entry, the view renders without the badge meanwhile and the next /view
+  // picks it up. Refreshed hourly (a yearly ratio barely moves); a failure
+  // keeps the last numbers and retries in 1 min (journaled by makeGh anyway).
+  const coverageCache = new Map(); // scope qualifier → { reviewed, merged, nextAt, pending }
+  const coverageFor = (scopes) => {
+    if (typeof gh.countPRs !== 'function') return null;
+    const q = reviewCoverageQueries(scopes);
+    const hit = coverageCache.get(q.key) ?? { reviewed: null, merged: null, nextAt: 0 };
+    if (!hit.pending && Date.now() >= hit.nextAt) {
+      hit.pending = true;
+      coverageCache.set(q.key, hit);
+      Promise.all([gh.countPRs(q.reviewed), gh.countPRs(q.merged)])
+        .then(([reviewed, merged]) => Object.assign(hit, { reviewed, merged, nextAt: Date.now() + COVERAGE_TTL_MS }))
+        .catch(() => { hit.nextAt = Date.now() + COVERAGE_RETRY_MS; })
+        .finally(() => { hit.pending = false; });
+    }
+    return hit.merged == null ? null : { reviewed: hit.reviewed, merged: hit.merged };
+  };
+
   const currentView = (showHidden) => {
     const counts = favoriteCounts(favorites, snapshot.data);
     return JSON.stringify({
@@ -445,6 +468,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         viewScope: scope ? null : parseScope(activeFav),
         closedUrl: closedPRsUrl(linkScopes({ scope, activeFav, favorites })),
         reviewedUrl: reviewedPRsUrl(linkScopes({ scope, activeFav, favorites })),
+        reviewCoverage: coverageFor(linkScopes({ scope, activeFav, favorites })),
         sort,
         sortMine,
         ignoredChecks,
@@ -749,6 +773,10 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       cols,
       searchQ: url.searchParams.get('q') ?? '',
       errors: errorLog.entries,
+      // Only the dashboard views show it (and may trigger its fetch).
+      reviewCoverage: pathname === '/view' || pathname === '/fragment'
+        ? coverageFor(linkScopes({ scope, activeFav, favorites }))
+        : null,
     });
     send(status, type, body);
   });

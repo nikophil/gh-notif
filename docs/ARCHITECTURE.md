@@ -1172,7 +1172,7 @@ sequenceDiagram
     | `GH-MARK_READ` / `GH-MARK_READ_BEFORE` | `markThreadRead` / `markReadBefore` | auto-purge §22 |
     | `GH-COMMENT` / `GH-REVIEW_COMMENTS` | `getComment` / `getReviewComments` | `inspectThread` (per changed thread) |
     | `GH-GRAPHQL` | `graphqlPullChunk` | PR details / stale signals batch, `markReady` |
-    | `GH-SEARCH` | `searchPage` | `searchReviewRequested`, `searchAuthored`, `searchPRs` (§29) |
+    | `GH-SEARCH` | `searchPage`, `countPRs` | `searchReviewRequested`, `searchAuthored`, `searchPRs` (§29), review coverage (§38) |
     | `GH-SUBSCRIBE` | `setRepoSubscription` | favorite « all » mode §27 |
     | `GH-SCOPE_EXISTS` | `scopeExists` | favorite add / `--org` `--repo` check |
     | `GH-PR_READY` / `GH-PR_DRAFT` | `markReady` / `convertToDraft` | dashboard toggle §30 |
@@ -1196,6 +1196,31 @@ sequenceDiagram
     unknown before the batch, would not resolve for a fork anyway). Only a live PR (open/
     draft) has to catch up: merged/closed render empty and sort as missing, like 0 and
     unknown (base branch deleted → `baseRef` null → `behindBy` null).
+
+38. **Review ratio (« ratio: 1.76 » pill next to « my reviews ↗ »).** How much I review
+    compared with how much I ship: `reviewed / merged` over a **sliding year**, with
+    `reviewed` = `is:pr merged:>=<today−365d> reviewed-by:@me -author:@me <scope>` (others'
+    PRs I reviewed) and `merged` = `is:pr merged:>=<today−365d> author:@me <scope>` (mine)
+    (`reviewCoverageQueries`, favorites.js). Both sides are dated on the **merge** — the only
+    date a review search can carry (there is no « reviewed at » qualifier); a PR I reviewed
+    that was closed unmerged or is still open does not count. `merged:>=` implies
+    `is:merged`, dropped so the query stays under GitHub's 256-char cap with the full
+    favorites budget. Shown as a GitHub-label pill « ratio: 1.76 » (same `.lbl` + `labelColors`
+    recipe as §25, so light/dark come for free), colored by `ratioColor` (`RATIO_COLORS`: ≥ 2
+    light green, ≥ 1.5 lime, ≥ 1 yellow, ≥ 0.5 orange, below red); tooltip « reviewed: N -
+    merged: M (last 12 months) ». Scope = the same `linkScopes` as
+    the link (ad-hoc > active favorite > union > all of GitHub — fine here, both sides are
+    about me). Only the counts matter → `gh.countPRs` = **one search page of 1 item**
+    (`total_count`); a response flagged `incomplete_results` **throws** (GitHub undercounts
+    on a timeout, §10 — never cache a lie). ⚠️ **Never in the poll** (same lesson as §29):
+    `coverageFor` (serve.js) is consulted when `/view`/`/fragment`/an action renders the
+    dashboard; a missing or stale entry (per scope qualifier) launches the two counts **in
+    the background** and the view renders **without** the badge — the next `/view` poll
+    shows it. TTL 1 h (a yearly ratio barely moves → 2 search requests/h/scope); a failure
+    keeps the previous numbers and retries after 1 min (≈ one poll: a network blip must not hide the pill for 5 min); one fetch in flight per scope
+    (`pending`). Rendering: `renderFragment` opt `reviewCoverage: {reviewed, merged}`,
+    absent or `merged = 0` → nothing (byte-identical compat).
+    `reviewed-by` counts any submitted review, comment-only included (GitHub's semantics).
 
 ## Test conventions
 

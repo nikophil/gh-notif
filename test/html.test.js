@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { escapeHtml, isMergeable, addBusinessDays, partyWorthy, labelColors, renderFragment, renderShell, renderLoading, renderDebug, renderDebugShell, renderErrorsSection, renderFavorites, searchUrl, renderSearchFragment, renderSearchShell, renderUpdateBanner } from '../src/html.js';
+import { escapeHtml, isMergeable, addBusinessDays, partyWorthy, labelColors, ratioColor, renderFragment, renderShell, renderLoading, renderDebug, renderDebugShell, renderErrorsSection, renderFavorites, searchUrl, renderSearchFragment, renderSearchShell, renderUpdateBanner } from '../src/html.js';
 
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
 
@@ -940,6 +940,28 @@ test('renderFragment: « my reviews ↗ » link in the « others » title when r
   assert.match(out, /Activity on others' PRs \(1\)/);
   assert.ok(out.includes('href="https://github.com/pulls?q=r%20%26%20s"'), 'href of the reviews link');
   assert.match(out, /my reviews ↗/);
+});
+
+test('renderFragment: reviewCoverage → « ratio: 2.50 » label pill next to « my reviews ↗ », counts in the tooltip', () => {
+  const out = renderFragment({ mine: [], others: [otherRow()] }, { now: NOW, reviewedUrl: '/search?q=x', reviewCoverage: { reviewed: 50, merged: 20 } });
+  assert.match(out, /my reviews ↗<\/a> <span class="lbl ratio" style="--lbl-bg-l:#a2eeae;[^"]*" title="reviewed: 50 - merged: 20 \(last 12 months\)">ratio: 2\.50<\/span>/);
+});
+
+test('ratioColor: thresholds 2 / 1.5 / 1 / 0.5, green down to red', () => {
+  assert.equal(ratioColor(3), 'a2eeae');
+  assert.equal(ratioColor(2), 'a2eeae');
+  assert.equal(ratioColor(1.99), 'd4ed8e');
+  assert.equal(ratioColor(1), 'fbca04');
+  assert.equal(ratioColor(0.5), 'f9a55a');
+  assert.equal(ratioColor(0.49), 'd73a4a');
+  assert.equal(ratioColor(0), 'd73a4a');
+});
+
+test('renderFragment: reviewCoverage absent or nothing merged → no badge', () => {
+  for (const reviewCoverage of [null, { reviewed: 0, merged: 0 }]) {
+    const out = renderFragment({ mine: [], others: [otherRow()] }, { now: NOW, reviewedUrl: '/search?q=x', reviewCoverage });
+    assert.ok(!out.includes('ratio:'));
+  }
 });
 
 test('renderFragment: without reviewedUrl → no link (compat)', () => {
