@@ -1,6 +1,7 @@
 // Regenerates docs/screenshot.png's source page: fake open-source sample data
 // rendered with the real renderShell/renderFragment, so the look is exactly
-// the app's — without leaking real dashboard content.
+// the app's — without leaking real dashboard content. Known libraries,
+// made-up people.
 //
 // Usage:
 //   node scripts/gen-screenshot.mjs "$HOME/gh-notif-sample.html"
@@ -51,7 +52,7 @@ const mine = [
 const others = [
   {
     repo: 'symfony/symfony', number: 54321, url: 'https://github.com/x',
-    title: 'Add #[MapRequestPayload] to the argument resolver', author: 'nicolas-grekas',
+    title: 'Add #[MapRequestPayload] to the argument resolver', author: 'alice',
     branch: 'feature/map-request-payload', branchRepo: 'symfony/symfony',
     labels: [{ name: 'DX', color: '5319e7' }, { name: 'Serializer', color: 'fbca04' }],
     triggers: ['review'], ci: 'pass', state: 'open', approvals: 1,
@@ -61,7 +62,7 @@ const others = [
   },
   {
     repo: 'laravel/framework', number: 50123, url: 'https://github.com/x',
-    title: 'Improve Str::password entropy', author: 'taylorotwell',
+    title: 'Improve Str::password entropy', author: 'bob',
     branch: 'password-entropy', branchRepo: 'laravel/framework',
     labels: [{ name: 'enhancement', color: 'a2eeef' }],
     triggers: ['reply'], ci: 'pass', state: 'open', approvals: 4,
@@ -71,7 +72,7 @@ const others = [
   },
   {
     repo: 'vuejs/core', number: 10456, url: 'https://github.com/x',
-    title: 'perf: reduce reactivity overhead in dev mode', author: 'yyx990803',
+    title: 'perf: reduce reactivity overhead in dev mode', author: 'carol',
     branch: 'perf/reactivity-dev', branchRepo: 'vuejs/core',
     labels: [],
     triggers: ['review', 'mention'], ci: 'fail', state: 'open', approvals: 0, changesRequested: 1,
@@ -81,7 +82,7 @@ const others = [
   },
   {
     repo: 'rust-lang/rust', number: 121987, url: 'https://github.com/x',
-    title: 'stabilize `const_option` feature', author: 'oli-obk',
+    title: 'stabilize `const_option` feature', author: 'dan',
     branch: 'const-option-stab', branchRepo: 'rust-lang/rust',
     labels: [{ name: 'T-lang', color: 'd4c5f9' }],
     triggers: ['mention'], ci: 'pass', state: 'open', approvals: 2,
@@ -94,7 +95,7 @@ const others = [
 const issues = [
   {
     repo: 'vuejs/core', number: 10502, url: 'https://github.com/x',
-    title: 'computed not invalidated when a nested ref is replaced', actor: 'posva',
+    title: 'computed not invalidated when a nested ref is replaced', actor: 'eve',
     createdAt: ago(3), updatedAt: ago(3), triggers: ['new'],
   },
 ];

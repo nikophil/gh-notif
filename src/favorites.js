@@ -1,6 +1,6 @@
 import { scopeMatches, scopesQualifier } from './collect.js';
 
-// Scope favorites: a list of strings (`symfony`, `noctud/collection`, …)
+// Scope favorites: a list of strings (`stark`, `nakatomi/collection`, …)
 // pinned by the user, persisted in prefs-v1.json.
 //
 // ⚠️ Structuring decision (cf. ARCHITECTURE.md §14): **collection** covers the
@@ -56,7 +56,7 @@ export function normalizeFavorites(raw) {
 export function addFavorite(list, value) {
   const favorites = normalizeFavorites(list);
   const v = canonicalScope(value);
-  if (!v) throw new Error('a favorite requires a value (e.g. symfony or noctud/collection)');
+  if (!v) throw new Error('a favorite requires a value (e.g. stark or nakatomi/collection)');
   if (favorites.includes(v)) return favorites;
   const next = [...favorites, v];
   if (scopesQualifier(favoriteScopes(next)).length > MAX_QUALIFIER_LENGTH) {
@@ -100,9 +100,9 @@ export function cycleFavorite(list, current) {
   return i + 1 < favorites.length ? favorites[i + 1] : null;
 }
 
-// Display label of a favorite: an **org** becomes `symfony/*` (« all its
+// Display label of a favorite: an **org** becomes `stark/*` (« all its
 // repos »), a **repo** stays `owner/name`. ⚠️ Purely cosmetic — the stored
-// value, the `data-fav` and the URL argument stay the raw string (`symfony`).
+// value, the `data-fav` and the URL argument stay the raw string (`stark`).
 export function favoriteLabel(value) {
   const v = (value || '').trim();
   if (!v) return '';

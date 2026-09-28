@@ -89,19 +89,19 @@ A single PR can accumulate several triggers.
 
 ### Favorites — follow several scopes without mixing them
 
-You follow `symfony`, `noctud/collection` and `zenstruck`? Pin them:
+You follow `stark`, `nakatomi/collection` and `zorg`? Pin them:
 
 ```bash
-gh notif fav add symfony
-gh notif fav add noctud/collection
-gh notif fav add zenstruck
+gh notif fav add stark
+gh notif fav add nakatomi/collection
+gh notif fav add zorg
 ```
 
 Adding **verifies that the scope exists on GitHub** (org/user or repository): a typo is refused
 with a clear message instead of pinning a dead favorite.
 
 As soon as a favorite exists, `gh notif` no longer looks at all of GitHub but at **the union of
-your favorites**, presented as **chips in the page header** — an org is shown as `symfony/*` (all its
+your favorites**, presented as **chips in the page header** — an org is shown as `stark/*` (all its
 repositories), a repository as-is. Each chip carries **one counter per panel** (📥 your open PRs ·
 👥 others' activity · 📋 issues, this last one only when non-zero) — including on the favorites
 you're not looking at, to see at a glance where things are moving.
@@ -109,7 +109,7 @@ you're not looking at, to see at a glance where things are moving.
 Click a chip to switch, the cross removes it, and the **⭐** button pins the content of the scope
 field (the chip appears immediately, the tables follow as soon as the re-poll ends). The choice is
 **persisted**: you find your view again at the next launch, or you force it with
-`gh notif --fav symfony`. A manually entered scope takes back control from favorites (the chips go
+`gh notif --fav stark`. A manually entered scope takes back control from favorites (the chips go
 greyed out) until you click a chip again.
 
 The key point: **desktop notifications always cover *all* your favorites**, even those you're not
@@ -129,7 +129,7 @@ You can also list/manage favorites from the terminal:
 
 ```bash
 gh notif fav list             # list favorites (⭐ = the one shown)
-gh notif fav rm zenstruck     # remove a favorite
+gh notif fav rm zorg          # remove a favorite
 ```
 
 > Limit: a GitHub search is capped at 256 characters, so the list is too (about ten favorites with
@@ -165,7 +165,7 @@ links of the dashboard open this page.
 gh notif                # http://localhost:7777, opens the browser
 gh notif --port 8080    # on another port
 gh notif --no-open      # do not open the browser (the URL stays printed)
-gh notif --org symfony   # restricts the scope
+gh notif --org stark     # restricts the scope
 ```
 
 A **single server-side poll loop** (~60 s) queries GitHub and feeds the page; several open tabs
@@ -193,7 +193,7 @@ From the page, you can:
   a new trigger — reply to your thread, mention, comment), and **🙈 hidden** shows the hidden PRs
   (greyed out, restore button). Your own PRs are never hidden. The list is persisted in
   `~/.local/state/gh-notif/hidden-v1.json`.
-- **filter by org/repo**: type `symfony` or `symfony/web` in the field then **Filter** (the server
+- **filter by org/repo**: type `stark` or `stark/web` in the field then **Filter** (the server
   loads **only** that scope); **All** shows everything again.
 - **turn off notifications (both channels)**: uncheck **🔔 notifs** in the header. The server keeps tracking
   events (they are marked « seen » silently), it simply stops pushing notifs — re-checking therefore
@@ -510,15 +510,15 @@ gh notif --port 8080          # web page on another port
 gh notif --no-open            # do not open the browser (the URL stays printed)
 gh notif --all                # includes already-read notifications
 gh notif --interval 120       # poll every 120s (floor 60s)
-gh notif --org symfony         # limit to one organization
-gh notif --repo symfony/web    # limit to one repository
+gh notif --org stark           # limit to one organization
+gh notif --repo stark/web      # limit to one repository
 gh notif --repo               # limit to the current repository (gh repo view)
-gh notif --fav symfony         # start on this favorite (cf. « Favorites »)
+gh notif --fav stark           # start on this favorite (cf. « Favorites »)
 
 gh notif fav list             # list favorites (⭐ = the one shown)
-gh notif fav add symfony       # pin an org…
-gh notif fav add noctud/collection   # …or a repository
-gh notif fav rm zenstruck     # remove a favorite
+gh notif fav add stark         # pin an org…
+gh notif fav add nakatomi/collection # …or a repository
+gh notif fav rm zorg          # remove a favorite
 ```
 
 `--org` and `--repo` are mutually exclusive and **take precedence over favorites** (which are then

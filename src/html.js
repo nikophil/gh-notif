@@ -118,7 +118,7 @@ export function escapeHtml(s) {
 const link = (url, text, tip = null) =>
   `<a href="${escapeHtml(url)}"${tip ? ` title="${escapeHtml(tip)}"` : ''} target="_blank" rel="noopener">${escapeHtml(text)}</a>`;
 
-// Repository cell. Under an org favorite (`mapado/*`), `owner` is implied:
+// Repository cell. Under an org favorite (`acme/*`), `owner` is implied:
 // bare repo name, the full name stays in the tooltip.
 const repoCell = (r, owner = null) =>
   link(r.url, owner && r.repo.startsWith(`${owner}/`) ? r.repo.slice(owner.length + 1) : r.repo, r.repo);
@@ -831,7 +831,7 @@ export function renderUpdateBanner(tag, commands = []) {
 // asset). The JS reloads `/fragment` on startup then every `intervalMs`
 // (with a countdown), handles the « refresh » button, the « see the
 // Favorites bar: « ⭐ all » then one chip per pinned scope, the active one in .on.
-// An org shows as `symfony/*`, a repo as `owner/name` (`favoriteLabel`). Each
+// An org shows as `stark/*`, a repo as `owner/name` (`favoriteLabel`). Each
 // chip carries a cross that removes it. With `counts` ({ total, byFav }, one
 // `{ mine, others, issues }` triplet per entry — cf. favoriteCounts), a badge
 // shows ONE counter per web panel, each with the panel's own icon: 📥 my PRs,

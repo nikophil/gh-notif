@@ -55,10 +55,10 @@ test('durationSince: bare duration, no « ago »', () => {
 // ── Favorites bar (terminal, `gh notif fav list`) ─────────────────────────
 test('favoritesBar: active in brackets, « ⭐ all » when no active favorite', () => {
   // An org shows `org/*` (all its repos), a repo stays `owner/name`.
-  const list = ['symfony', 'noctud/collection', 'zenstruck'];
-  assert.equal(favoritesBar(list, null, PLAIN), '[⭐ all] · symfony/* · noctud/collection · zenstruck/*');
-  assert.equal(favoritesBar(list, 'symfony', PLAIN), '⭐ all · [symfony/*] · noctud/collection · zenstruck/*');
-  assert.equal(favoritesBar(list, 'zenstruck', PLAIN), '⭐ all · symfony/* · noctud/collection · [zenstruck/*]');
+  const list = ['stark', 'nakatomi/collection', 'zorg'];
+  assert.equal(favoritesBar(list, null, PLAIN), '[⭐ all] · stark/* · nakatomi/collection · zorg/*');
+  assert.equal(favoritesBar(list, 'stark', PLAIN), '⭐ all · [stark/*] · nakatomi/collection · zorg/*');
+  assert.equal(favoritesBar(list, 'zorg', PLAIN), '⭐ all · stark/* · nakatomi/collection · [zorg/*]');
 });
 
 test('favoritesBar: empty list → nothing (invisible for those who don\'t use favorites)', () => {
