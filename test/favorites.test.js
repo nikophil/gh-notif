@@ -245,3 +245,15 @@ test('reviewedPRsUrl: internal search page, reviewed-by:@me -author:@me, context
   );
   assert.ok(reviewedPRsUrl({ type: 'org', value: 'symfony' }).endsWith('%20org%3Asymfony'));
 });
+
+test('parseScope: « owner/* » (the org label) and « owner/ » mean the org, not a repo', () => {
+  assert.deepEqual(parseScope('mapado/*'), { type: 'org', value: 'mapado' });
+  assert.deepEqual(parseScope(' mapado/ '), { type: 'org', value: 'mapado' });
+  assert.deepEqual(parseScope('mapado/ticketing'), { type: 'repo', value: 'mapado/ticketing' });
+});
+
+test('addFavorite/removeFavorite: « owner/* » is stored and removed as the bare org', () => {
+  assert.deepEqual(addFavorite(['mapado'], 'mapado/*'), ['mapado'], 'no duplicate');
+  assert.deepEqual(addFavorite([], 'mapado/*'), ['mapado']);
+  assert.deepEqual(removeFavorite(['mapado'], 'mapado/*'), []);
+});

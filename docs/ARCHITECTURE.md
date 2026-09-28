@@ -550,6 +550,9 @@ sequenceDiagram
     its counters.
     (b) **Label**: an org displays `symfony/*`, a repo `owner/name` (`favoriteLabel`);
     purely cosmetic, `data-fav`/stored value/URL argument stay the **raw** string.
+    ⚠️ The label typed back (`symfony/*` or `symfony/` in the scope field, `fav add`/`rm`) means
+    the **org** (`canonicalScope` in `parseScope`/`addFavorite`/`removeFavorite`): read as a repo,
+    GitHub rejects `repo:symfony/*` with a 422 and the whole poll fails (real bug).
     Same spirit in the tables: under an active **org** favorite the owner is implied, so the
     Repository column shows the bare repo name (`ticketing`, full name in the tooltip —
     `repoOwner` of `renderFragment`, derived from `viewScope` in `fragmentTables`). A repo

@@ -23,8 +23,15 @@ export const MAX_QUALIFIER_LENGTH = 200;
 // --org/--repo. Empty → null (all). Contains « / » → repo (owner/name). Otherwise → org.
 // Lives here (the purest module) and not in serve.js: favorites and the CLI need it
 // without pulling in node:http.
+// `owner/*` (or `owner/`) is how the page LABELS an org favorite
+// (favoriteLabel) — typed back into the scope field it must mean the org, not
+// a repo named `*` (GitHub answers `repo:owner/*` with a 422).
+function canonicalScope(value) {
+  return (value || '').trim().replace(/\/\*?$/, '');
+}
+
 export function parseScope(value) {
-  const v = (value || '').trim();
+  const v = canonicalScope(value);
   if (!v) return null;
   return v.includes('/') ? { type: 'repo', value: v } : { type: 'org', value: v };
 }
@@ -48,7 +55,7 @@ export function normalizeFavorites(raw) {
 // route) surfaces the message as-is.
 export function addFavorite(list, value) {
   const favorites = normalizeFavorites(list);
-  const v = (value || '').trim();
+  const v = canonicalScope(value);
   if (!v) throw new Error('a favorite requires a value (e.g. symfony or noctud/collection)');
   if (favorites.includes(v)) return favorites;
   const next = [...favorites, v];
@@ -63,7 +70,7 @@ export function addFavorite(list, value) {
 
 // Removes a favorite. Missing value → list unchanged (no-op, no error).
 export function removeFavorite(list, value) {
-  const v = (value || '').trim();
+  const v = canonicalScope(value);
   return normalizeFavorites(list).filter((f) => f !== v);
 }
 
