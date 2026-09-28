@@ -798,12 +798,14 @@ export function renderFragment(data, opts = {}) {
 // Block shown as long as the server has not yet fetched any data (1st cold
 // poll). The `data-loading` lets the client re-poll quickly until data arrives.
 export function renderLoading(scopeLabel = '') {
-  // The first collection (union of favorites) can take a few seconds; say so, and
+  // The first collection (union of favorites) is a cold run — every unread
+  // notification inspected, searches, GraphQL batches — and can take well over a
+  // minute on a big backlog or a slow network; stay vague (« a few seconds » lied), and
   // name the scope being loaded so a click on a favorite chip doesn't feel inert.
   // `scopeLabel` is user-controlled (a favorite value) → escaped.
   const where = scopeLabel ? ` for ${escapeHtml(scopeLabel)}` : '';
   return `<p class="empty" data-loading="1"><span class="spinner"></span> Loading pull requests${where}… `
-    + '<span class="loading-hint">(first fetch, this can take a few seconds)</span></p>';
+    + '<span class="loading-hint">(first fetch, this may take a while)</span></p>';
 }
 
 // Update hint (§32): a GitHub-like flash on top of the fragment when a release

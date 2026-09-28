@@ -553,7 +553,7 @@ test('renderLoading: spinner + label + data-loading sentinel', () => {
   assert.match(out, /Loading/);
   assert.match(out, /data-loading/);
   // Generic message hints that the first fetch takes a moment.
-  assert.match(out, /first fetch/i);
+  assert.match(out, /first fetch, this may take a while/i);
 });
 
 test('renderLoading: contextual scope label (and escapes it)', () => {
