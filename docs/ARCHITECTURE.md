@@ -1316,7 +1316,9 @@ sequenceDiagram
       with **p90**, outcomes per creation month, speed per merge month, volume per repo;
       *who's shipping* (per author: merged, opened / outcome / merge rate over the PRs opened
       in the period, mean diff, medians) and *who's reviewing* (reviews given, verdict mix,
-      own merged, ratio).
+      own merged, ratio). Each column header carries what it counts
+      in a `title` (« ? » cursor, like the dashboard's icon headers), from one list per
+      table (`SHIPPING_COLS` / `REVIEWING_COLS`) that also builds the headers.
     - **Filters.** *Ignored accounts* (`prefs.statsIgnored`, managed on the page — chips ✕,
       an add field, `POST /stats/ignore?login=` toggles): their reviews do not count (an AI
       reviewer posting on a human account, a bot-like user GitHub types as `User`); the first
