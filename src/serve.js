@@ -8,7 +8,7 @@ import http from 'node:http';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { collectPRs, recomputeCi, collectSearch, searchQuery, toScopeList, matchesAnyScope } from './collect.js';
-import { statsPath, loadStatsCache, saveStatsCache, collectStats, computeStats, needsFetch, needsFirstYear, periodKeys, periodOptions, isValidPeriod, DEFAULT_PERIOD } from './stats.js';
+import { statsPath, loadStatsCache, saveStatsCache, collectStats, computeStats, monthsToFetch, needsFirstYear, periodKeys, periodOptions, isValidPeriod, DEFAULT_PERIOD } from './stats.js';
 import { CATEGORY } from './filter.js';
 import { hiddenPath, loadHidden, saveHidden, toggleHidden, isHidden, keyOf } from './hidden.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './state.js';
@@ -38,6 +38,15 @@ const SEARCH_TTL_MS = 5 * 60_000;
 const COVERAGE_TTL_MS = 3_600_000; // review ratio (§38): hourly
 const COVERAGE_RETRY_MS = 60_000; // …and 1 min after a failure (a transient network error must not hide it for long)
 export const SEARCH_DEFAULT_QUERY = 'is:open author:@me';
+
+// Team filter (§40): how long a team lookup is cached. The teams, or « no
+// access » (403: no read:org; 404: a user, not an org), are an answer, kept a
+// day. A transient failure (network, 5xx, rate limit — a 403 too) is retried
+// after a minute, like the ratio pill: a blip must not hide the filter all day.
+export function teamCacheMs(err = null) {
+  const msg = String(err?.message ?? err ?? '');
+  return !err || (/HTTP 40[34]/.test(msg) && !/rate limit|abuse/i.test(msg)) ? 86_400_000 : 60_000;
+}
 
 // `parseScope` lives in favorites.js (pure module, without node:http) because the CLI
 // and the favorites need it; re-exported here where it has always been consumed.
@@ -554,7 +563,8 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   const startStats = (e, scopes, keys, force) => {
     if (e.job || typeof gh.searchMergedPRs !== 'function') return;
     const now = Date.now();
-    if (!keys.some((k) => needsFetch(e.cache.months[k], k, now, { force })) && !needsFirstYear(e.cache, now)) return;
+    const withUnmerged = typeof gh.searchUnmergedPRs === 'function';
+    if (!monthsToFetch(e.cache, keys, now, { force, withUnmerged }).length && !needsFirstYear(e.cache, now)) return;
     e.progress = null;
     process.stderr.write(`📊 stats: collecting${force ? ' (forced)' : ''} · ${e.path}\n`);
     e.job = collectStats(gh, scopes, e.cache, {
@@ -574,16 +584,16 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   // A typed scope is checked once (gh.scopeExists, cached): an unknown org
   // would otherwise cost 12 failing searches. null (network) = fail-open.
   const scopeChecks = new Map(); // raw value → true | false | null
-  // Team filter (§40): the org's GitHub teams and their members, cached a day
-  // (1 request each). A failure (no read:org, network) → no team filter.
-  const TEAM_TTL_MS = 86400000;
-  const teamCache = new Map(); // 'org' | 'org/slug' → { value, at }
+  // Team filter (§40): the org's GitHub teams and their members (1 request
+  // each, cached per teamCacheMs). A failure → no team filter.
+  const teamCache = new Map(); // 'org' | 'org/slug' → { value, until }
   const cachedTeam = async (key, fetch) => {
     const hit = teamCache.get(key);
-    if (hit && Date.now() - hit.at < TEAM_TTL_MS) return hit.value;
+    if (hit && Date.now() < hit.until) return hit.value;
     let value = null;
-    try { value = await fetch(); } catch { /* journaled by makeGh; no filter */ }
-    teamCache.set(key, { value, at: Date.now() });
+    let err = null;
+    try { value = await fetch(); } catch (e) { err = e; /* journaled by makeGh */ }
+    teamCache.set(key, { value, until: Date.now() + teamCacheMs(err) });
     return value;
   };
   const statsFragment = async (params, { force = false } = {}) => {

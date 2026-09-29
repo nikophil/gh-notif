@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   monthKeys, monthRange, isMonthFinal, needsFetch, splitRange, datasetQueries, compactPR,
-  collectStats, computeStats, median, STATS_TTL_MS, SCHEMA, quantile, compactUnmerged, needsFetchUnmerged, unmergedQueries, periodKeys, periodOptions, isValidPeriod, rankOf, firstPRYear, needsFirstYear,
+  collectStats, computeStats, median, STATS_TTL_MS, SCHEMA, quantile, compactUnmerged, needsFetchUnmerged, unmergedQueries, periodKeys, periodOptions, isValidPeriod, rankOf, firstPRYear, needsFirstYear, monthsToFetch,
 } from '../src/stats.js';
 
 const NOW = Date.parse('2026-09-28T12:00:00Z');
@@ -430,4 +430,43 @@ test('computeStats: automated-looking accounts suggested (volume + nearly all co
   const s = computeStats(cache, 'me', { now: NOW, scoped: true, ignored: ['ai'] });
   assert.deepEqual(s.automated.map((a) => a.login), ['ai'], 'still suggested while ignored');
   assert.equal(s.reviewers[0], 'ai');
+});
+
+test('monthsToFetch: an unmerged month is due even when every merged month is final (past-year views)', () => {
+  const final = { fetchedAt: NOW, count: 0, schema: SCHEMA, prs: [] };
+  const cache = {
+    months: { '2025-03': final, '2025-04': final },
+    unmerged: {
+      '2025-03': { fetchedAt: NOW - STATS_TTL_MS - 1, prs: [{ open: true }] },
+      '2025-04': { fetchedAt: NOW, prs: [{ open: false }] },
+    },
+  };
+  assert.deepEqual(monthsToFetch(cache, ['2025-03', '2025-04'], NOW), ['2025-03'], 'still holds an open PR, stale');
+  assert.deepEqual(monthsToFetch(cache, ['2025-03', '2025-04'], NOW, { withUnmerged: false }), [], 'no unmerged search: merged months only');
+  assert.deepEqual(monthsToFetch({ months: {} }, ['2025-03'], NOW), ['2025-03'], 'never fetched');
+});
+
+test('computeStats: a PR cached as open then merged counts once, as merged', () => {
+  const cache = scopeCache();
+  // #11 (carol) is still open in the unmerged cache, but got merged since.
+  cache.months['2026-09'].prs.push(compactPR(node(11, { author: 'carol', created: '2026-09-05T10:00:00Z', merged: '2026-09-20T10:00:00Z' })));
+  const s = computeStats(cache, 'me', { now: NOW, scoped: true });
+  const o = s.repo.opened;
+  assert.deepEqual({ t: o.total, m: o.merged, c: o.closed, open: o.open }, { t: 6, m: 5, c: 1, open: 0 });
+  const sep = s.repo.outcomes.find((x) => x.key === '2026-09');
+  assert.deepEqual({ m: sep.merged, open: sep.open }, { m: 4, open: 0 });
+  const carol = s.shipping.find((a) => a.login === 'carol');
+  assert.deepEqual({ opened: carol.opened, open: carol.open, rate: carol.mergeRate }, { opened: 2, open: 0, rate: 1 });
+});
+
+test('computeStats: the 5 first reviews all taken by an ignored account → the reviewers\' dates stand in, the PR is not dropped', () => {
+  // GitHub only gives the first 5 reviews: the AI account took them all, bob reviewed after.
+  const n = node(1, { author: 'carol', created: '2026-09-01T10:00:00Z', merged: '2026-09-02T10:00:00Z', reviews: Array.from({ length: 5 }, (_, i) => ['ai', `2026-09-01T1${i}:00:00Z`, 'COMMENTED']) });
+  n.latestReviews.nodes = [
+    { author: { __typename: 'User', login: 'ai' }, submittedAt: '2026-09-01T14:00:00Z', state: 'COMMENTED' },
+    { author: { __typename: 'User', login: 'bob' }, submittedAt: '2026-09-01T16:00:00Z', state: 'APPROVED' },
+  ];
+  const cache = { months: { '2026-09': { fetchedAt: NOW, count: 1, schema: SCHEMA, prs: [compactPR(n)] } } };
+  const s = computeStats(cache, 'me', { now: NOW, scoped: true, ignored: ['ai'] });
+  assert.equal(s.repo.ttfr.median, 6 * 3600000, 'bob, 6 h after the creation');
 });

@@ -137,6 +137,15 @@ export function needsFetchUnmerged(bucket, key, now, { force = false } = {}) {
   return force || now - bucket.fetchedAt > STATS_TTL_MS;
 }
 
+// The months of `keys` to (re)fetch, merged or unmerged bucket. The one
+// decision shared by collectStats and the server that starts it: gating the
+// job on the merged months alone left a past year's unmerged months stale
+// for good (all its merged months are final — real bug).
+export function monthsToFetch(cache, keys, now, { force = false, withUnmerged = true } = {}) {
+  return keys.filter((k) => needsFetch(cache.months?.[k], k, now, { force })
+    || (withUnmerged && needsFetchUnmerged(cache.unmerged?.[k], k, now, { force })));
+}
+
 // Unmerged dataset: with a scope every unmerged PR of it; without, mine only
 // (others' abandoned PRs I reviewed tell nothing about me).
 export function unmergedQueries(scopes) {
@@ -291,7 +300,7 @@ export async function collectStats(gh, scopes, cache, { now = Date.now(), keys =
   const unmerged = { prefix: 'is:pr is:unmerged created:', search: (q, o) => gh.searchUnmergedPRs(q, o), compact: compactUnmerged };
   const needM = (k) => needsFetch(cache.months[k], k, now, { force });
   const needU = (k) => withUnmerged && needsFetchUnmerged(cache.unmerged[k], k, now, { force });
-  const todo = keys.filter((k) => needM(k) || needU(k));
+  const todo = monthsToFetch(cache, keys, now, { force, withUnmerged });
   const errors = [];
   const live = new Map(todo.map((key) => [key, { key, state: 'pending', fetched: 0, total: null }]));
   const report = (monthDone = null) => onProgress({ ...progressOf(keys, cache, live), monthDone });
@@ -429,11 +438,17 @@ export function computeStats(cache, me, {
   const keepAuthor = (a) => !members || members.has(a) || a === me;
   // Filtered copy of a record: reviews of dropped / non-member accounts
   // removed, first review recomputed from what remains (`fr` = v1 records).
-  const clean = (pr) => ({
-    ...pr,
-    rv: pr.rv.filter(([l]) => keepReviewer(l)),
-    fr: pr.frs ? (pr.frs.find(([l]) => keepReviewer(l))?.[1] ?? null) : pr.fr ?? null,
-  });
+  // `frs` only holds GitHub's first 5 reviews: when the author's thread
+  // replies, bots or ignored accounts took them all, the kept reviewers'
+  // dates stand in (their latest review, a bound on their first) — the PR
+  // stays in the medians instead of dropping out.
+  const clean = (pr) => {
+    const rv = pr.rv.filter(([l]) => keepReviewer(l));
+    const fr = pr.frs
+      ? pr.frs.find(([l]) => keepReviewer(l))?.[1] ?? rv.map(([, at]) => at).filter(Boolean).sort()[0] ?? null
+      : pr.fr ?? null;
+    return { ...pr, rv, fr };
+  };
 
   const inPeriod = new Set(keys);
   const focus = month && inPeriod.has(month) ? month : null;
@@ -447,7 +462,10 @@ export function computeStats(cache, me, {
   const everMerged = raw.map(clean);
   const all = everMerged.filter((pr) => inPeriod.has(monthOf(pr.m)));
   const prs = focus ? all.filter((pr) => monthOf(pr.m) === focus) : all;
-  const unmergedAll = keys.flatMap((k) => cache.unmerged?.[k]?.prs ?? []).filter((pr) => keepAuthor(pr.a));
+  // A PR cached as open and merged since sits in both datasets until its
+  // unmerged month is refetched: the merged record wins, never counted twice.
+  const unmergedOf = (k) => (cache.unmerged?.[k]?.prs ?? []).filter((pr) => keepAuthor(pr.a) && !byKey.has(`${pr.repo}#${pr.n}`));
+  const unmergedAll = keys.flatMap(unmergedOf);
 
   const isMine = (pr) => pr.a === me;
   const iReviewed = (pr) => pr.a !== me && pr.rv.some(([l]) => l === me);
@@ -566,7 +584,7 @@ export function computeStats(cache, me, {
       // Per CREATION month: how the PRs opened that month ended (needs the
       // unmerged dataset of that month — `known` false otherwise).
       outcomes: keys.map((key) => {
-        const u = (cache.unmerged?.[key]?.prs ?? []).filter((pr) => !pr.bot && keepAuthor(pr.a));
+        const u = unmergedOf(key).filter((pr) => !pr.bot);
         return {
           key,
           known: !!cache.unmerged?.[key],
