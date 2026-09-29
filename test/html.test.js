@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { escapeHtml, isMergeable, addBusinessDays, partyWorthy, labelColors, ratioColor, renderStatsFavorites, renderStatsFragment, renderFragment, renderShell, renderLoading, renderDebug, renderDebugShell, renderErrorsSection, renderFavorites, searchUrl, renderSearchFragment, renderSearchShell, renderUpdateBanner } from '../src/html.js';
+import { escapeHtml, isMergeable, addBusinessDays, partyWorthy, labelColors, ratioColor, renderStatsFavorites, renderStatsFragment, renderStatsShell, renderFragment, renderShell, renderLoading, renderDebug, renderDebugShell, renderErrorsSection, renderFavorites, searchUrl, renderSearchFragment, renderSearchShell, renderUpdateBanner } from '../src/html.js';
 
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
 
@@ -1523,6 +1523,27 @@ test('renderStatsFragment: Me / Team tabs only with a scope, the active one mark
     /<nav class="stats-tabs" aria-label="Stats"><button type="button" data-tab="" class="on" aria-current="page">Me<\/button><button type="button" data-tab="team">Team<\/button><\/nav>/);
   assert.match(renderStatsFragment(stats, { scoped: true, tab: 'team', now: 0 }), /data-tab="team" class="on"/);
   assert.ok(!renderStatsFragment(stats, { now: 0 }).includes('stats-tabs'), 'no scope → no team side, no tabs');
+});
+
+// The team tables explain their columns like the dashboard does: a title
+// on each header, with the « ? » cursor.
+test('renderStatsFragment: team tables — every column header explains itself on hover', () => {
+  const stats = {
+    ...repoStats(),
+    shipping: [{ login: 'me', merged: 1, opened: 2, openedMerged: 1, closed: 1, open: 0, mergeRate: 0.5, avgAdd: 10, avgDel: 2, ttm: 3600000, ttfr: 60000 }],
+    reviewing: [{ login: 'bob', given: 3, approved: 2, changes: 1, commented: 0, merged: 3, ratio: 1 }],
+  };
+  const out = renderStatsFragment(stats, { scoped: true, me: 'me', tab: 'team', now: 0 });
+  const tables = out.split('<section').filter((s) => s.includes('class="team"'));
+  assert.equal(tables.length, 2);
+  for (const table of tables) {
+    const ths = [...table.matchAll(/<th([^>]*)>([^<]+)<\/th>/g)].slice(1);
+    assert.ok(ths.length >= 7);
+    for (const [, attrs, label] of ths) assert.match(attrs, /title="[^"]{10,}"/, `${label} explains itself`);
+  }
+  assert.match(out, /title="Typical time from « ready for review » to merge\.\nMedian[^"]*">Merge time</, 'a line break splits the definition from its detail');
+  assert.ok(!out.includes('merged in the period; opened'), 'the prose subtitle is gone');
+  assert.match(renderStatsShell(), /table\.team th\[title\] \{ cursor: help; \}/);
 });
 
 function repoStats() {

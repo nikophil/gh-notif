@@ -2802,6 +2802,29 @@ const shareBar = (parts) => {
 
 // Who's shipping: per author — merged (period), opened + outcome + merge rate
 // (PRs opened in the period), mean diff, median merge / 1st review time.
+// Columns of the team tables (§40): label, what it counts — the header's
+// title, shown on hover with the « ? » cursor like the dashboard's icon
+// headers — and its cell class.
+const SHIPPING_COLS = [
+  ['Merged', 'PRs by this person merged during the selected period.', 'num'],
+  ['Opened', 'PRs this person opened during the period, whatever became of them.', 'num'],
+  ['Outcome', 'What became of the PRs opened during the period:\npurple = merged, green = still open, red = closed without merging.'],
+  ['Merge rate', 'Share of the PRs opened during the period that got merged (the ones still open count as not merged).', 'num'],
+  ['Avg diff', 'Average size of their merged PRs: lines added / lines removed.', 'num'],
+  ['Merge time', 'Typical time from « ready for review » to merge.\nMedian: half of their PRs are merged faster.', 'num'],
+  ['1st review', 'Typical time from « ready for review » to the first review by someone else.\nMedian: half of their PRs get it faster.', 'num'],
+];
+const REVIEWING_COLS = [
+  ['Reviews', 'PRs of others, merged during the period, that this person reviewed. A PR counts once, however many reviews.', 'num'],
+  ['Verdicts', 'How their last review on each of those PRs ended:\ngreen = approved, grey = comment only, red = changes requested.'],
+  ['Approved', 'PRs where their last review was an approval.', 'num'],
+  ['Changes', 'PRs where their last review requested changes.', 'num'],
+  ['Commented', 'PRs where their last review was a comment only (no approval, no change request).', 'num'],
+  ['Own merged', 'Their own PRs merged during the period.', 'num'],
+  ['Ratio', 'Reviews ÷ own merged: how many PRs they review for each of their own that gets merged.\nAbove 1 = they review more than they ship. Same calculation as your ratio pill.', 'num'],
+];
+const colHeads = (cols) => cols.map(([label, help, cls]) => `<th${cls ? ` class="${cls}"` : ''} title="${escapeHtml(help)}">${label}</th>`).join('');
+
 function shippingTable(rows, me, focus) {
   if (!rows.length) return '';
   const maxM = Math.max(...rows.map((r) => r.merged));
@@ -2812,8 +2835,8 @@ function shippingTable(rows, me, focus) {
     + `<td class="num">${r.mergeRate != null ? `${Math.round(100 * r.mergeRate)}%` : '–'}</td>`
     + `<td class="num diff">${r.avgAdd != null ? `<span class="add">+${Math.round(r.avgAdd)}</span> <span class="del">−${Math.round(r.avgDel)}</span>` : '–'}</td>`
     + `<td class="num">${fmtDuration(r.ttm)}</td><td class="num">${fmtDuration(r.ttfr)}</td></tr>`).join('');
-  return `<section class="viz"><h3>Who's shipping${focus ? ` <span class="viz-sub">${monthLabel(focus)}</span>` : ''} <span class="viz-sub">merged in the period; opened / outcome / merge rate over the PRs opened in it; medians</span></h3>
-<div class="team-wrap"><table class="team"><thead><tr><th>Author</th><th class="num">Merged</th><th class="num">Opened</th><th>Outcome</th><th class="num">Merge rate</th><th class="num">Avg diff</th><th class="num">Merge time</th><th class="num">1st review</th></tr></thead><tbody>${trs}</tbody></table></div></section>`;
+  return `<section class="viz"><h3>Who's shipping${focus ? ` <span class="viz-sub">${monthLabel(focus)}</span>` : ''}</h3>
+<div class="team-wrap"><table class="team"><thead><tr><th>Author</th>${colHeads(SHIPPING_COLS)}</tr></thead><tbody>${trs}</tbody></table></div></section>`;
 }
 
 // Who's reviewing: per reviewer — merged PRs of others reviewed, their verdict
@@ -2829,9 +2852,9 @@ function reviewingTable(rows, me, focus) {
       + `<td class="num">${r.approved}</td><td class="num">${r.changes}</td><td class="num">${r.commented}</td>`
       + `<td class="num">${r.merged}</td><td class="num ratio">${ratio}</td></tr>`;
   }).join('');
-  return `<section class="viz"><h3>Who's reviewing${focus ? ` <span class="viz-sub">${monthLabel(focus)}</span>` : ''} <span class="viz-sub">merged PRs of others reviewed; verdict = each reviewer's latest review on the PR</span></h3>
+  return `<section class="viz"><h3>Who's reviewing${focus ? ` <span class="viz-sub">${monthLabel(focus)}</span>` : ''}</h3>
 <div class="viz-legend"><span><i class="sw v-approved"></i>approved</span><span><i class="sw v-commented"></i>commented</span><span><i class="sw v-changes"></i>changes requested</span></div>
-<div class="team-wrap"><table class="team"><thead><tr><th>Reviewer</th><th class="num">Reviews</th><th>Verdicts</th><th class="num">Approved</th><th class="num">Changes</th><th class="num">Commented</th><th class="num">Own merged</th><th class="num">Ratio</th></tr></thead><tbody>${trs}</tbody></table></div></section>`;
+<div class="team-wrap"><table class="team"><thead><tr><th>Reviewer</th>${colHeads(REVIEWING_COLS)}</tr></thead><tbody>${trs}</tbody></table></div></section>`;
 }
 
 // Filters row (§40): team of the scope's org (Team tab only), ignored accounts
@@ -3006,6 +3029,7 @@ const STATS_CSS = `
   .viz-legend .sw.team { background: var(--fg-muted); opacity: .5; }
   .team-wrap { max-height: 22rem; overflow-y: auto; }
   table.team { font-size: .8125rem; border-collapse: collapse; width: 100%; }
+  table.team th[title] { cursor: help; }
   table.team th { text-align: left; font-weight: 600; color: var(--fg-muted); font-size: .75rem; position: sticky; top: 0; background: var(--canvas); }
   table.team th, table.team td { padding: .25rem .75rem .25rem 0; font-variant-numeric: tabular-nums; border-bottom: 1px solid var(--border-muted); }
   table.team tr.me td { font-weight: 600; background: color-mix(in srgb, var(--accent) 10%, transparent); }
