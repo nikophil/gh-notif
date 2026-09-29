@@ -1253,8 +1253,17 @@ sequenceDiagram
     routes in `serve.js` (`GET /stats`, `GET /stats-fragment`, `POST /stats/refresh`,
     `POST /stats/ignore`). **The URL is the state**: `?scope=` (empty = the dashboard's
     `linkScopes`; `*` = the union of the favorites; else an org / repo, `owner/*` accepted,
-    checked once with `scopeExists`), `period=last12|YYYY`, `month=YYYY-MM` (focus), `team=`,
-    `all=1` (include the ignored accounts).
+    checked once with `scopeExists`), `period=last12|YYYY`, `month=YYYY-MM` (focus), `tab=team`,
+    `team=`, `all=1` (include the ignored accounts).
+    - **Two tabs, with a scope only** (`statsTabs`): **Me** (default) = my tiles and charts,
+      **never** filtered by team — my ratio stays the dashboard pill's (§38), and a team filter
+      silently dropped my reviews outside the team (reported as confusing: the select sat above
+      my own numbers). **Team** (`?tab=team`) = the team select, my rank, 🏢 Repository, who's
+      shipping / reviewing. One `computeStats` per request, `teamMembers` passed on Team only;
+      on Me the teams are not even read (0 request). `team=` stays in the URL across tabs, so
+      coming back to Team restores it. The ignored accounts apply to both tabs (they also shape
+      my time to 1st review and who reviews me). No scope → no team side → no tabs, page
+      unchanged.
     - **Datasets.** (a) **Merged PRs per MERGE month** — with a scope, every merged PR of it;
       without, mine + the ones I reviewed (`datasetQueries`). Per PR (`compactPR`): repo, number,
       author (+ `bot`), created / ready (`timelineItems` ReadyForReviewEvent) / merged dates,
@@ -1318,7 +1327,7 @@ sequenceDiagram
       first), so the PR stays in the medians instead of silently dropping out.
       Accounts with ≥ 30 reviews that are ≥ 90 % plain comments are **suggested**. *Team*:
       the GitHub teams of the scope's org (`listTeams` / `teamMembers`, failure → no filter):
-      only the members' PRs and reviews count, mine always kept. Cached per `teamCacheMs`:
+      on the Team tab only, only the members' PRs and reviews count, mine always kept. Cached per `teamCacheMs`:
       the teams or « no access » (403 no read:org, 404 a user) a day, a transient failure
       (network, 5xx, rate limit) 1 min — a blip must not hide the filter all day.
     - Charts: server-rendered SVG, zero dependency, one tooltip for every `[data-tip]`

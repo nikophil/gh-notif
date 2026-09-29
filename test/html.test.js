@@ -1492,17 +1492,19 @@ test('renderStatsFragment: new sections — reciprocity + team tables; size scat
     reviewing: [{ login: 'b<x>', given: 3, approved: 2, changes: 1, commented: 0, merged: 3, ratio: 1 }],
     fetchedAt: null, incomplete: [],
   };
-  const out = renderStatsFragment(stats, { scoped: true, me: 'me', now: Date.parse('2026-09-28T12:00:00Z') });
+  const opts = { scoped: true, me: 'me', now: Date.parse('2026-09-28T12:00:00Z') };
+  const out = renderStatsFragment(stats, opts);
   assert.match(out, /Who reviews you, whom you review/);
   assert.match(out, /@b&lt;x&gt;\nreviewed your PRs: 3\nyou reviewed theirs: 1/);
   assert.match(out, /<a href="https:\/\/github.com\/acme\/api\/pull\/7" target="_blank"/);
   assert.match(out, /team median 2h/);
-  assert.match(out, /Who's shipping/);
-  assert.match(out, /<tr class="me"><td>@me<\/td><td class="num"><span class="mini"><i style="width:100%"><\/i><\/span> 1<\/td><td class="num">2<\/td>/);
-  assert.match(out, /<td class="num">50%<\/td>/, 'merge rate');
-  assert.match(out, /Who's reviewing/);
-  assert.match(out, /<td>@b&lt;x&gt;<\/td>/);
-  assert.ok(!out.includes('<x>'), 'logins escaped');
+  const team = renderStatsFragment(stats, { ...opts, tab: 'team' });
+  assert.match(team, /Who's shipping/);
+  assert.match(team, /<tr class="me"><td>@me<\/td><td class="num"><span class="mini"><i style="width:100%"><\/i><\/span> 1<\/td><td class="num">2<\/td>/);
+  assert.match(team, /<td class="num">50%<\/td>/, 'merge rate');
+  assert.match(team, /Who's reviewing/);
+  assert.match(team, /<td>@b&lt;x&gt;<\/td>/);
+  assert.ok(!(out + team).includes('<x>'), 'logins escaped');
 });
 
 test('renderStatsFragment: empty new sections are left out', () => {
@@ -1513,6 +1515,14 @@ test('renderStatsFragment: empty new sections are left out', () => {
   };
   const out = renderStatsFragment(stats, { now: 0 });
   for (const t of ['Who reviews you', 'PR size vs time', '<table class="team"']) assert.ok(!out.includes(t), t);
+});
+
+test('renderStatsFragment: Me / Team tabs only with a scope, the active one marked', () => {
+  const stats = repoStats();
+  assert.match(renderStatsFragment(stats, { scoped: true, now: 0 }),
+    /<nav class="stats-tabs" aria-label="Stats"><button type="button" data-tab="" class="on" aria-current="page">Me<\/button><button type="button" data-tab="team">Team<\/button><\/nav>/);
+  assert.match(renderStatsFragment(stats, { scoped: true, tab: 'team', now: 0 }), /data-tab="team" class="on"/);
+  assert.ok(!renderStatsFragment(stats, { now: 0 }).includes('stats-tabs'), 'no scope → no team side, no tabs');
 });
 
 function repoStats() {
@@ -1535,7 +1545,8 @@ function repoStats() {
 }
 
 test('renderStatsFragment: repository section — tiles with p90, outcomes, speed, repo volume; my verdicts tile', () => {
-  const out = renderStatsFragment(repoStats(), { scoped: true, scopeLabel: 'acme/*', repoOwner: 'acme', now: Date.parse('2026-09-28T12:00:00Z') });
+  const opts = { scoped: true, scopeLabel: 'acme/*', repoOwner: 'acme', now: Date.parse('2026-09-28T12:00:00Z') };
+  const out = renderStatsFragment(repoStats(), { ...opts, tab: 'team' });
   assert.match(out, /🏢 Repository/);
   assert.match(out, /<div class="tile-label">PRs opened<\/div><div class="tile-value">12<\/div><div class="tile-sub">83% merged · 1 still open · 1 closed/);
   assert.match(out, /Merged without review<\/div><div class="tile-value">20%/);
@@ -1543,15 +1554,18 @@ test('renderStatsFragment: repository section — tiles with p90, outcomes, spee
   assert.match(out, /PRs opened, by outcome/);
   assert.match(out, /Time to 1st review <span class="viz-sub">median per merge month/);
   assert.match(out, /Merged PRs per repository/);
-  assert.match(out, /Your verdicts<\/div><div class="tile-value">75%/);
+  assert.match(renderStatsFragment(repoStats(), opts), /Your verdicts<\/div><div class="tile-value">75%/, 'on the Me tab');
 });
 
 test('renderStatsFragment: filters — ignored chips + include toggle + team select + suggestions + reviewers datalist', () => {
   const filters = { teams: [{ slug: 'back', name: 'Back <end>' }], team: 'back', teamFailed: false, ignored: ['bot1'], includeIgnored: false };
-  const out = renderStatsFragment(repoStats(), { scoped: true, filters, now: 0 });
+  const out = renderStatsFragment(repoStats(), { scoped: true, filters, tab: 'team', now: 0 });
   assert.match(out, /<option value="back" selected>Back &lt;end&gt;<\/option>/);
   assert.match(out, /data-ignore="bot1"[^>]*>@bot1 ✕<\/button>/);
   assert.match(out, /<input type="checkbox" id="include-ignored">/);
   assert.match(out, /data-ignore="ai&lt;x&gt;"[^>]*>\+ ignore @ai&lt;x&gt;\?<\/button>/);
   assert.match(out, /<option value="bob"><\/option>/, 'reviewers datalist');
+  const me = renderStatsFragment(repoStats(), { scoped: true, filters, now: 0 });
+  assert.ok(!me.includes('id="team"'), 'the team select lives on the Team tab');
+  assert.match(me, /data-ignore="bot1"/, 'the ignored accounts count on both tabs');
 });
