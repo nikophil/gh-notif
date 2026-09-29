@@ -1269,7 +1269,13 @@ sequenceDiagram
       author (+ `bot`), created / ready (`timelineItems` ReadyForReviewEvent) / merged dates,
       additions / deletions, `rv` = `[login, submittedAt, state]` from `latestReviews` (one
       entry per reviewer = their verdict; measured: same reviewer set as the full `reviews`
-      list), `frs` = the first reviews `[login, at]`, `ev` = `reviews.totalCount`. (b) **Unmerged
+      list), `frs` = the first reviews `[login, at]`, `ev` = `reviews.totalCount`, `cr` = who
+      requested changes at some point (`reviews(states: CHANGES_REQUESTED)`). ⚠️ `rv` alone
+      hid them: a change request nearly always ends in an approval, so the last verdict read
+      « approved » (measured: 5 of 191 reviewed PRs had one, none still standing at merge —
+      the column showed 2 for a year). **One verdict per reviewer and PR**: « changes » if in
+      `cr`, else the last state (approved / commented), so approved + changes + commented =
+      reviews; a v2 record (no `cr`) keeps its last state until refetched. (b) **Unmerged
       PRs per CREATION month** (`searchUnmergedPRs`, light fields: closed / still open) — for
       « opened », outcomes and merge rates. Bots are dropped from the reviewers; a bot PR keeps
       a `bot` flag (out of the team numbers, still in my ratio, like the §38 pill).
@@ -1280,7 +1286,7 @@ sequenceDiagram
       `months[YYYY-MM]` and `unmerged[YYYY-MM]` = `{ fetchedAt, count, schema, prs }`. A merged
       month fetched a day after its end is **final** — never refetched; the current month is
       refetched after 6 h (or 🔄). An unmerged month is never final while it holds an open PR.
-      No pruning: older months serve the year views. `SCHEMA` (2) versions the record: a
+      No pruning: older months serve the year views. `SCHEMA` (3) versions the record: a
       bucket of another schema is refetched once. `myFirstYear` (the older of my first merged
       PR and my first review in the scope, `firstPRYear`) bounds the period dropdown; looked up
       on its own when unknown (a cache whose months are all fresh never ran it — real bug).
