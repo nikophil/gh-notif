@@ -425,7 +425,7 @@ export async function collectSearch(gh, raw, { max = 200, ignoredChecks = {} } =
 // Groups notifications + pending reviews by PR, aggregates the triggers,
 // fetches the details of each PR (author / date / diff / CI) in parallel,
 // then splits according to whether the PR is mine or someone else's.
-export async function collectPRs(gh, me, { all = false, scope = null, hidden = {}, cache = null, ignoredChecks = {}, watchAll = null, searchMemo = null, warn = () => {} } = {}) {
+export async function collectPRs(gh, me, { all = false, scope = null, hidden = {}, cache = null, ignoredChecks = {}, watchAll = null, searchMemo = null, detailMemo = null, warn = () => {} } = {}) {
   const debug = []; // compact verdict per thread (always produced: zero cost)
   const qualifier = scopesQualifier(scope);
   const [items, pendingRes, authoredRes] = await Promise.all([
@@ -486,6 +486,19 @@ export async function collectPRs(gh, me, { all = false, scope = null, hidden = {
 
   const candidates = [...byKey.values()];
   const details = await gh.getPullDetailsBatch(candidates.map((e) => ({ repo: e.repo, number: e.number })));
+  // A failed GraphQL chunk nulls its 30 PRs: built from null, a draft of mine
+  // read as someone else's open PR with a +0 −0 diff. The last known details
+  // stand in; the memo only keeps this poll's candidates.
+  if (detailMemo) {
+    const keys = new Set();
+    candidates.forEach((e, i) => {
+      const k = `${e.repo}#${e.number}`;
+      keys.add(k);
+      if (details[i]) detailMemo.set(k, details[i]);
+      else details[i] = detailMemo.get(k) ?? null;
+    });
+    for (const k of detailMemo.keys()) if (!keys.has(k)) detailMemo.delete(k);
+  }
 
   // Verdict on the remembered PRs (§10): alive → kept (a review request
   // regains its trigger) and remembered again; dead → dropped from this poll

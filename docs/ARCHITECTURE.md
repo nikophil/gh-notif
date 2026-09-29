@@ -347,6 +347,16 @@ sequenceDiagram
    of Actions + `StatusContext` of commit) → normalized into `row.checks` for the CI recompute by
    blocklist (§16) and the debug view.
 
+   **A failed chunk reuses the last known details (real bug).** `batched` degrades a failed
+   chunk to 30 nulls (never throws), and GitHub does fail one now and then (5xx, or a truncated
+   body that gh reports as `unexpected end of JSON input`). Built from `null`, a row reads as
+   someone else's open PR with a `+0 −0` diff: my drafts showed up in « others », author `?`,
+   🟢. The poll loop therefore passes a `detailMemo` to `collectPRs` (`Map` `repo#n` → last
+   non-null detail, owned by serve.js like `searchMemo`): a null detail takes the remembered
+   one, a non-null one refreshes it, and the keys not collected this poll are dropped. No memo
+   yet (first poll after a restart) → the fallback rows as before. A PR GitHub no longer finds
+   keeps its last details while a search or a notification still surfaces it — accepted.
+
 9. **Typographic apostrophes (`U+2019`).** The EN labels (`replied to you`, `mentioned you`)
    use `'` (U+2019), not the ASCII `'`. Recurrent regression: check the bytes if you touch
    these strings. The tests lock this down.

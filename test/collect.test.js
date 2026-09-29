@@ -1221,6 +1221,26 @@ test('collectPRs: a non-truncation search error still propagates (rate-limit bac
   await assert.rejects(collectPRs(gh, ME, { searchMemo: { pending: { qualifier: '', items: [] } } }), /rate limit/);
 });
 
+// A failed GraphQL chunk nulls the details of its 30 PRs: built from null, my
+// draft read as someone else's open PR with a +0 −0 diff (real bug).
+test('collectPRs: a PR whose details failed keeps its last known details', async () => {
+  const detailMemo = new Map();
+  const draft = (repo, n) => ({ ...mineDetails(repo, n), isDraft: true, additions: 500 });
+  await collectPRs(fakeGh({ authored: [authoredItem(1)], details: draft }), ME, { detailMemo });
+  const data = await collectPRs(fakeGh({ authored: [authoredItem(1)] }), ME, { detailMemo });
+  assert.deepEqual(nums(data.mine), [1]);
+  assert.deepEqual(data.others, []);
+  assert.equal(data.mine[0].state, 'draft');
+  assert.equal(data.mine[0].additions, 500);
+});
+
+test('collectPRs: the detail memo forgets the PRs no longer collected', async () => {
+  const detailMemo = new Map();
+  await collectPRs(fakeGh({ authored: [1, 2].map(authoredItem), details: mineDetails }), ME, { detailMemo });
+  await collectPRs(fakeGh({ authored: [authoredItem(1)], details: mineDetails }), ME, { detailMemo });
+  assert.deepEqual([...detailMemo.keys()], ['o/r#1']);
+});
+
 // Pending reviews: a remembered request stays only while GraphQL shows the PR
 // open AND without an opinionated review of mine (reviewed → GitHub drops the
 // request; an unflagged search would drop it too).

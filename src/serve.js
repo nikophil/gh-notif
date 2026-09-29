@@ -265,6 +265,8 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   // GitHub reuses it instead of dropping rows for a poll). Keyed by qualifier
   // inside collect.js → a scope change never reuses a stale list.
   const searchMemo = {};
+  // Last GraphQL details of each PR, standing in for a failed chunk (§8).
+  const detailMemo = new Map();
   let backoff = 0; // seconds added to the interval after a rate-limit
 
   // Hiding: reflects the persisted state (same view as `gh notif`).
@@ -403,7 +405,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       // Collection over the UNION of favorites (or the ad-hoc scope). notifyNew receives
       // this raw data: this is what makes the desktop notifs of the
       // favorites we are not looking at arrive. The filtering is done at render (fragmentBody).
-      const data = await collectPRs(gh, me, { all, scope: collectScope(), hidden, cache: inspectCache, ignoredChecks, watchAll: watchAllRepo, searchMemo, warn: (m) => process.stderr.write(`🔍 ${m}\n`) });
+      const data = await collectPRs(gh, me, { all, scope: collectScope(), hidden, cache: inspectCache, ignoredChecks, watchAll: watchAllRepo, searchMemo, detailMemo, warn: (m) => process.stderr.write(`🔍 ${m}\n`) });
       if (data.hiddenChanged) saveHidden(hiddenFile, hidden);
       notifyNew(data);
       snapshot.data = data;
