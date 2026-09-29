@@ -45,13 +45,14 @@ test('datasetQueries: scope → every merged PR of it; no scope → mine + the o
   assert.deepEqual(datasetQueries(null), ['author:@me', 'reviewed-by:@me -author:@me']);
 });
 
-const node = (n, { author = 'bob', merged = '2026-09-10T10:00:00Z', created = '2026-09-09T10:00:00Z', ready = null, reviews = [], bot = false } = {}) => ({
+const node = (n, { author = 'bob', merged = '2026-09-10T10:00:00Z', created = '2026-09-09T10:00:00Z', ready = null, reviews = [], changes = [], bot = false } = {}) => ({
   number: n, repository: { nameWithOwner: 'acme/api' }, author: { __typename: bot ? 'Bot' : 'User', login: author },
   createdAt: created, mergedAt: merged, additions: 1, deletions: 0,
   ready: { nodes: ready ? [{ createdAt: ready }] : [] },
   firstReviews: { nodes: reviews.map(([login, at]) => ({ author: { __typename: 'User', login }, submittedAt: at })) },
   latestReviews: { nodes: reviews.map(([login, at, state = 'APPROVED']) => ({ author: { __typename: 'User', login }, submittedAt: at, state })) },
   reviewEvents: { totalCount: reviews.length },
+  changesRequested: { nodes: changes.map((login) => ({ author: { __typename: 'User', login } })) },
 });
 
 test('compactPR: drops the author and bots from the reviewers, dates the first review', () => {
@@ -63,6 +64,16 @@ test('compactPR: drops the author and bots from the reviewers, dates the first r
   assert.deepEqual(pr.rv[0], ['me', '2026-09-09T12:00:00Z', 'APPROVED'], 'verdict kept');
   assert.equal(pr.ev, 3);
   assert.equal(compactPR({ ...n, mergedAt: null }), null);
+});
+
+// `latestReviews` only keeps each reviewer's LAST review: a change request
+// followed by an approval reads « approved ». `cr` remembers who asked.
+test('compactPR: cr = who requested changes at some point, once each, neither the author nor a bot', () => {
+  const n = node(1, { reviews: [['me', '2026-09-09T12:00:00Z', 'APPROVED']], changes: ['me', 'me', 'bob', 'alice'] });
+  n.changesRequested.nodes.push({ author: { __typename: 'Bot', login: 'copilot' } });
+  const pr = compactPR(n);
+  assert.deepEqual(pr.cr, ['me', 'alice'], 'bob is the author');
+  assert.equal(pr.rv[0][2], 'APPROVED', 'the last verdict alone would hide the change request');
 });
 
 // Fake gh over a fixed list of PR nodes: honours merged:FROM..TO and `first`,
@@ -405,6 +416,31 @@ test('computeStats: who\'s shipping (opened / merge rate / diff) and who\'s revi
   const me = s.reviewing.find((r) => r.login === 'me');
   assert.deepEqual({ g: me.given, a: me.approved, c: me.changes }, { g: 2, a: 1, c: 1 });
   assert.equal(s.reviewing.find((r) => r.login === 'carol').commented, 1);
+});
+
+// One verdict per reviewed PR, by priority: asked for changes at some point >
+// approved > commented — so approved + changes + commented = reviews.
+test('computeStats: asking for changes once makes the verdict « changes », even approved afterwards', () => {
+  const at = (d) => `2026-09-${String(d).padStart(2, '0')}T10:00:00Z`;
+  const prs = [
+    compactPR(node(1, { author: 'bob', merged: at(2), reviews: [['me', at(1), 'APPROVED'], ['carol', at(1), 'APPROVED']], changes: ['me'] })),
+    compactPR(node(2, { author: 'bob', merged: at(4), reviews: [['me', at(3), 'COMMENTED']], changes: ['me'] })),
+    compactPR(node(3, { author: 'carol', merged: at(6), reviews: [['me', at(5), 'COMMENTED']] })),
+  ];
+  const s = computeStats({ months: { '2026-09': { fetchedAt: NOW, count: 3, schema: SCHEMA, prs } } }, 'me', { now: NOW, scoped: true });
+  assert.deepEqual(s.me.verdicts, { APPROVED: 0, CHANGES_REQUESTED: 2, COMMENTED: 1 });
+  const me = s.reviewing.find((r) => r.login === 'me');
+  assert.deepEqual({ g: me.given, a: me.approved, ch: me.changes, co: me.commented }, { g: 3, a: 0, ch: 2, co: 1 });
+  assert.equal(s.reviewing.find((r) => r.login === 'carol').approved, 1, 'approved without asking for changes');
+  const ignored = computeStats({ months: { '2026-09': { fetchedAt: NOW, count: 3, schema: SCHEMA, prs } } }, 'carol', { now: NOW, scoped: true, ignored: ['me'] });
+  assert.ok(!ignored.reviewing.some((r) => r.login === 'me'), 'an ignored account asks for nothing');
+});
+
+test('computeStats: a record from before cr (schema 2) keeps its last verdict until refetched', () => {
+  const pr = compactPR(node(1, { author: 'bob', reviews: [['me', '2026-09-09T10:00:00Z', 'CHANGES_REQUESTED']] }));
+  delete pr.cr;
+  const s = computeStats({ months: { '2026-09': { fetchedAt: NOW, count: 1, schema: 2, prs: [pr] } } }, 'me', { now: NOW, scoped: true });
+  assert.deepEqual(s.me.verdicts, { APPROVED: 0, CHANGES_REQUESTED: 1, COMMENTED: 0 });
 });
 
 test('computeStats: an ignored account loses its reviews (first review recomputed), includeIgnored brings them back', () => {

@@ -115,9 +115,10 @@ export function isMonthFinal(key, fetchedAt) {
 // Does this month need a (re)fetch? Final → never; otherwise missing, or older
 // than the TTL, or `force` (🔄) for a non-final month.
 // Version of the stored PR record: 2 added the review verdicts (`rv[i][2]`),
-// the first reviews list (`frs`) and the review event count (`ev`). A bucket
-// of another version is refetched (once).
-export const SCHEMA = 2;
+// the first reviews list (`frs`) and the review event count (`ev`), 3 who
+// requested changes at some point (`cr`). A bucket of another version is
+// refetched (once).
+export const SCHEMA = 3;
 
 // A bucket without `count` predates the completeness check (§40), an
 // `incomplete` one lost PRs to a truncated search, an old `schema` lacks
@@ -192,6 +193,12 @@ export function compactPR(n) {
     .filter((r) => !isBot(r.author) && r.author.login !== author && r.submittedAt)
     .map((r) => [r.author.login, r.submittedAt])
     .sort((a, b) => a[1].localeCompare(b[1]));
+  // Who requested changes at some point: `rv` only holds each reviewer's LAST
+  // review, and a change request nearly always ends in an approval (measured:
+  // none of 5 still standing at merge).
+  const cr = [...new Set((n.changesRequested?.nodes ?? [])
+    .filter((r) => !isBot(r.author) && r.author.login !== author)
+    .map((r) => r.author.login))];
   return {
     repo: n.repository.nameWithOwner,
     n: n.number,
@@ -204,6 +211,7 @@ export function compactPR(n) {
     del: n.deletions ?? 0,
     frs: firsts,
     rv: reviewers,
+    cr,
     ev: n.reviewEvents?.totalCount ?? null,
   };
 }
@@ -441,13 +449,15 @@ export function computeStats(cache, me, {
   // `frs` only holds GitHub's first 5 reviews: when the author's thread
   // replies, bots or ignored accounts took them all, the kept reviewers'
   // dates stand in (their latest review, a bound on their first) — the PR
-  // stays in the medians instead of dropping out.
+  // stays in the medians instead of dropping out. A v2 record has no `cr`:
+  // its last verdicts stand in until the bucket is refetched.
   const clean = (pr) => {
     const rv = pr.rv.filter(([l]) => keepReviewer(l));
     const fr = pr.frs
       ? pr.frs.find(([l]) => keepReviewer(l))?.[1] ?? rv.map(([, at]) => at).filter(Boolean).sort()[0] ?? null
       : pr.fr ?? null;
-    return { ...pr, rv, fr };
+    const cr = pr.cr ? pr.cr.filter((l) => keepReviewer(l)) : rv.filter(([, , st]) => st === 'CHANGES_REQUESTED').map(([l]) => l);
+    return { ...pr, rv, fr, cr };
   };
 
   const inPeriod = new Set(keys);
@@ -545,10 +555,13 @@ export function computeStats(cache, me, {
     team: scoped ? human.filter((pr) => pr.a !== me).map(point).filter((p) => p.ttm >= 0) : [],
   };
 
-  // My verdicts on the PRs I reviewed (my latest review on each).
+  // One verdict per reviewer and PR, by priority: asked for changes at some
+  // point (an approval afterwards does not erase it) > their last review
+  // (approved > commented) — so approved + changes + commented = reviews.
+  const verdictOf = (pr, login, last) => (pr.cr.includes(login) ? 'CHANGES_REQUESTED' : last);
   const verdicts = { APPROVED: 0, CHANGES_REQUESTED: 0, COMMENTED: 0 };
   for (const pr of reviewedByMe) {
-    const st = pr.rv.find(([l]) => l === me)?.[2];
+    const st = verdictOf(pr, me, pr.rv.find(([l]) => l === me)?.[2]);
     if (st in verdicts) verdicts[st]++;
   }
 
@@ -636,8 +649,9 @@ export function computeStats(cache, me, {
     const revs = new Map();
     const rvw = (login) => revs.get(login) ?? revs.set(login, { login, given: 0, APPROVED: 0, CHANGES_REQUESTED: 0, COMMENTED: 0, other: 0 }).get(login);
     for (const pr of prs) {
-      for (const [l, , st] of pr.rv) {
+      for (const [l, , last] of pr.rv) {
         const r = rvw(l);
+        const st = verdictOf(pr, l, last);
         r.given++;
         if (st in r && st !== 'login') r[st]++; else r.other++;
       }

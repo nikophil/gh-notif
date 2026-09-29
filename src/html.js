@@ -2816,10 +2816,10 @@ const SHIPPING_COLS = [
 ];
 const REVIEWING_COLS = [
   ['Reviews', 'PRs of others, merged during the period, that this person reviewed. A PR counts once, however many reviews.', 'num'],
-  ['Verdicts', 'How their last review on each of those PRs ended:\ngreen = approved, grey = comment only, red = changes requested.'],
-  ['Approved', 'PRs where their last review was an approval.', 'num'],
-  ['Changes', 'PRs where their last review requested changes.', 'num'],
-  ['Commented', 'PRs where their last review was a comment only (no approval, no change request).', 'num'],
+  ['Verdicts', 'One verdict per PR they reviewed:\ngreen = approved, red = asked for changes at some point, grey = comments only.'],
+  ['Approved', 'PRs they approved without ever requesting changes.', 'num'],
+  ['Changes', 'PRs where they requested changes at some point, even if they approved afterwards.', 'num'],
+  ['Commented', 'PRs where their last review was a comment and they never requested changes.', 'num'],
   ['Own merged', 'Their own PRs merged during the period.', 'num'],
   ['Ratio', 'Reviews ÷ own merged: how many PRs they review for each of their own that gets merged.\nAbove 1 = they review more than they ship. Same calculation as your ratio pill.', 'num'],
 ];

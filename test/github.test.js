@@ -15,6 +15,12 @@ function fakeRunner(map) {
   return run;
 }
 
+test('searchMergedPRs: asks who requested changes at some point, not only the last verdicts', async () => {
+  const runner = fakeRunner([['api graphql', JSON.stringify({ data: { search: { issueCount: 0, pageInfo: { hasNextPage: false }, nodes: [] } } })]]);
+  await makeGh(runner).searchMergedPRs('is:pr is:merged org:acme');
+  assert.match(runner.calls[0].join(' '), /changesRequested: reviews\(states: CHANGES_REQUESTED, first: \d+\) \{ nodes \{ author \{ __typename login \} \} \}/);
+});
+
 test('getCurrentUser returns the login', async () => {
   const gh = makeGh(fakeRunner([['api user', JSON.stringify({ login: 'me' })]]));
   assert.equal(await gh.getCurrentUser(), 'me');

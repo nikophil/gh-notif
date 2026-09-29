@@ -319,7 +319,9 @@ export function makeGh(runner = defaultRunner, { onError = () => {} } = {}) {
     // answers in ~1 s, the same 100 with these fields hits GitHub's ~10 s
     // timeout (502/504, measured). The caller halves `first` on failure.
     // `latestReviews` = one entry per reviewer (measured: same reviewer set as
-    // the full `reviews` list); `firstReviews` dates the first review.
+    // the full `reviews` list); `firstReviews` dates the first review;
+    // `changesRequested` = who asked for changes at some point (their last
+    // review is usually an approval, measured: no extra cost).
     async searchMergedPRs(q, { first = 25, after = null } = {}) {
       const query = `query($q: String!, $after: String) {
   search(query: $q, type: ISSUE, first: ${Number(first)}, after: $after) {
@@ -331,6 +333,7 @@ export function makeGh(runner = defaultRunner, { onError = () => {} } = {}) {
       firstReviews: reviews(first: 5) { nodes { author { __typename login } submittedAt } }
       latestReviews(first: 30) { nodes { author { __typename login } submittedAt state } }
       reviewEvents: reviews { totalCount }
+      changesRequested: reviews(states: CHANGES_REQUESTED, first: 10) { nodes { author { __typename login } } }
     } }
   }
 }`;
