@@ -1264,6 +1264,9 @@ sequenceDiagram
       PRs per CREATION month** (`searchUnmergedPRs`, light fields: closed / still open) — for
       « opened », outcomes and merge rates. Bots are dropped from the reviewers; a bot PR keeps
       a `bot` flag (out of the team numbers, still in my ratio, like the §38 pill).
+      ⚠️ A PR cached as open, then merged, sits in **both** datasets until its unmerged month is
+      refetched: `computeStats` drops from the unmerged side every PR it has a merged record of
+      (`repo#n`) — never counted twice in « opened », outcomes or merge rates.
     - **Cache per month, on disk** (`stats-v1/<sha1(me|qualifier)>.json`, one file per scope):
       `months[YYYY-MM]` and `unmerged[YYYY-MM]` = `{ fetchedAt, count, schema, prs }`. A merged
       month fetched a day after its end is **final** — never refetched; the current month is
@@ -1284,11 +1287,16 @@ sequenceDiagram
       4 months in parallel (`CONCURRENCY`). The per-reviewer turnaround (open → that
       reviewer's first review) was rejected: it needs the full review list per PR.
     - **Collection** runs in the background, one job per scope file, started by a fragment
-      request when a month of the period needs it; the cache is saved after every month (an
+      request when a month of the period needs it — merged **or unmerged** bucket, one decision
+      (`monthsToFetch`) shared by the server and `collectStats`. ⚠️ Gating on the merged months
+      alone left a past year's unmerged months stale for good: all its merged months are final,
+      so no job ever started (real bug). The cache is saved after every month (an
       interrupted first run resumes). The page shows **one progress bar per month** (always
       « x/12 », cached months count as done) and re-polls every 2 s while `data-loading`. The
       first collection of a big org takes minutes (a busy org: ~3 500 PRs/year); later visits only
-      refresh the current month.
+      refresh the current month. Client side, every fragment request (poll, 🔄, ignore toggle)
+      goes through `show()`, which only renders the **latest** one: a slow answer for a scope /
+      period the user has left since would otherwise land under the new URL.
     - **`computeStats`** (pure) — for the period's months, optionally focused on one month
       (tiles, ranks, repos, tables narrow to it; the per-month charts keep the period):
       *me*: ratio, verdicts, medians (from ready-for-review), days I reviewed (heatmap), per
@@ -1304,9 +1312,15 @@ sequenceDiagram
       an add field, `POST /stats/ignore?login=` toggles): their reviews do not count (an AI
       reviewer posting on a human account, a bot-like user GitHub types as `User`); the first
       review time is recomputed without them (why `frs` is stored, not a precomputed `fr`).
+      ⚠️ `frs` only holds GitHub's **first 5** reviews (`reviews(first: 5)`, kept small for
+      the query weight): when the author's thread replies, bots or ignored accounts took them
+      all, the kept reviewers' `rv` dates stand in (their latest review — a bound on their
+      first), so the PR stays in the medians instead of silently dropping out.
       Accounts with ≥ 30 reviews that are ≥ 90 % plain comments are **suggested**. *Team*:
-      the GitHub teams of the scope's org (`listTeams` / `teamMembers`, cached a day, failure →
-      no filter): only the members' PRs and reviews count, mine always kept.
+      the GitHub teams of the scope's org (`listTeams` / `teamMembers`, failure → no filter):
+      only the members' PRs and reviews count, mine always kept. Cached per `teamCacheMs`:
+      the teams or « no access » (403 no read:org, 404 a user) a day, a transient failure
+      (network, 5xx, rate limit) 1 min — a blip must not hide the filter all day.
     - Charts: server-rendered SVG, zero dependency, one tooltip for every `[data-tip]`
       (textContent), a « Show as table » where values matter. Two series in the validated
       categorical slots 1–2 (blue = my reviews, orange = my PRs, both themes checked on the

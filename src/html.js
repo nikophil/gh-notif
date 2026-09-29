@@ -3082,18 +3082,25 @@ export function renderStatsShell({ theme = 'auto', scope = '', defaultLabel = ''
   var content = document.getElementById('content');
   var tip = document.getElementById('tip');
   var timer = null;
-  // The URL is the state (?period=…&month=…): shareable, back/forward work.
-  function load(refresh) {
+  var seq = 0;
+  // Only the latest request renders: a slow answer for a scope / period the
+  // user has left since must not land under the new URL.
+  function show(url, init) {
     clearTimeout(timer);
-    var qs = location.search;
-    fetch((refresh ? '/stats/refresh' : '/stats-fragment') + qs, refresh ? { method: 'POST' } : {})
+    var mine = ++seq;
+    fetch(url, init)
       .then(function (r) { return r.text(); })
       .then(function (html) {
+        if (mine !== seq) return;
         content.innerHTML = html;
         content.classList.remove('loading');
         if (content.querySelector('[data-loading]')) timer = setTimeout(function () { load(false); }, 2000);
       })
-      .catch(function () { content.innerHTML = '<p class="empty offline">⚠️ offline</p>'; });
+      .catch(function () { if (mine === seq) content.innerHTML = '<p class="empty offline">⚠️ offline</p>'; });
+  }
+  // The URL is the state (?period=…&month=…): shareable, back/forward work.
+  function load(refresh) {
+    show((refresh ? '/stats/refresh' : '/stats-fragment') + location.search, refresh ? { method: 'POST' } : {});
   }
   function showTip(el, x, y) {
     tip.textContent = el.getAttribute('data-tip');
@@ -3130,9 +3137,7 @@ export function renderStatsShell({ theme = 'auto', scope = '', defaultLabel = ''
     var p = new URLSearchParams(location.search);
     p.set('login', login);
     content.classList.add('loading');
-    fetch('/stats/ignore?' + p.toString(), { method: 'POST' })
-      .then(function (r) { return r.text(); })
-      .then(function (html) { content.innerHTML = html; content.classList.remove('loading'); });
+    show('/stats/ignore?' + p.toString(), { method: 'POST' });
   }
   content.addEventListener('submit', function (e) {
     if (e.target.id !== 'ignore-form') return;

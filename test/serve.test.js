@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
-import { handleRequest, serve, parseScope, scopeLabel, shouldRefresh, singleFlight } from '../src/serve.js';
+import { handleRequest, serve, parseScope, scopeLabel, shouldRefresh, singleFlight, teamCacheMs } from '../src/serve.js';
 import { loadPrefs, prefsPath } from '../src/prefs.js';
 
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
@@ -1498,4 +1498,21 @@ test('GET /stats : no favorite, no scope → « all of GitHub » placeholder', (
 test('GET /view : ratioPending passes through (the client re-polls quickly while the pill is counted)', () => {
   assert.equal(JSON.parse(handleRequest('/view', mixedSnapshot(), { ...OPTS, ratioPending: true }).body).ratioPending, true);
   assert.equal(JSON.parse(handleRequest('/view', mixedSnapshot(), { ...OPTS }).body).ratioPending, false);
+});
+
+test('teamCacheMs: the teams or « no access » are kept a day, a transient failure is retried after a minute', () => {
+  const DAY = 86_400_000;
+  assert.equal(teamCacheMs(), DAY);
+  assert.equal(teamCacheMs(new Error('gh: Not Found (HTTP 404)')), DAY, 'a user, not an org');
+  assert.equal(teamCacheMs(new Error('gh: Resource not accessible by integration (HTTP 403)')), DAY, 'no read:org');
+  assert.equal(teamCacheMs(new Error('connection reset by peer')), 60_000);
+  assert.equal(teamCacheMs(new Error('gh: HTTP 502')), 60_000);
+  assert.equal(teamCacheMs(new Error('gh: API rate limit exceeded (HTTP 403)')), 60_000, 'a rate limit is a 403 too, but transient');
+});
+
+test('GET /stats : a late response of a page the user left is dropped (scope / period switched mid-poll)', () => {
+  const body = handleRequest('/stats', mixedSnapshot(), { ...OPTS }).body;
+  assert.match(body, /var mine = \+\+seq;[\s\S]*if \(mine !== seq\) return;/, 'only the latest request renders');
+  assert.match(body, /function load\(refresh\) \{\s*show\(/, 'the fragment polls go through it');
+  assert.match(body, /function toggleIgnore\(login\) \{[\s\S]*?show\('\/stats\/ignore\?/, 'and the ignore toggles');
 });
