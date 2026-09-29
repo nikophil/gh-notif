@@ -7,14 +7,15 @@
 import http from 'node:http';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
-import { collectPRs, recomputeCi, collectSearch, searchQuery } from './collect.js';
+import { collectPRs, recomputeCi, collectSearch, searchQuery, toScopeList, matchesAnyScope } from './collect.js';
+import { statsPath, loadStatsCache, saveStatsCache, collectStats, computeStats, needsFetch, needsFirstYear, periodKeys, periodOptions, isValidPeriod, DEFAULT_PERIOD } from './stats.js';
 import { CATEGORY } from './filter.js';
 import { hiddenPath, loadHidden, saveHidden, toggleHidden, isHidden, keyOf } from './hidden.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './state.js';
-import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, setStacks, stacksSeenOf, hiddenColsOf, toggleHiddenCol } from './prefs.js';
+import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, setStacks, stacksSeenOf, hiddenColsOf, toggleHiddenCol, statsIgnoredOf, toggleStatsIgnored } from './prefs.js';
 import {
   parseScope, normalizeFavorites, addFavorite, removeFavorite,
-  favoriteScopes, activeFavoriteOf, filterDataByScope, favoriteCounts, closedPRsUrl, reviewedPRsUrl, reviewCoverageQueries, repoInAllMode,
+  favoriteScopes, activeFavoriteOf, filterDataByScope, favoriteCounts, closedPRsUrl, reviewedPRsUrl, reviewCoverageQueries, repoInAllMode, favoriteLabel,
 } from './favorites.js';
 import { diffApprovals } from './approvals.js';
 import { normalizeSort, toggleSort, sortRows, groupStacks, stackChildKeys, SORT_KEYS, MINE_SORT_KEYS, DEFAULT_SORT } from './sort.js';
@@ -22,7 +23,7 @@ import { sendNotification, browserEvent } from './notify.js';
 import { isRateLimitError, nextBackoffSeconds } from './ratelimit.js';
 import { isServerError, errorLine } from './errlog.js';
 import { startSpinner } from './spinner.js';
-import { renderShell, renderFragment, renderLoading, renderDebug, renderDebugShell, renderErrorsSection, renderFavorites, renderSearchShell, renderSearchFragment, renderUpdateBanner, renderStaleBanner, escapeHtml } from './html.js';
+import { renderShell, renderFragment, renderLoading, renderDebug, renderDebugShell, renderErrorsSection, renderFavorites, renderSearchShell, renderSearchFragment, renderUpdateBanner, renderStaleBanner, renderStatsShell, renderStatsFragment, renderStatsFavorites, escapeHtml } from './html.js';
 import { UPGRADE_COMMANDS } from './update.js';
 
 const POLL_SECONDS = 60;
@@ -169,10 +170,21 @@ export function handleRequest(pathname, snapshot, opts = {}) {
   const {
     now, intervalMs, showHidden, scope, notifyEnabled = true, theme = 'auto',
     favorites = [], activeFav = null, adhoc = false, sort = null, sortMine = null, ignoredChecks = {},
-    favModes = null, stacks = null, cols = null, searchQ = '', events = [], after = null, errors = [], reviewCoverage = null,
+    favModes = null, stacks = null, cols = null, searchQ = '', events = [], after = null, errors = [], reviewCoverage = null, ratioPending = false, statsScope = '',
   } = opts;
   // Search page shell (§29): the query comes from the URL (pre-filled field);
   // the data itself goes through /search-fragment (I/O, outside this pure router).
+  // Stats page (§40): the field shows the `?scope=` of the URL; empty = the
+  // dashboard's scope (named in the placeholder), favorites suggested.
+  if (pathname === '/stats') {
+    const def = toScopeList(linkScopes({ scope, activeFav, favorites }));
+    return { status: 200, type: 'text/html; charset=utf-8', body: renderStatsShell({
+      theme,
+      scope: statsScope === '*' ? '' : statsScope,
+      defaultLabel: def ? def.map((s) => (s.type === 'org' ? `${s.value}/*` : s.value)).join(', ') : 'all of GitHub',
+      favorites: favorites.map(favoriteLabel),
+    }) };
+  }
   if (pathname === '/search') {
     return { status: 200, type: 'text/html; charset=utf-8', body: renderSearchShell({ q: searchQ || SEARCH_DEFAULT_QUERY, theme }) };
   }
@@ -202,6 +214,7 @@ export function handleRequest(pathname, snapshot, opts = {}) {
       // '' = its first poll (it only learns lastSeq), 'N' = everything newer than N.
       events: after ? events.filter((e) => e.seq > Number(after)) : [],
       lastSeq: events.length ? events[events.length - 1].seq : 0,
+      ratioPending,
     }) };
   }
   if (pathname === '/api/state') {
@@ -453,20 +466,31 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   const coverageFor = (scopes) => {
     if (typeof gh.countPRs !== 'function') return null;
     const q = reviewCoverageQueries(scopes);
-    const hit = coverageCache.get(q.key) ?? { reviewed: null, merged: null, nextAt: 0 };
+    const hit = coverageCache.get(q.key) ?? { value: null, nextAt: 0 };
     if (!hit.pending && Date.now() >= hit.nextAt) {
       hit.pending = true;
       coverageCache.set(q.key, hit);
-      Promise.all([gh.countPRs(q.reviewed), gh.countPRs(q.merged)])
-        .then(([reviewed, merged]) => Object.assign(hit, { reviewed, merged, nextAt: Date.now() + COVERAGE_TTL_MS }))
+      Promise.all([q.month.reviewed, q.month.merged, q.year.reviewed, q.year.merged].map((s) => gh.countPRs(s)))
+        .then(([r30, m30, r365, m365]) => Object.assign(hit, {
+          value: { reviewed: r30, merged: m30, year: { reviewed: r365, merged: m365 } },
+          nextAt: Date.now() + COVERAGE_TTL_MS,
+        }))
         .catch(() => { hit.nextAt = Date.now() + COVERAGE_RETRY_MS; })
         .finally(() => { hit.pending = false; });
     }
-    return hit.merged == null ? null : { reviewed: hit.reviewed, merged: hit.merged };
+    return hit.value;
+  };
+  // The pill of this scope is being fetched and not known yet (a favorite just
+  // switched to): the client re-polls /view shortly instead of waiting a whole
+  // interval (real bug: no ratio for up to a minute after a switch).
+  const coveragePending = (scopes) => {
+    const hit = coverageCache.get(reviewCoverageQueries(scopes).key);
+    return !!hit?.pending && !hit.value;
   };
 
   const currentView = (showHidden) => {
     const counts = favoriteCounts(favorites, snapshot.data);
+    const reviewCoverage = coverageFor(linkScopes({ scope, activeFav, favorites }));
     return JSON.stringify({
       chips: renderFavorites(favorites, activeFav, { adhoc: !!scope, counts, favModes }),
       fragment: fragmentBody(snapshot, {
@@ -474,7 +498,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         viewScope: scope ? null : parseScope(activeFav),
         closedUrl: closedPRsUrl(linkScopes({ scope, activeFav, favorites })),
         reviewedUrl: reviewedPRsUrl(linkScopes({ scope, activeFav, favorites })),
-        reviewCoverage: coverageFor(linkScopes({ scope, activeFav, favorites })),
+        reviewCoverage,
         sort,
         sortMine,
         ignoredChecks,
@@ -482,6 +506,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         cols,
       }),
       updatedAt: snapshot.updatedAt,
+      ratioPending: coveragePending(linkScopes({ scope, activeFav, favorites })),
     });
   };
   const json = 'application/json; charset=utf-8';
@@ -520,6 +545,111 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   };
   // sort/page come from the URL (the URL is the state); the raw `q` is kept
   // for the links so the field and the URLs show what the user typed.
+  // Stats page (§40): one entry per (me, scope) — the month cache loaded from
+  // disk once, at most ONE collection in flight. Scope = what the dashboard
+  // displays (linkScopes, like the ratio pill). The fragment never waits for
+  // GitHub: it starts the collection if a month needs it and renders what it
+  // has (or the progress); the page re-polls while `running`.
+  const statsEntries = new Map(); // file path → { path, cache, job, progress, errors, forcedAt }
+  const startStats = (e, scopes, keys, force) => {
+    if (e.job || typeof gh.searchMergedPRs !== 'function') return;
+    const now = Date.now();
+    if (!keys.some((k) => needsFetch(e.cache.months[k], k, now, { force })) && !needsFirstYear(e.cache, now)) return;
+    e.progress = null;
+    process.stderr.write(`📊 stats: collecting${force ? ' (forced)' : ''} · ${e.path}\n`);
+    e.job = collectStats(gh, scopes, e.cache, {
+      now,
+      keys,
+      force,
+      // Saved after every month: a long first run interrupted (restart) keeps
+      // the months already fetched.
+      onProgress: (p) => { e.progress = p; if (p.monthDone) saveStatsCache(e.path, e.cache); },
+    })
+      .then((errs) => { e.errors = errs.map((err) => (err.ghCode ? `[${err.ghCode}] ` : '') + errorLine(err)); })
+      .catch((err) => { e.errors = [errorLine(err)]; })
+      .finally(() => { saveStatsCache(e.path, e.cache); e.job = null; e.progress = null; });
+  };
+  // `params`: ?period=last12|YYYY (dropdown) & month=YYYY-MM (focus) — both
+  // validated, anything else falls back to the default.
+  // A typed scope is checked once (gh.scopeExists, cached): an unknown org
+  // would otherwise cost 12 failing searches. null (network) = fail-open.
+  const scopeChecks = new Map(); // raw value → true | false | null
+  // Team filter (§40): the org's GitHub teams and their members, cached a day
+  // (1 request each). A failure (no read:org, network) → no team filter.
+  const TEAM_TTL_MS = 86400000;
+  const teamCache = new Map(); // 'org' | 'org/slug' → { value, at }
+  const cachedTeam = async (key, fetch) => {
+    const hit = teamCache.get(key);
+    if (hit && Date.now() - hit.at < TEAM_TTL_MS) return hit.value;
+    let value = null;
+    try { value = await fetch(); } catch { /* journaled by makeGh; no filter */ }
+    teamCache.set(key, { value, at: Date.now() });
+    return value;
+  };
+  const statsFragment = async (params, { force = false } = {}) => {
+    // ?scope= : '' = the dashboard's scope, '*' = the union of the favorites
+    // (the « ⭐ all » chip), anything else = that org / repository.
+    const raw = (params.get('scope') ?? '').trim();
+    const typed = raw === '*' ? null : parseScope(raw);
+    if (typed && typeof gh.scopeExists === 'function') {
+      if (!scopeChecks.has(typed.value)) scopeChecks.set(typed.value, await gh.scopeExists(typed));
+      if (scopeChecks.get(typed.value) === false) {
+        return `<p class="empty offline">⚠️ ${escapeHtml(typed.value)}: no such ${typed.type === 'org' ? 'organization or user' : 'repository'} on GitHub.</p>`;
+      }
+    }
+    const scopes = raw === '*' ? favoriteScopes(favorites) : typed ?? linkScopes({ scope, activeFav, favorites });
+    // Highlighted chip: the typed favorite, « all » for '*', else what the
+    // dashboard shows (none in ad-hoc mode, where no favorite drives it).
+    const same = (f) => { const p = parseScope(f); return typed && p && p.type === typed.type && p.value === typed.value; };
+    const activeChip = raw === '*' ? '*'
+      : typed ? (favorites.find(same) ?? null)
+      : scope ? null : (activeFav ?? '*');
+    const path = statsPath(me, scopes);
+    let e = statsEntries.get(path);
+    if (!e) statsEntries.set(path, (e = { path, cache: loadStatsCache(path), job: null, progress: null, errors: [], forcedAt: 0 }));
+    // 🔄 debounced like POST /refresh: spamming it is not spamming GitHub.
+    if (force && Date.now() - e.forcedAt < REFRESH_MIN_AGE_MS) force = false;
+    if (force) e.forcedAt = Date.now();
+    const now = Date.now();
+    const period = isValidPeriod(params.get('period'), now) ? params.get('period') : DEFAULT_PERIOD;
+    const keys = periodKeys(period, now);
+    const month = keys.includes(params.get('month')) ? params.get('month') : null;
+    startStats(e, scopes, keys, force);
+    const list = toScopeList(scopes);
+    const scoped = !!list;
+    // First collection still running → no half-year numbers, the progress only.
+    const complete = keys.every((k) => e.cache.months[k]);
+    const running = !!e.job;
+    const waiting = [...(snapshot.data?.others ?? []), ...(snapshot.data?.hidden ?? [])]
+      .filter((r) => (r.triggers ?? []).includes('review') && matchesAnyScope(scopes, r.repo));
+    // Filters: the ignored accounts (prefs) unless ?all=1; ?team=slug among
+    // the teams of the scope's org (a repo → its owner).
+    const ignored = statsIgnoredOf(prefs);
+    const includeIgnored = params.get('all') === '1';
+    const org = list?.length === 1 ? (list[0].type === 'org' ? list[0].value : list[0].value.split('/')[0]) : null;
+    const teams = org && typeof gh.listTeams === 'function' ? await cachedTeam(org, () => gh.listTeams(org)) : null;
+    const team = teams?.find((t) => t.slug === params.get('team')) ?? null;
+    const teamMembers = team ? await cachedTeam(`${org}/${team.slug}`, () => gh.teamMembers(org, team.slug)) : null;
+    const stats = complete || (!running && Object.keys(e.cache.months).length)
+      ? computeStats(e.cache, me, { now, keys, month, scoped, waiting, ignored, includeIgnored, teamMembers })
+      : null;
+    return renderStatsFragment(stats, {
+      // The progress of a job started for another period (dropdown switched
+      // mid-collection) is still shown — it is what the server is doing.
+      progress: running ? (e.progress ?? { done: 0, total: keys.length, months: [] }) : null,
+      period,
+      periods: periodOptions(e.cache.myFirstYear, now),
+      chips: renderStatsFavorites(favorites, activeChip),
+      me,
+      filters: { teams: teams ?? [], team: team?.slug ?? null, teamFailed: !!team && !teamMembers, ignored, includeIgnored },
+      errors: e.errors,
+      scopeLabel: list ? list.map((s) => (s.type === 'org' ? `${s.value}/*` : s.value)).join(', ') : '',
+      scoped,
+      repoOwner: list?.length === 1 && list[0].type === 'org' ? list[0].value : null,
+      now,
+    });
+  };
+
   const searchFragment = async (params, { force = false } = {}) => {
     const q = params.get('q') || SEARCH_DEFAULT_QUERY;
     const r = await searchResult(q, { force });
@@ -741,6 +871,16 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         savePrefs(prefsFile, prefs);
         return send(204, 'text/plain; charset=utf-8', '');
       }
+      // Stats: ignore / un-ignore an account's reviews (prefs, persisted) —
+      // the query string also carries the page state, re-rendered as is.
+      if (pathname === '/stats/ignore') {
+        toggleStatsIgnored(prefs, url.searchParams.get('login'));
+        savePrefs(prefsFile, prefs);
+        return send(200, 'text/html; charset=utf-8', await statsFragment(url.searchParams));
+      }
+      if (pathname === '/stats/refresh') {
+        return send(200, 'text/html; charset=utf-8', await statsFragment(url.searchParams, { force: true }));
+      }
       if (pathname === '/search/refresh') {
         return send(200, 'text/html; charset=utf-8', await searchFragment(url.searchParams, { force: true }));
       }
@@ -748,6 +888,9 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
     }
 
     // Search fragment: I/O on a cache miss (GitHub) → handled here, outside the pure router.
+    if (pathname === '/stats-fragment') {
+      return send(200, 'text/html; charset=utf-8', await statsFragment(url.searchParams));
+    }
     if (pathname === '/search-fragment') {
       return send(200, 'text/html; charset=utf-8', await searchFragment(url.searchParams));
     }
@@ -757,6 +900,9 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
     const after = url.searchParams.get('after');
     if (pathname === '/view' && after !== null) browserUntil = Date.now() + 2 * intervalSeconds * 1000;
 
+    const dashboard = pathname === '/view' || pathname === '/fragment';
+    // Only the dashboard views show the pill (and may trigger its fetch).
+    const reviewCoverage = dashboard ? coverageFor(linkScopes({ scope, activeFav, favorites })) : null;
     const { status, type, body } = handleRequest(pathname, snapshot, {
       now: Date.now(),
       events,
@@ -778,11 +924,10 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       stacks,
       cols,
       searchQ: url.searchParams.get('q') ?? '',
+      statsScope: url.searchParams.get('scope') ?? '',
       errors: errorLog.entries,
-      // Only the dashboard views show it (and may trigger its fetch).
-      reviewCoverage: pathname === '/view' || pathname === '/fragment'
-        ? coverageFor(linkScopes({ scope, activeFav, favorites }))
-        : null,
+      reviewCoverage,
+      ratioPending: dashboard && coveragePending(linkScopes({ scope, activeFav, favorites })),
     });
     send(status, type, body);
   });

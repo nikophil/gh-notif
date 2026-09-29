@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { escapeHtml, isMergeable, addBusinessDays, partyWorthy, labelColors, ratioColor, renderFragment, renderShell, renderLoading, renderDebug, renderDebugShell, renderErrorsSection, renderFavorites, searchUrl, renderSearchFragment, renderSearchShell, renderUpdateBanner } from '../src/html.js';
+import { escapeHtml, isMergeable, addBusinessDays, partyWorthy, labelColors, ratioColor, renderStatsFavorites, renderStatsFragment, renderFragment, renderShell, renderLoading, renderDebug, renderDebugShell, renderErrorsSection, renderFavorites, searchUrl, renderSearchFragment, renderSearchShell, renderUpdateBanner } from '../src/html.js';
 
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
 
@@ -942,9 +942,16 @@ test('renderFragment: « my reviews ↗ » link in the « others » title when r
   assert.match(out, /my reviews ↗/);
 });
 
-test('renderFragment: reviewCoverage → « ratio: 2.50 » label pill next to « my reviews ↗ », counts in the tooltip', () => {
-  const out = renderFragment({ mine: [], others: [otherRow()] }, { now: NOW, reviewedUrl: '/search?q=x', reviewCoverage: { reviewed: 50, merged: 20 } });
-  assert.match(out, /my reviews ↗<\/a> <span class="lbl ratio" style="--lbl-bg-l:#a2eeae;[^"]*" title="reviewed: 50 - merged: 20 \(last 12 months\)">ratio: 2\.50<\/span>/);
+test('renderFragment: reviewCoverage → « ratio: 2.50 » (30 days) pill next to « my reviews ↗ », both windows in the tooltip', () => {
+  const out = renderFragment({ mine: [], others: [otherRow()] }, { now: NOW, reviewedUrl: '/search?q=x', reviewCoverage: { reviewed: 50, merged: 20, year: { reviewed: 779, merged: 329 } } });
+  assert.match(out, /my reviews ↗<\/a> <a class="lbl ratio" href="\/stats" style="--lbl-bg-l:#a2eeae;[^"]*" title="last 30 days: reviewed: 50 - merged: 20&#10;last 12 months: ratio 2\.37 \(reviewed: 779 - merged: 329\)">ratio: 2\.50<\/a>/);
+});
+
+test('renderFragment: 30 days with reviews but nothing merged → ∞ (green); nothing at all → « – », uncolored', () => {
+  const inf = renderFragment({ mine: [], others: [otherRow()] }, { now: NOW, reviewedUrl: '/x', reviewCoverage: { reviewed: 4, merged: 0, year: { reviewed: 9, merged: 3 } } });
+  assert.match(inf, /style="--lbl-bg-l:#a2eeae;[^"]*"[^>]*>ratio: ∞<\/a>/);
+  const none = renderFragment({ mine: [], others: [otherRow()] }, { now: NOW, reviewedUrl: '/x', reviewCoverage: { reviewed: 0, merged: 0, year: { reviewed: 9, merged: 3 } } });
+  assert.match(none, /<a class="lbl ratio" href="\/stats" title="last 30 days: reviewed: 0 - merged: 0&#10;last 12 months: ratio 3\.00[^"]*">ratio: –<\/a>/);
 });
 
 test('ratioColor: thresholds 2 / 1.5 / 1 / 0.5, green down to red', () => {
@@ -957,11 +964,9 @@ test('ratioColor: thresholds 2 / 1.5 / 1 / 0.5, green down to red', () => {
   assert.equal(ratioColor(0), 'd73a4a');
 });
 
-test('renderFragment: reviewCoverage absent or nothing merged → no badge', () => {
-  for (const reviewCoverage of [null, { reviewed: 0, merged: 0 }]) {
-    const out = renderFragment({ mine: [], others: [otherRow()] }, { now: NOW, reviewedUrl: '/search?q=x', reviewCoverage });
-    assert.ok(!out.includes('ratio:'));
-  }
+test('renderFragment: reviewCoverage absent (not fetched yet) → no badge', () => {
+  const out = renderFragment({ mine: [], others: [otherRow()] }, { now: NOW, reviewedUrl: '/search?q=x', reviewCoverage: null });
+  assert.ok(!out.includes('ratio:'));
 });
 
 test('renderFragment: without reviewedUrl → no link (compat)', () => {
@@ -1463,4 +1468,90 @@ test('renderFragment: no stack annotation → no fold button nor data-stack attr
   const out = renderFragment({ mine: [myRow()], others: [otherRow()] }, { now: NOW });
   assert.ok(!out.includes('stack-fold'));
   assert.ok(!out.includes('data-stack-'));
+});
+
+test('renderStatsFavorites: « ⭐ all » (*) + one chip per favorite, the active one on, no favorite → nothing', () => {
+  const out = renderStatsFavorites(['acme', 'o/r<x>'], 'acme');
+  assert.match(out, /<button data-scope="\*" title="All favorites">⭐ all<\/button>/);
+  assert.match(out, /<button data-scope="acme" class="on">acme\/\*<\/button>/);
+  assert.match(out, /data-scope="o\/r&lt;x&gt;">o\/r&lt;x&gt;</);
+  assert.match(renderStatsFavorites(['acme'], '*'), /data-scope="\*" class="on"/);
+  assert.equal(renderStatsFavorites([], null), '');
+});
+
+test('renderStatsFragment: new sections — reciprocity + team tables; size scatter (PR links)', () => {
+  const stats = {
+    since: Date.parse('2025-10-01T00:00:00Z'), until: Date.parse('2026-09-28T00:00:00Z'), month: null,
+    months: [{ key: '2026-09', reviewed: 2, merged: 1 }], days: {}, repos: [],
+    me: { reviewed: 2, merged: 1, ratio: 2, ttm: 3600000, ttfr: 60000 },
+    team: { people: [{ login: 'b<x>', merged: 3, reviews: 1, ratio: 1 / 3 }, { login: 'me', merged: 1, reviews: 2, ratio: 2 }], medianRatio: 1, ratio: { rank: 1, of: 2 }, reviews: { rank: 1, of: 2 }, merged: { rank: 2, of: 2 }, ttm: 7200000, ttfr: 60000, prs: 4 },
+    queue: { count: 0, oldest: null },
+    reciprocity: [{ login: 'b<x>', theyReviewedMine: 3, iReviewedTheirs: 1 }],
+    sizes: { mine: [{ repo: 'acme/api', n: 7, size: 120, ttm: 3600000 }], team: [{ repo: 'acme/api', n: 8, size: 10, ttm: 60000 }] },
+    shipping: [{ login: 'me', merged: 1, opened: 2, openedMerged: 1, closed: 1, open: 0, mergeRate: 0.5, avgAdd: 10, avgDel: 2, ttm: 3600000, ttfr: 60000 }],
+    reviewing: [{ login: 'b<x>', given: 3, approved: 2, changes: 1, commented: 0, merged: 3, ratio: 1 }],
+    fetchedAt: null, incomplete: [],
+  };
+  const out = renderStatsFragment(stats, { scoped: true, me: 'me', now: Date.parse('2026-09-28T12:00:00Z') });
+  assert.match(out, /Who reviews you, whom you review/);
+  assert.match(out, /@b&lt;x&gt;\nreviewed your PRs: 3\nyou reviewed theirs: 1/);
+  assert.match(out, /<a href="https:\/\/github.com\/acme\/api\/pull\/7" target="_blank"/);
+  assert.match(out, /team median 2h/);
+  assert.match(out, /Who's shipping/);
+  assert.match(out, /<tr class="me"><td>@me<\/td><td class="num"><span class="mini"><i style="width:100%"><\/i><\/span> 1<\/td><td class="num">2<\/td>/);
+  assert.match(out, /<td class="num">50%<\/td>/, 'merge rate');
+  assert.match(out, /Who's reviewing/);
+  assert.match(out, /<td>@b&lt;x&gt;<\/td>/);
+  assert.ok(!out.includes('<x>'), 'logins escaped');
+});
+
+test('renderStatsFragment: empty new sections are left out', () => {
+  const stats = {
+    since: 0, until: 0, month: null, months: [], days: {}, repos: [],
+    me: { reviewed: 0, merged: 0, ratio: null, ttm: null, ttfr: null }, team: null, queue: { count: 0, oldest: null },
+    reciprocity: [], sizes: { mine: [], team: [] }, fetchedAt: null, incomplete: [],
+  };
+  const out = renderStatsFragment(stats, { now: 0 });
+  for (const t of ['Who reviews you', 'PR size vs time', '<table class="team"']) assert.ok(!out.includes(t), t);
+});
+
+function repoStats() {
+  return {
+    since: Date.parse('2025-10-01T00:00:00Z'), until: Date.parse('2026-09-28T00:00:00Z'), month: null,
+    months: [], days: {}, repos: [],
+    me: { reviewed: 1, merged: 1, ratio: 1, ttm: null, ttfr: null, verdicts: { APPROVED: 3, CHANGES_REQUESTED: 1, COMMENTED: 0 } },
+    team: null, queue: { count: 0, oldest: null }, reciprocity: [], sizes: { mine: [], team: [] }, shipping: [], reviewing: [],
+    repo: {
+      merged: 10, perMonth: 10 / 12, noReview: 2, noApproval: 3, reviewersPerPR: 1.5, eventsPerPR: 4.2, size: 80,
+      ttm: { median: 3600000, p90: 86400000 }, ttfr: { median: 60000, p90: 3600000 },
+      opened: { total: 12, merged: 10, closed: 1, open: 1 },
+      outcomes: [{ key: '2026-09', known: true, merged: 10, closed: 1, open: 1 }],
+      speed: [{ key: '2026-09', n: 10, ttm: 3600000, ttmP90: 86400000, ttfr: 60000, ttfrP90: 3600000 }],
+      repos: [{ repo: 'acme/api', merged: 7 }, { repo: 'acme/web', merged: 3 }],
+    },
+    automated: [{ login: 'ai<x>', given: 50, commentedShare: 0.98 }], reviewers: ['ai<x>', 'bob'],
+    fetchedAt: null, incomplete: [],
+  };
+}
+
+test('renderStatsFragment: repository section — tiles with p90, outcomes, speed, repo volume; my verdicts tile', () => {
+  const out = renderStatsFragment(repoStats(), { scoped: true, scopeLabel: 'acme/*', repoOwner: 'acme', now: Date.parse('2026-09-28T12:00:00Z') });
+  assert.match(out, /🏢 Repository/);
+  assert.match(out, /<div class="tile-label">PRs opened<\/div><div class="tile-value">12<\/div><div class="tile-sub">83% merged · 1 still open · 1 closed/);
+  assert.match(out, /Merged without review<\/div><div class="tile-value">20%/);
+  assert.match(out, /median · p90 1\.0d|median · p90 24h/);
+  assert.match(out, /PRs opened, by outcome/);
+  assert.match(out, /Time to 1st review <span class="viz-sub">median per merge month/);
+  assert.match(out, /Merged PRs per repository/);
+  assert.match(out, /Your verdicts<\/div><div class="tile-value">75%/);
+});
+
+test('renderStatsFragment: filters — ignored chips + include toggle + team select + suggestions + reviewers datalist', () => {
+  const filters = { teams: [{ slug: 'back', name: 'Back <end>' }], team: 'back', teamFailed: false, ignored: ['bot1'], includeIgnored: false };
+  const out = renderStatsFragment(repoStats(), { scoped: true, filters, now: 0 });
+  assert.match(out, /<option value="back" selected>Back &lt;end&gt;<\/option>/);
+  assert.match(out, /data-ignore="bot1"[^>]*>@bot1 ✕<\/button>/);
+  assert.match(out, /<input type="checkbox" id="include-ignored">/);
+  assert.match(out, /data-ignore="ai&lt;x&gt;"[^>]*>\+ ignore @ai&lt;x&gt;\?<\/button>/);
+  assert.match(out, /<option value="bob"><\/option>/, 'reviewers datalist');
 });

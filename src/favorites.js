@@ -162,16 +162,16 @@ export function reviewedPRsUrl(scopes) {
 // both sides). `merged:>=` implies is:merged (dropped to stay under the
 // 256-char query cap with MAX_QUALIFIER_LENGTH). `key` = cache key — the
 // scope alone, the date moves daily.
-export const COVERAGE_DAYS = 365;
+// Two sliding windows: the pill shows the last 30 days (what I do NOW), its
+// tooltip the last 365 (the habit).
+export const COVERAGE_WINDOWS = { month: 30, year: 365 };
 export function reviewCoverageQueries(scopes, now = Date.now()) {
-  const since = new Date(now - COVERAGE_DAYS * 86400000).toISOString().slice(0, 10);
   const qualifier = scopesQualifier(scopes);
-  const base = `is:pr merged:>=${since}`;
-  return {
-    key: qualifier,
-    reviewed: `${base} reviewed-by:@me -author:@me${qualifier}`,
-    merged: `${base} author:@me${qualifier}`,
+  const window = (days) => {
+    const base = `is:pr merged:>=${new Date(now - days * 86400000).toISOString().slice(0, 10)}`;
+    return { reviewed: `${base} reviewed-by:@me -author:@me${qualifier}`, merged: `${base} author:@me${qualifier}` };
   };
+  return { key: qualifier, month: window(COVERAGE_WINDOWS.month), year: window(COVERAGE_WINDOWS.year) };
 }
 
 // DISPLAY filter: restricts already-collected data to a scope.
