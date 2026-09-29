@@ -720,12 +720,18 @@ export function ratioColor(ratio) {
 
 // « ratio: 1.76 » GitHub-label pill — PRs I reviewed / PRs of mine merged,
 // sliding year (§38). Counts only (integers from GitHub), nothing to escape.
+// `c` = { reviewed, merged } over the last 30 days + `year` (same, 365 days).
+// The pill = the 30-day ratio: ∞ (reviews, nothing merged — a good month),
+// « – » uncolored when nothing happened; the tooltip carries both windows.
 function coverageBadge(c) {
-  if (!c || !(c.merged > 0)) return '';
-  const ratio = c.reviewed / c.merged;
-  const k = labelColors(ratioColor(ratio));
-  const style = `--lbl-bg-l:${k.bgLight};--lbl-fg-l:${k.fgLight};--lbl-bg-d:${k.bgDark};--lbl-fg-d:${k.fgDark};--lbl-bd-d:${k.bdDark}`;
-  return ` <span class="lbl ratio" style="${style}" title="reviewed: ${c.reviewed} - merged: ${c.merged} (last 12 months)">ratio: ${ratio.toFixed(2)}</span>`;
+  if (!c) return '';
+  const fmt = (r, m) => (m > 0 ? (r / m).toFixed(2) : r > 0 ? '∞' : '–');
+  const value = c.merged > 0 ? c.reviewed / c.merged : c.reviewed > 0 ? Infinity : null;
+  const k = value == null ? null : labelColors(ratioColor(value));
+  const style = k ? ` style="--lbl-bg-l:${k.bgLight};--lbl-fg-l:${k.fgLight};--lbl-bg-d:${k.bgDark};--lbl-fg-d:${k.fgDark};--lbl-bd-d:${k.bdDark}"` : '';
+  const year = c.year ? `&#10;last 12 months: ratio ${fmt(c.year.reviewed, c.year.merged)} (reviewed: ${c.year.reviewed} - merged: ${c.year.merged})` : '';
+  const title = `last 30 days: reviewed: ${c.reviewed} - merged: ${c.merged}${year}`;
+  return ` <a class="lbl ratio" href="/stats"${style} title="${title}">ratio: ${fmt(c.reviewed, c.merged)}</a>`;
 }
 
 export function renderFragment(data, opts = {}) {
@@ -1043,7 +1049,8 @@ ${FAVICON}
   /* « closed ↗ » link: discreet in the section title. */
   h2 .hist { font-size: .75rem; font-weight: 400; color: var(--fg-muted); }
   h2 .hist:hover { color: var(--accent); }
-  h2 .lbl.ratio { vertical-align: middle; cursor: help; }
+  h2 .lbl.ratio { vertical-align: middle; text-decoration: none; }
+  h2 .lbl.ratio:hover { filter: brightness(1.08); }
   table { border-collapse: collapse; width: 100%; }
   th, td { text-align: left; padding: .5rem 1rem; border-bottom: 1px solid var(--border-muted); white-space: nowrap; }
   /* Content-sized columns (figures, icons — FIT_COLS): half the gutter. */
@@ -1339,6 +1346,7 @@ export function renderShell({ intervalMs = 10000, scopeLabel = '', notifyEnabled
       <button type="button" data-theme-val="dark"${theme === 'dark' ? ' class="on"' : ''} title="Theme: dark">🌙 dark</button>
     </span>
     <a id="search-link" href="/search" title="Search PRs: any GitHub query, these columns">🔎</a>
+    <a id="stats-link" href="/stats" title="Stats: review ratio, medians, activity over the last year">📊</a>
     <a id="github-link" href="https://github.com/notifications" target="_blank" rel="noopener" title="Open GitHub notifications">📬</a>
     <a id="debug-link" href="/debug" title="Debug: pipeline verdict">🐛</a>
   </div>
@@ -1693,7 +1701,20 @@ ${TABLE_JS}
   // Each response (poll or action) carries {chips, fragment}: the favorites bar
   // lives in the <header> (outside #content), so we inject both. The chip
   // counters thus refresh on EVERY poll, like the tables.
+  // The ratio pill of the shown scope is still being counted (§38): one quick
+  // re-poll of /view instead of waiting a whole interval — bounded.
+  var ratioTimer = null, ratioTries = 0;
+  function chaseRatio(d) {
+    if (!d || !d.ratioPending) { ratioTries = 0; return; }
+    if (ratioTimer || ratioTries >= 10) return;
+    ratioTries++;
+    ratioTimer = setTimeout(function () {
+      ratioTimer = null;
+      fetch('/view' + q()).then(function (r) { return r.json(); }).then(inject).catch(function () {});
+    }, 1500);
+  }
   function inject(d) {
+    chaseRatio(d);
     if (d && typeof d.chips === 'string') favs.innerHTML = d.chips;
     setContent(d.fragment, d.updatedAt);
     if (typeof d.lastSeq === 'number') {
@@ -2414,6 +2435,745 @@ ${TABLE_JS}
     if (pg && e.button === 0 && !e.ctrlKey && !e.metaKey) { e.preventDefault(); go(pg.getAttribute('href')); }
   });
   load(true);
+</script>
+</body>
+</html>`;
+}
+
+// ── Stats page (§40) ────────────────────────────────────────────────────────
+// Server-rendered SVG, zero dependency. Two series (reviewed / merged) in the
+// validated categorical slots 1–2 (blue / orange, both themes checked against
+// the Primer surfaces), a one-hue blue ramp for the heatmap. Text never wears a
+// series color; every mark group carries a `data-tip` (one tooltip, every
+// series) shown by the page script with textContent.
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+// 42 min / 5h / 2.1d — a median duration, compact.
+export function fmtDuration(ms) {
+  if (ms == null || !Number.isFinite(ms)) return '–';
+  const h = ms / 3600000;
+  if (h < 1) return `${Math.max(1, Math.round(ms / 60000))}min`;
+  if (h < 48) return `${Math.round(h)}h`;
+  return `${(h / 24).toFixed(1)}d`;
+}
+
+const RATIO_WORDS = [[2, 'great'], [1.5, 'good'], [1, 'balanced'], [0.5, 'low'], [0, 'very low']];
+const ratioWord = (r) => RATIO_WORDS.find(([min]) => r >= min)[1];
+
+// 0 → 0; else the smallest 1/2/5×10^k ≥ max (clean y ticks).
+function niceMax(max) {
+  if (max <= 0) return 1;
+  const p = 10 ** Math.floor(Math.log10(max));
+  return [1, 2, 5, 10].map((m) => m * p).find((v) => v >= max);
+}
+
+// Column with a 4 px rounded data-end, square at the baseline.
+function colPath(x, yBase, w, h) {
+  if (h <= 0) return '';
+  const r = Math.min(4, h, w / 2);
+  return `M${x},${yBase}V${yBase - h + r}a${r},${r} 0 0 1 ${r},${-r}h${w - 2 * r}a${r},${r} 0 0 1 ${r},${r}V${yBase}Z`;
+}
+// Horizontal bar, rounded at its tip.
+function barPath(x, y, w, h) {
+  if (w <= 0) return '';
+  const r = Math.min(4, w, h / 2);
+  return `M${x},${y}H${x + w - r}a${r},${r} 0 0 1 ${r},${r}V${y + h - r}a${r},${r} 0 0 1 ${-r},${r}H${x}Z`;
+}
+
+const monthLabel = (key) => `${MONTHS[Number(key.slice(5, 7)) - 1]} ${key.slice(0, 4)}`;
+const legend = () => '<div class="viz-legend"><span><i class="sw s1"></i>PRs reviewed</span><span><i class="sw s2"></i>my PRs merged</span></div>';
+
+// One month's ratio, as the pill colors (§38): ∞ when I reviewed without
+// merging anything (a good month), null when nothing happened.
+function monthRatio(m) {
+  if (m.merged > 0) return { value: m.reviewed / m.merged, text: (m.reviewed / m.merged).toFixed(1) };
+  return m.reviewed > 0 ? { value: Infinity, text: '∞' } : null;
+}
+
+// Columns per month + a ratio row under the axis (colored dot = the pill's
+// color code, the value in muted ink — never color alone). Each month group
+// is a link-like target (`data-month`): a click focuses the page on it.
+function monthsChart(months, focus) {
+  const W = 760, H = 244, ml = 36, mr = 8, mt = 10, mb = 50;
+  const max = niceMax(Math.max(0, ...months.flatMap((m) => [m.reviewed, m.merged])));
+  const band = (W - ml - mr) / months.length;
+  const bw = Math.min(16, (band - 10) / 2);
+  const y = (v) => mt + (H - mt - mb) * (1 - v / max);
+  const base = H - mb;
+  const ticks = [0, max / 2, max].map((v) => `<line class="grid" x1="${ml}" x2="${W - mr}" y1="${y(v)}" y2="${y(v)}"/><text class="tick" x="${ml - 6}" y="${y(v) + 4}" text-anchor="end">${Math.round(v)}</text>`).join('');
+  const cols = months.map((m, i) => {
+    const cx = ml + band * i + band / 2;
+    const label = months.length > 12 && i % 2 === months.length % 2 ? '' : `<text class="tick" x="${cx}" y="${base + 16}" text-anchor="middle">${MONTHS[Number(m.key.slice(5, 7)) - 1]}</text>`;
+    const r = monthRatio(m);
+    const ratio = r
+      ? `<circle cx="${cx - 11}" cy="${base + 32}" r="4" fill="#${ratioColor(r.value)}"/><text class="tick" x="${cx - 4}" y="${base + 36}">${r.text}</text>`
+      : `<text class="tick" x="${cx}" y="${base + 36}" text-anchor="middle">–</text>`;
+    const tip = `${monthLabel(m.key)}\nreviewed: ${m.reviewed}\nmerged: ${m.merged}${r ? `\nratio: ${r.text}` : ''}\n${m.key === focus ? 'click: back to the whole period' : 'click: focus on this month'}`;
+    const state = focus ? (m.key === focus ? ' on' : ' off') : '';
+    return `<g class="hit month${state}" data-month="${m.key}" data-tip="${escapeHtml(tip)}" tabindex="0" role="button"><rect class="band" x="${cx - band / 2}" y="${mt}" width="${band}" height="${H - mt}" fill="transparent"/>`
+      + `<path class="s1" d="${colPath(cx - bw - 1, base, bw, base - y(m.reviewed))}"/>`
+      + `<path class="s2" d="${colPath(cx + 1, base, bw, base - y(m.merged))}"/>${label}${ratio}</g>`;
+  }).join('');
+  const rows = months.map((m) => `<tr><td>${monthLabel(m.key)}</td><td>${m.reviewed}</td><td>${m.merged}</td><td>${monthRatio(m)?.text ?? '–'}</td></tr>`).join('');
+  return `<section class="viz"><h3>Reviews vs merges, per month <span class="viz-sub">ratio under each month · click a month to focus on it</span></h3>${legend()}
+<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="PRs reviewed and my PRs merged per month">${ticks}<line class="axis" x1="${ml}" x2="${W - mr}" y1="${base}" y2="${base}"/>${cols}</svg>
+<details class="viz-table"><summary>Show as table</summary><table><thead><tr><th>Month</th><th>Reviewed</th><th>Merged</th><th>Ratio</th></tr></thead><tbody>${rows}</tbody></table></details></section>`;
+}
+
+// Week columns (Sunday-first, like GitHub) from the week holding `since` (the
+// window's first day) to the current one. Days outside the window are not drawn.
+function heatmap(days, since, until, focus) {
+  const cell = 11, gap = 2, pitch = cell + gap, ml = 30, mt = 16;
+  const today = new Date(new Date(until).toISOString().slice(0, 10) + 'T00:00:00Z');
+  const first = new Date(new Date(since).toISOString().slice(0, 10) + 'T00:00:00Z');
+  const start = new Date(first.getTime() - first.getUTCDay() * DAY_MS);
+  const weeks = Math.floor((today.getTime() - start.getTime()) / DAY_MS / 7) + 1;
+  const max = Math.max(0, ...Object.values(days));
+  const level = (n) => (n <= 0 ? 0 : Math.min(4, Math.ceil((n / max) * 4)));
+  let cells = '';
+  let months = '';
+  let lastMonth = -1;
+  let lastLabelCol = -Infinity;
+  for (let w = 0; w < weeks; w++) {
+    for (let d = 0; d < 7; d++) {
+      const t = start.getTime() + (w * 7 + d) * DAY_MS;
+      if (t > today.getTime()) break;
+      if (t < first.getTime()) continue;
+      const date = new Date(t);
+      const iso = date.toISOString().slice(0, 10);
+      const n = days[iso] ?? 0;
+      // A month label on the first column holding its 1st… unless the previous
+      // label is under 3 columns away (« Sep » of a partial first week would
+      // overlap « Oct » — real bug): that one is skipped.
+      if (date.getUTCMonth() !== lastMonth) {
+        lastMonth = date.getUTCMonth();
+        if (w - lastLabelCol >= 3) {
+          months += `<text class="tick" x="${ml + w * pitch}" y="10">${MONTHS[lastMonth]}</text>`;
+          lastLabelCol = w;
+        }
+      }
+      const tip = `${n} review${n === 1 ? '' : 's'}\n${DAYS[d]} ${date.getUTCDate()} ${MONTHS[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
+      const dim = focus && iso.slice(0, 7) !== focus ? ' dim' : '';
+      cells += `<rect class="h${level(n)}${dim}" x="${ml + w * pitch}" y="${mt + d * pitch}" width="${cell}" height="${cell}" rx="2" data-tip="${tip}"/>`;
+    }
+  }
+  const dayLabels = [1, 3, 5].map((d) => `<text class="tick" x="${ml - 6}" y="${mt + d * pitch + 9}" text-anchor="end">${DAYS[d]}</text>`).join('');
+  const W = ml + weeks * pitch, H = mt + 7 * pitch;
+  const scale = [0, 1, 2, 3, 4].map((l) => `<i class="sw h${l}"></i>`).join('');
+  const total = Object.values(days).reduce((a, b) => a + b, 0);
+  const active = Object.values(days).filter((n) => n > 0).length;
+  return `<section class="viz"><h3>Days you reviewed <span class="viz-sub">${total} PRs over ${active} days · date of your last review on each merged PR${focus ? ` · ${monthLabel(focus)} highlighted` : ''}</span></h3>
+<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Reviews per day over the last year">${months}${dayLabels}${cells}</svg>
+<div class="viz-legend heat-legend">less ${scale} more</div></section>`;
+}
+const DAY_MS = 86400000;
+
+function reposChart(repos, repoOwner, focus) {
+  const top = repos.slice(0, 8);
+  if (top.length === 0) return '';
+  const W = 760, ml = 170, mr = 44, row = 34, bh = 11;
+  const max = niceMax(Math.max(0, ...top.flatMap((r) => [r.reviewed, r.merged])));
+  const x = (v) => ((W - ml - mr) * v) / max;
+  // Bare name under an org scope; long names cut (full name in the tooltip).
+  const name = (repo) => {
+    const n = repoOwner && repo.startsWith(`${repoOwner}/`) ? repo.slice(repoOwner.length + 1) : repo;
+    return n.length > 24 ? `${n.slice(0, 23)}…` : n;
+  };
+  const rows = top.map((r, i) => {
+    const y0 = 6 + i * row;
+    const tip = `${r.repo}\nreviewed: ${r.reviewed}\nmerged: ${r.merged}`;
+    return `<g class="hit" data-tip="${escapeHtml(tip)}" tabindex="0"><rect x="0" y="${y0 - 3}" width="${W}" height="${row}" fill="transparent"/>`
+      + `<text class="lbl-y" x="${ml - 10}" y="${y0 + bh + 5}" text-anchor="end">${escapeHtml(name(r.repo))}</text>`
+      + `<path class="s1" d="${barPath(ml, y0, x(r.reviewed), bh)}"/><text class="val" x="${ml + x(r.reviewed) + 5}" y="${y0 + 9}">${r.reviewed}</text>`
+      + `<path class="s2" d="${barPath(ml, y0 + bh + 2, x(r.merged), bh)}"/><text class="val" x="${ml + x(r.merged) + 5}" y="${y0 + bh + 11}">${r.merged}</text></g>`;
+  }).join('');
+  const H = 6 + top.length * row;
+  const more = `${focus ? ` <span class="viz-sub">${monthLabel(focus)}</span>` : ''}${repos.length > top.length ? ` <span class="viz-sub">top ${top.length} of ${repos.length}</span>` : ''}`;
+  const trs = repos.map((r) => `<tr><td>${escapeHtml(r.repo)}</td><td>${r.reviewed}</td><td>${r.merged}</td></tr>`).join('');
+  return `<section class="viz"><h3>Per repository${more}</h3>${legend()}
+<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="PRs reviewed and merged per repository">${rows}</svg>
+<details class="viz-table"><summary>Show as table</summary><table><thead><tr><th>Repository</th><th>Reviewed</th><th>Merged</th></tr></thead><tbody>${trs}</tbody></table></details></section>`;
+}
+
+// One bar per month of the window (§40): cached months full and muted, the
+// fetched ones filling as their pages arrive (« 120/318 PRs » — the month's
+// total is known after its first page), the waiting ones empty.
+// `onlyLive`: the refresh of an already-complete page lists only the months
+// actually being refetched (usually just the current one).
+function progressPanel(progress, { onlyLive = false } = {}) {
+  const rows = (progress.months ?? [])
+    .filter((m) => !onlyLive || m.state !== 'cached')
+    .map((m) => {
+      const pct = m.state === 'cached' || m.state === 'done' ? 100
+        : m.state === 'short' ? Math.round((100 * m.fetched) / (m.total || 1))
+        : m.total ? Math.min(100, Math.round((100 * m.fetched) / m.total)) : 0;
+      const text = m.state === 'cached' ? 'cached'
+        : m.state === 'done' ? `${m.fetched} PRs ✓`
+        : m.state === 'short' ? `${m.fetched}/${m.total} PRs ⚠`
+        : m.state === 'error' ? 'failed'
+        : m.state === 'pending' ? 'waiting'
+        : m.total != null ? `${m.fetched}/${m.total} PRs` : 'starting…';
+      const busy = m.state === 'running' && m.total == null ? ' busy' : '';
+      return `<div class="pm pm-${m.state}"><span class="pm-k">${monthLabel(m.key)}</span>`
+        + `<span class="pm-bar${busy}"><i style="width:${pct}%"></i></span><span class="pm-n">${text}</span></div>`;
+    }).join('');
+  return `<div class="pm-list">${rows}</div>`;
+}
+
+// Who reviews me / whom I review — a mirrored bar per person (top 10):
+// orange to the left = their reviews on MY PRs (orange = my PRs, as in the
+// other charts), blue to the right = my reviews on THEIR PRs.
+function reciprocityChart(rows, focus) {
+  const top = rows.slice(0, 10);
+  if (top.length === 0) return '';
+  const W = 760, ml = 150, row = 26, bh = 14, mid = ml + (W - ml) / 2, half = (W - ml) / 2 - 36;
+  const max = niceMax(Math.max(0, ...top.flatMap((r) => [r.theyReviewedMine, r.iReviewedTheirs])));
+  const x = (v) => (half * v) / max;
+  const bars = top.map((r, i) => {
+    const y0 = 8 + i * row;
+    const tip = `@${r.login}\nreviewed your PRs: ${r.theyReviewedMine}\nyou reviewed theirs: ${r.iReviewedTheirs}`;
+    const left = x(r.theyReviewedMine);
+    const right = x(r.iReviewedTheirs);
+    return `<g class="hit" data-tip="${escapeHtml(tip)}" tabindex="0"><rect x="0" y="${y0 - 5}" width="${W}" height="${row}" fill="transparent"/>`
+      + `<text class="lbl-y" x="${ml - 10}" y="${y0 + 11}" text-anchor="end">${escapeHtml(r.login.length > 20 ? `${r.login.slice(0, 19)}…` : r.login)}</text>`
+      + (left > 0 ? `<path class="s2" d="M${mid - 1},${y0}H${mid - 1 - left + Math.min(4, left)}a4,4 0 0 0 -${Math.min(4, left)},${Math.min(4, left)}V${y0 + bh - Math.min(4, left)}a4,4 0 0 0 ${Math.min(4, left)},${Math.min(4, left)}H${mid - 1}Z"/>` : '')
+      + `<text class="val" x="${mid - 1 - left - 5}" y="${y0 + 11}" text-anchor="end">${r.theyReviewedMine}</text>`
+      + `<path class="s1" d="${barPath(mid + 1, y0, right, bh)}"/><text class="val" x="${mid + 1 + right + 5}" y="${y0 + 11}">${r.iReviewedTheirs}</text></g>`;
+  }).join('');
+  const H = 8 + top.length * row;
+  const trs = rows.map((r) => `<tr><td>@${escapeHtml(r.login)}</td><td>${r.theyReviewedMine}</td><td>${r.iReviewedTheirs}</td></tr>`).join('');
+  return `<section class="viz"><h3>Who reviews you, whom you review${focus ? ` <span class="viz-sub">${monthLabel(focus)}</span>` : ''}${rows.length > top.length ? ` <span class="viz-sub">top ${top.length} of ${rows.length}</span>` : ''}</h3>
+<div class="viz-legend"><span><i class="sw s2"></i>reviewed your PRs</span><span><i class="sw s1"></i>you reviewed theirs</span></div>
+<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Reviews exchanged with each person"><line class="axis" x1="${mid}" x2="${mid}" y1="0" y2="${H}"/>${bars}</svg>
+<details class="viz-table"><summary>Show as table</summary><table><thead><tr><th>Person</th><th>Reviewed your PRs</th><th>You reviewed theirs</th></tr></thead><tbody>${trs}</tbody></table></details></section>`;
+}
+
+// PR size (additions + deletions) vs time to merge, both on log scales: my
+// PRs in orange (each a link to the PR), the team's in muted gray behind,
+// the team median as a reference line.
+const SIZE_TICKS = [1, 10, 100, 1000, 10000, 100000];
+const TIME_TICKS = [[60000, '1min'], [600000, '10min'], [3600000, '1h'], [86400000, '1d'], [7 * 86400000, '1w'], [30 * 86400000, '30d'], [365 * 86400000, '1y']];
+function sizeChart(sizes, teamTtm, focus) {
+  if (!sizes.mine.length) return '';
+  const W = 760, H = 300, ml = 48, mr = 12, mt = 10, mb = 30;
+  const all = [...sizes.mine, ...sizes.team];
+  const lx = (v) => Math.log10(Math.max(1, v));
+  const xMax = lx(SIZE_TICKS.find((t) => t >= Math.max(...all.map((p) => p.size), 10)) ?? 100000);
+  const ly = (ms) => Math.log10(Math.max(60000, ms));
+  const tMin = [...TIME_TICKS].reverse().find(([t]) => t <= Math.max(60000, Math.min(...all.map((p) => p.ttm))))?.[0] ?? 60000;
+  const tMax = TIME_TICKS.find(([t]) => t >= Math.max(...all.map((p) => p.ttm)))?.[0] ?? 365 * 86400000;
+  const X = (v) => ml + ((W - ml - mr) * lx(v)) / xMax;
+  const Y = (ms) => mt + (H - mt - mb) * (1 - (ly(ms) - Math.log10(tMin)) / (Math.log10(tMax) - Math.log10(tMin) || 1));
+  const xt = SIZE_TICKS.filter((t) => lx(t) <= xMax).map((t) => `<line class="grid" x1="${X(t)}" x2="${X(t)}" y1="${mt}" y2="${H - mb}"/><text class="tick" x="${X(t)}" y="${H - 10}" text-anchor="middle">${t >= 1000 ? `${t / 1000}k` : t}</text>`).join('');
+  const yt = TIME_TICKS.filter(([t]) => t >= tMin && t <= tMax).map(([t, l]) => `<line class="grid" x1="${ml}" x2="${W - mr}" y1="${Y(t)}" y2="${Y(t)}"/><text class="tick" x="${ml - 6}" y="${Y(t) + 4}" text-anchor="end">${l}</text>`).join('');
+  const team = sizes.team.slice(0, 3000).map((p) => `<circle class="team-dot" cx="${X(p.size).toFixed(1)}" cy="${Y(p.ttm).toFixed(1)}" r="2.5"/>`).join('');
+  const med = teamTtm != null ? `<line class="ref" x1="${ml}" x2="${W - mr}" y1="${Y(teamTtm)}" y2="${Y(teamTtm)}"/><text class="tick" x="${W - mr}" y="${Y(teamTtm) - 5}" text-anchor="end">team median ${fmtDuration(teamTtm)}</text>` : '';
+  const mine = sizes.mine.map((p) => {
+    const tip = `${p.repo}#${p.n}\n${p.size} lines changed\nmerged in ${fmtDuration(p.ttm)}\nclick: open the PR`;
+    return `<a href="https://github.com/${escapeHtml(p.repo)}/pull/${p.n}" target="_blank" rel="noopener" data-tip="${escapeHtml(tip)}">`
+      + `<circle cx="${X(p.size).toFixed(1)}" cy="${Y(p.ttm).toFixed(1)}" r="10" fill="transparent"/><circle class="s2 dot" cx="${X(p.size).toFixed(1)}" cy="${Y(p.ttm).toFixed(1)}" r="4"/></a>`;
+  }).join('');
+  return `<section class="viz"><h3>PR size vs time to merge${focus ? ` <span class="viz-sub">${monthLabel(focus)}</span>` : ''} <span class="viz-sub">lines changed → from ready for review to merge, log scales</span></h3>
+<div class="viz-legend"><span><i class="sw s2 round"></i>your PRs (click to open)</span>${sizes.team.length ? '<span><i class="sw team round"></i>the team\'s</span>' : ''}</div>
+<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="PR size against time to merge">${xt}${yt}<line class="axis" x1="${ml}" x2="${W - mr}" y1="${H - mb}" y2="${H - mb}"/>${team}${med}${mine}</svg></section>`;
+}
+
+// ── Repository section (§40): the whole scope, aggregates only ─────────────
+
+const pctText = (a, b) => (b ? `${Math.round((100 * a) / b)}%` : '–');
+const fmtNum = (v, d = 1) => (v == null ? '–' : Number.isInteger(v) ? String(v) : v.toFixed(d));
+
+// PRs opened per CREATION month, stacked by how they ended — GitHub's own
+// state colors (merged violet, open green, closed red), with the legend.
+function outcomesChart(outcomes) {
+  if (!outcomes.some((o) => o.known)) return '';
+  const W = 760, H = 220, ml = 36, mr = 8, mt = 14, mb = 26;
+  const tot = (o) => o.merged + (o.known ? o.open + o.closed : 0);
+  const max = niceMax(Math.max(0, ...outcomes.map(tot)));
+  const band = (W - ml - mr) / outcomes.length;
+  const bw = Math.min(24, band - 12);
+  const y = (v) => mt + (H - mt - mb) * (1 - v / max);
+  const base = H - mb;
+  const ticks = [0, max / 2, max].map((v) => `<line class="grid" x1="${ml}" x2="${W - mr}" y1="${y(v)}" y2="${y(v)}"/><text class="tick" x="${ml - 6}" y="${y(v) + 4}" text-anchor="end">${Math.round(v)}</text>`).join('');
+  const cols = outcomes.map((o, i) => {
+    const cx = ml + band * i + band / 2;
+    const x = cx - bw / 2;
+    // Stack from the baseline: merged, then open, then closed; a 2 px surface
+    // gap between segments, the top one gets the rounded end.
+    const segs = [['st-merged', o.merged], ['st-open', o.known ? o.open : 0], ['st-closed', o.known ? o.closed : 0]].filter(([, v]) => v > 0);
+    const sc = (v) => base - y(v); // value → pixel height
+    let acc = 0;
+    const paths = segs.map(([cls, v], k) => {
+      const gap = k > 0 ? 2 : 0;
+      const bottom = base - sc(acc) - gap;
+      const h = Math.max(0, sc(v) - gap);
+      acc += v;
+      return k === segs.length - 1
+        ? `<path class="${cls}" d="${colPath(x, bottom, bw, h)}"/>`
+        : `<rect class="${cls}" x="${x}" y="${bottom - h}" width="${bw}" height="${h}"/>`;
+    }).join('');
+    const tip = `${monthLabel(o.key)} — ${tot(o)} opened\nmerged: ${o.merged}${o.known ? `\nstill open: ${o.open}\nclosed unmerged: ${o.closed}` : '\n(unmerged not fetched yet)'}`;
+    return `<g class="hit" data-tip="${escapeHtml(tip)}" tabindex="0"><rect x="${cx - band / 2}" y="${mt}" width="${band}" height="${base - mt}" fill="transparent"/>${paths}`
+      + `<text class="tick" x="${cx}" y="${H - 8}" text-anchor="middle">${MONTHS[Number(o.key.slice(5, 7)) - 1]}</text></g>`;
+  }).join('');
+  const rows = outcomes.map((o) => `<tr><td>${monthLabel(o.key)}</td><td>${tot(o)}</td><td>${o.merged}</td><td>${o.known ? o.open : '–'}</td><td>${o.known ? o.closed : '–'}</td></tr>`).join('');
+  return `<section class="viz"><h3>PRs opened, by outcome <span class="viz-sub">per creation month — the recent months still have open PRs, they are not slow</span></h3>
+<div class="viz-legend"><span><i class="sw st-merged"></i>merged</span><span><i class="sw st-open"></i>still open</span><span><i class="sw st-closed"></i>closed unmerged</span></div>
+<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="PRs opened per month, by outcome">${ticks}<line class="axis" x1="${ml}" x2="${W - mr}" y1="${base}" y2="${base}"/>${cols}</svg>
+<details class="viz-table"><summary>Show as table</summary><table><thead><tr><th>Month</th><th>Opened</th><th>Merged</th><th>Still open</th><th>Closed</th></tr></thead><tbody>${rows}</tbody></table></details></section>`;
+}
+
+// Median duration per merge month, log scale (1 min … 1 y), one line + dots;
+// a hover target per month gives the median, the p90 and the PR count.
+function speedChart(speed, field, title, overall) {
+  const pts = speed.map((m) => ({ key: m.key, v: m[field], p90: m[`${field}P90`], n: m.n }));
+  if (!pts.some((p) => p.v != null)) return '';
+  const W = 370, H = 190, ml = 40, mr = 10, mt = 10, mb = 24;
+  const vals = pts.flatMap((p) => (p.v != null ? [p.v] : []));
+  const tMin = [...TIME_TICKS].reverse().find(([t]) => t <= Math.max(60000, Math.min(...vals)))?.[0] ?? 60000;
+  const tMax = TIME_TICKS.find(([t]) => t >= Math.max(...vals))?.[0] ?? 365 * 86400000;
+  const lo = Math.log10(tMin), hi = Math.log10(tMax);
+  const Y = (ms) => mt + (H - mt - mb) * (1 - (Math.log10(Math.max(tMin, ms)) - lo) / (hi - lo || 1));
+  const band = (W - ml - mr) / pts.length;
+  const X = (i) => ml + band * i + band / 2;
+  const yt = TIME_TICKS.filter(([t]) => t >= tMin && t <= tMax).map(([t, l]) => `<line class="grid" x1="${ml}" x2="${W - mr}" y1="${Y(t)}" y2="${Y(t)}"/><text class="tick" x="${ml - 5}" y="${Y(t) + 4}" text-anchor="end">${l}</text>`).join('');
+  // Line broken over a month without data.
+  let d = '';
+  pts.forEach((p, i) => { if (p.v == null) return; d += `${d && pts[i - 1]?.v != null ? 'L' : 'M'}${X(i).toFixed(1)},${Y(p.v).toFixed(1)}`; });
+  const marks = pts.map((p, i) => {
+    const tip = `${monthLabel(p.key)}\nmedian: ${fmtDuration(p.v)}\np90: ${fmtDuration(p.p90)}\n${p.n} PRs`;
+    const lbl = i % 3 === (pts.length - 1) % 3 ? `<text class="tick" x="${X(i)}" y="${H - 7}" text-anchor="middle">${MONTHS[Number(p.key.slice(5, 7)) - 1]}</text>` : '';
+    return `<g class="hit" data-tip="${escapeHtml(tip)}" tabindex="0"><rect x="${X(i) - band / 2}" y="${mt}" width="${band}" height="${H - mt - mb}" fill="transparent"/>`
+      + (p.v != null ? `<circle class="s3 dot" cx="${X(i).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="4"/>` : '') + `${lbl}</g>`;
+  }).join('');
+  return `<section class="viz"><h3>${title} <span class="viz-sub">median per merge month · overall ${fmtDuration(overall?.median)}, p90 ${fmtDuration(overall?.p90)}</span></h3>
+<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${escapeHtml(title)} per month">${yt}<path class="line" d="${d}"/>${marks}</svg></section>`;
+}
+
+// Merged PRs per repository (an org scope only — one repo tells nothing).
+function repoVolumeChart(repos, repoOwner) {
+  if (repos.length < 2) return '';
+  const top = repos.slice(0, 10);
+  const W = 760, ml = 170, mr = 44, row = 22, bh = 12;
+  const max = niceMax(Math.max(...top.map((r) => r.merged)));
+  const name = (repo) => {
+    const n = repoOwner && repo.startsWith(`${repoOwner}/`) ? repo.slice(repoOwner.length + 1) : repo;
+    return n.length > 24 ? `${n.slice(0, 23)}…` : n;
+  };
+  const bars = top.map((r, i) => {
+    const y0 = 6 + i * row;
+    const w = ((W - ml - mr) * r.merged) / max;
+    return `<g class="hit" data-tip="${escapeHtml(`${r.repo}\nmerged: ${r.merged}`)}" tabindex="0"><rect x="0" y="${y0 - 4}" width="${W}" height="${row}" fill="transparent"/>`
+      + `<text class="lbl-y" x="${ml - 10}" y="${y0 + 10}" text-anchor="end">${escapeHtml(name(r.repo))}</text>`
+      + `<path class="st-merged" d="${barPath(ml, y0, w, bh)}"/><text class="val" x="${ml + w + 5}" y="${y0 + 10}">${r.merged}</text></g>`;
+  }).join('');
+  return `<section class="viz"><h3>Merged PRs per repository${repos.length > top.length ? ` <span class="viz-sub">top ${top.length} of ${repos.length}</span>` : ''}</h3>
+<svg viewBox="0 0 ${W} ${6 + top.length * row}" role="img" aria-label="Merged PRs per repository">${bars}</svg></section>`;
+}
+
+function repositorySection(r, { scopeLabel, repoOwner, focus }) {
+  if (!r) return '';
+  const opened = r.opened
+    ? tile('PRs opened', String(r.opened.total), `${pctText(r.opened.merged, r.opened.total)} merged · ${r.opened.open} still open · ${r.opened.closed} closed`)
+    : '';
+  const tiles = '<div class="tiles">'
+    + tile('PRs merged', String(r.merged), `${fmtNum(r.perMonth)} per month · median size ${fmtNum(r.size, 0)} lines`)
+    + opened
+    + tile('Merged without review', pctText(r.noReview, r.merged), `${r.noReview} PRs · without approval: ${pctText(r.noApproval, r.merged)}`)
+    + tile('Reviewers per PR', fmtNum(r.reviewersPerPR), r.eventsPerPR != null ? `${fmtNum(r.eventsPerPR)} review events per PR` : 'people with a verdict')
+    + tile('Time to 1st review', fmtDuration(r.ttfr.median), `median · p90 ${fmtDuration(r.ttfr.p90)}`)
+    + tile('Time to merge', fmtDuration(r.ttm.median), `median · p90 ${fmtDuration(r.ttm.p90)}`)
+    + '</div>';
+  return `<h2 class="stats-title section">🏢 Repository <span class="viz-sub">${scopeLabel ? escapeHtml(scopeLabel) : ''}${focus ? ` · ${monthLabel(focus)}` : ''} · everyone's PRs, bots excluded</span></h2>`
+    + tiles + outcomesChart(r.outcomes)
+    + `<div class="viz-row">${speedChart(r.speed, 'ttfr', 'Time to 1st review', r.ttfr)}${speedChart(r.speed, 'ttm', 'Time to merge', r.ttm)}</div>`
+    + repoVolumeChart(r.repos, repoOwner);
+}
+
+// Inline bars of the tables: width relative to the column max.
+const miniBar = (v, max) => `<span class="mini"><i style="width:${max ? Math.round((100 * v) / max) : 0}%"></i></span>`;
+// Stacked share bar: [[class, value], …].
+const shareBar = (parts) => {
+  const tot = parts.reduce((a, [, v]) => a + v, 0);
+  return `<span class="share">${tot ? parts.filter(([, v]) => v > 0).map(([c, v]) => `<i class="${c}" style="width:${(100 * v) / tot}%"></i>`).join('') : ''}</span>`;
+};
+
+// Who's shipping: per author — merged (period), opened + outcome + merge rate
+// (PRs opened in the period), mean diff, median merge / 1st review time.
+function shippingTable(rows, me, focus) {
+  if (!rows.length) return '';
+  const maxM = Math.max(...rows.map((r) => r.merged));
+  const trs = rows.map((r) => `<tr${r.login === me ? ' class="me"' : ''}><td>@${escapeHtml(r.login)}</td>`
+    + `<td class="num">${miniBar(r.merged, maxM)} ${r.merged}</td>`
+    + `<td class="num">${r.opened ?? '–'}</td>`
+    + `<td>${r.opened != null ? shareBar([['st-merged', r.openedMerged], ['st-open', r.open], ['st-closed', r.closed]]) : ''}</td>`
+    + `<td class="num">${r.mergeRate != null ? `${Math.round(100 * r.mergeRate)}%` : '–'}</td>`
+    + `<td class="num diff">${r.avgAdd != null ? `<span class="add">+${Math.round(r.avgAdd)}</span> <span class="del">−${Math.round(r.avgDel)}</span>` : '–'}</td>`
+    + `<td class="num">${fmtDuration(r.ttm)}</td><td class="num">${fmtDuration(r.ttfr)}</td></tr>`).join('');
+  return `<section class="viz"><h3>Who's shipping${focus ? ` <span class="viz-sub">${monthLabel(focus)}</span>` : ''} <span class="viz-sub">merged in the period; opened / outcome / merge rate over the PRs opened in it; medians</span></h3>
+<div class="team-wrap"><table class="team"><thead><tr><th>Author</th><th class="num">Merged</th><th class="num">Opened</th><th>Outcome</th><th class="num">Merge rate</th><th class="num">Avg diff</th><th class="num">Merge time</th><th class="num">1st review</th></tr></thead><tbody>${trs}</tbody></table></div></section>`;
+}
+
+// Who's reviewing: per reviewer — merged PRs of others reviewed, their verdict
+// mix (latest review of each), reviews / own merged ratio.
+function reviewingTable(rows, me, focus) {
+  if (!rows.length) return '';
+  const maxG = Math.max(...rows.map((r) => r.given));
+  const trs = rows.map((r) => {
+    const ratio = r.ratio == null ? '–' : `<i class="dot" style="background:#${ratioColor(r.ratio)}"></i>${r.ratio.toFixed(2)}`;
+    return `<tr${r.login === me ? ' class="me"' : ''}><td>@${escapeHtml(r.login)}</td>`
+      + `<td class="num">${miniBar(r.given, maxG)} ${r.given}</td>`
+      + `<td>${shareBar([['v-approved', r.approved], ['v-commented', r.commented], ['v-changes', r.changes]])}</td>`
+      + `<td class="num">${r.approved}</td><td class="num">${r.changes}</td><td class="num">${r.commented}</td>`
+      + `<td class="num">${r.merged}</td><td class="num ratio">${ratio}</td></tr>`;
+  }).join('');
+  return `<section class="viz"><h3>Who's reviewing${focus ? ` <span class="viz-sub">${monthLabel(focus)}</span>` : ''} <span class="viz-sub">merged PRs of others reviewed; verdict = each reviewer's latest review on the PR</span></h3>
+<div class="viz-legend"><span><i class="sw v-approved"></i>approved</span><span><i class="sw v-commented"></i>commented</span><span><i class="sw v-changes"></i>changes requested</span></div>
+<div class="team-wrap"><table class="team"><thead><tr><th>Reviewer</th><th class="num">Reviews</th><th>Verdicts</th><th class="num">Approved</th><th class="num">Changes</th><th class="num">Commented</th><th class="num">Own merged</th><th class="num">Ratio</th></tr></thead><tbody>${trs}</tbody></table></div></section>`;
+}
+
+// Filters row (§40): team of the scope's org, ignored accounts (chips ✕ +
+// add field), include-them toggle, automated-looking suggestions.
+function statsFilters(f, { automated = [], reviewers = [] }) {
+  if (!f) return '';
+  const team = f.teams.length
+    ? `<label class="flt">team <select id="team"><option value="">everyone</option>${f.teams.map((t) => `<option value="${escapeHtml(t.slug)}"${t.slug === f.team ? ' selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}</select></label>`
+      + (f.teamFailed ? ' <span class="viz-sub offline">team members could not be read</span>' : '')
+    : '';
+  const chips = f.ignored.map((l) => `<button type="button" class="ign" data-ignore="${escapeHtml(l)}" title="Count this account's reviews again">@${escapeHtml(l)} ✕</button>`).join('');
+  const toggle = f.ignored.length
+    ? `<label class="flt"><input type="checkbox" id="include-ignored"${f.includeIgnored ? ' checked' : ''}> include them</label>`
+    : '';
+  const list = `<datalist id="reviewers">${reviewers.slice(0, 80).map((l) => `<option value="${escapeHtml(l)}"></option>`).join('')}</datalist>`;
+  const add = `<form class="ign-add" id="ignore-form"><input id="ignore-login" placeholder="ignore an account's reviews" list="reviewers" autocomplete="off" spellcheck="false">${list}</form>`;
+  const sugg = automated.filter((a) => !f.ignored.includes(a.login)).map((a) => `<button type="button" class="ign sugg" data-ignore="${escapeHtml(a.login)}" title="${a.given} reviews, ${Math.round(100 * a.commentedShare)}% plain comments — looks automated">+ ignore @${escapeHtml(a.login)}?</button>`).join('');
+  return `<div class="stats-filters">${team}<span class="flt">ignored reviews:</span>${chips || '<span class="viz-sub">none</span>'}${toggle}${add}${sugg}</div>`;
+}
+
+function tile(label, value, sub) {
+  return `<div class="tile"><div class="tile-label">${label}</div><div class="tile-value">${value}</div><div class="tile-sub">${sub}</div></div>`;
+}
+
+const periodLabel = (p) => (p === 'last12' ? 'last 12 months' : p);
+
+// Favorites bar of the stats page: the dashboard's chips (same look), minus
+// counters / mode / remove — here a chip only picks the scope of the stats
+// (?scope=…, « ⭐ all » = '*', the union). Independent of the dashboard's
+// active favorite. No favorite → nothing.
+// ⚠️ Plain buttons, no `.chip` wrapper: on the dashboard `.chip > button` is
+// the left part of a segmented control (square right corners) — alone, it
+// rendered cut (real bug).
+export function renderStatsFavorites(favorites = [], active = null) {
+  if (!favorites.length) return '';
+  const on = (v) => (v === active ? ' class="on"' : '');
+  const chips = favorites.map((f) => `<button data-scope="${escapeHtml(f)}"${on(f)}>${escapeHtml(favoriteLabel(f))}</button>`).join('');
+  return `<div class="favs" role="group" aria-label="Favorites"><button data-scope="*"${on('*')} title="All favorites">⭐ all</button>${chips}</div>`;
+}
+
+// Header of the stats page: scope, period dropdown (last 12 months, then the
+// years down to the scope's first PR), focused month chip (✕ = back to the
+// period), data age. The page script handles `#period` / `[data-month]`.
+function statsHead({ scopeLabel, period, periods, focus, fetchedAt, now }) {
+  const opts = periods.map((p) => `<option value="${escapeHtml(p)}"${p === period ? ' selected' : ''}>${escapeHtml(periodLabel(p))}</option>`).join('');
+  const chip = focus ? ` <button type="button" class="focus-chip" data-month="${focus}" title="Back to the whole period">${monthLabel(focus)} ✕</button>` : '';
+  const upd = fetchedAt ? ` · data from ${relativeDate(new Date(fetchedAt).toISOString(), now)}` : '';
+  return `<h2 class="stats-title">📊 ${scopeLabel ? escapeHtml(scopeLabel) : 'all of GitHub'} <select id="period" title="Period">${opts}</select>${chip} <span class="viz-sub">merged PRs${upd}</span></h2>`;
+}
+
+const rankLine = (r, what) => (r?.rank ? `<span><b>#${r.rank}</b> <span class="viz-sub">of ${r.of}</span></span><span>${what}</span>` : `<span>–</span><span>${what}</span>`);
+
+// `stats` = computeStats(...) or null (nothing cached yet); `progress` =
+// { done, total, months } while collecting; `errors` = messages of the
+// months that failed; `period`/`periods` = the dropdown state.
+// `filters` = { teams, team, teamFailed, ignored, includeIgnored } (null → no filter row).
+export function renderStatsFragment(stats, { progress = null, errors = [], scopeLabel = '', scoped = false, repoOwner = null, period = 'last12', periods = ['last12'], chips = '', me = null, filters = null, now = Date.now() } = {}) {
+  return chips + statsBody(stats, { progress, errors, scopeLabel, scoped, repoOwner, period, periods, me, filters, now });
+}
+
+function statsBody(stats, { progress, errors, scopeLabel, scoped, repoOwner, period, periods, me: login, filters, now }) {
+  const running = !!progress;
+  const step = running ? ` · ${progress.done}/${progress.total} months` : '';
+  if (!stats) {
+    const head = statsHead({ scopeLabel, period, periods, focus: null, fetchedAt: null, now });
+    if (!running && errors.length) return `${head}<p class="empty offline">⚠️ Stats could not be fetched: ${escapeHtml(errors[0])}</p>`;
+    return `${head}<div class="stats-loading" data-loading="1"><p class="stats-status"><span class="spinner"></span> Fetching the merged PRs of ${escapeHtml(periodLabel(period))}${step} `
+      + '<span class="loading-hint">(first time only, this may take a while — past months are cached for good)</span></p>'
+      + progressPanel(progress ?? { months: [] }) + '</div>';
+  }
+  const status = running
+    ? `<div class="stats-loading" data-loading="1"><p class="stats-status"><span class="spinner"></span> Updating${step}</p>${progressPanel(progress, { onlyLive: true })}</div>`
+    : '';
+  const err = errors.length
+    ? `<p class="update stale">⚠️ Some months could not be fetched — showing what is cached. <span class="stale-err">${escapeHtml(errors[0])}</span></p>`
+    : '';
+  const short = (stats.incomplete ?? []).length
+    ? `<p class="update">⚠️ GitHub truncated its search for ${stats.incomplete.map((m) => `${monthLabel(m.key)} (${m.got}/${m.count} PRs)`).join(', ')} — the numbers below miss those PRs; refetched on your next visit.</p>`
+    : '';
+  const { me, team, queue } = stats;
+  const ratioTile = me.ratio == null
+    ? tile('Review ratio', '–', `${me.reviewed} reviewed · no PR of yours merged`)
+    : tile('Review ratio',
+      `${me.ratio.toFixed(2)} <span class="tile-flag"><i class="dot" style="background:#${ratioColor(me.ratio)}"></i>${ratioWord(me.ratio)}</span>`,
+      `${me.reviewed} reviewed · ${me.merged} merged${team?.medianRatio != null ? `<br>team median ${team.medianRatio.toFixed(2)}` : ''}`);
+  const rankTile = team
+    ? `<div class="tile"><div class="tile-label">Your rank in the team</div><div class="ranks">${rankLine(team.ratio, 'ratio')}${rankLine(team.reviews, 'reviews')}${rankLine(team.merged, 'merged PRs')}</div></div>`
+    : '';
+  // « median » goes in the sub line: in the label it wrapped the 5-tile row.
+  const vs = (v) => (team ? `median · team ${fmtDuration(v)}` : '');
+  const v = me.verdicts ?? { APPROVED: 0, CHANGES_REQUESTED: 0, COMMENTED: 0 };
+  const vTot = v.APPROVED + v.CHANGES_REQUESTED + v.COMMENTED;
+  const verdictTile = vTot
+    ? tile('Your verdicts', `${pctText(v.APPROVED, vTot)} <span class="tile-flag">approved</span>`,
+      `${shareBar([['v-approved', v.APPROVED], ['v-commented', v.COMMENTED], ['v-changes', v.CHANGES_REQUESTED]])}<br>${v.APPROVED} approved · ${v.COMMENTED} commented · ${v.CHANGES_REQUESTED} changes`)
+    : '';
+  const tiles = `<div class="tiles">${ratioTile}${rankTile}${verdictTile}`
+    + tile('Time to merge', fmtDuration(me.ttm), vs(team?.ttm) || `median of your ${me.merged} merged PRs`)
+    + tile('Time to 1st review', fmtDuration(me.ttfr), vs(team?.ttfr) || 'median, from ready for review')
+    + (stats.month ? '' : tile('Waiting for your review', String(queue.count), queue.oldest != null ? `oldest ${fmtDuration(queue.oldest)}` : 'nothing waiting'))
+    + '</div>';
+  const hint = scoped ? '' : '<p class="stats-hint">No scope: your own PRs and reviews only. Pick a favorite (or filter an org) on the dashboard to compare with your team.</p>';
+  const head = statsHead({ scopeLabel, period, periods, focus: stats.month, fetchedAt: stats.fetchedAt, now });
+  const flt = statsFilters(filters, { automated: stats.automated ?? [], reviewers: stats.reviewers ?? [] });
+  return err + short + status + head + flt + tiles + hint + monthsChart(stats.months, stats.month)
+    + heatmap(stats.days, stats.since, stats.until, stats.month) + reposChart(stats.repos, repoOwner, stats.month)
+    + reciprocityChart(stats.reciprocity ?? [], stats.month)
+    + sizeChart(stats.sizes ?? { mine: [], team: [] }, team?.ttm, stats.month)
+    + repositorySection(stats.repo, { scopeLabel, repoOwner, focus: stats.month })
+    + shippingTable(stats.shipping ?? [], login, stats.month) + reviewingTable(stats.reviewing ?? [], login, stats.month);
+}
+
+const STATS_CSS = `
+  /* Not a section header: the dashboard's h2 band (background, padding,
+     bottom border) floated alone above the tiles (real bug). */
+  .stats-title { font-size: 1.1rem; margin: .5rem 0 1rem; display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+                 background: none; border: 0; padding: 0; }
+  #content > .favs { margin: 0 0 1rem; }
+  #scope { min-width: 20rem; }
+  .stats-title select { font: inherit; font-size: .8125rem; padding: .15rem .4rem; border-radius: 6px;
+                        border: 1px solid var(--border); background: var(--canvas-subtle); color: var(--fg); }
+  .focus-chip { font: inherit; font-size: .75rem; padding: .1rem .5rem; border-radius: 2em; cursor: pointer;
+                border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--canvas)); color: var(--fg); }
+  .ranks { display: grid; grid-template-columns: auto 1fr; gap: .1rem .6rem; font-size: .875rem; margin-top: .3rem; align-items: baseline; }
+  .ranks b { font-size: 1.1rem; }
+  .viz .month { cursor: pointer; }
+  .viz .month.off { opacity: .4; }
+  .viz .month.on .band { fill: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .viz rect.dim { opacity: .25; }
+  .stats-title.section { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border-muted); }
+  .stats-filters { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .6rem; margin: -.5rem 0 1rem; font-size: .75rem; color: var(--fg-muted); }
+  .stats-filters select, .ign-add input { font: inherit; padding: .15rem .4rem; border-radius: 6px; border: 1px solid var(--border); background: var(--canvas-subtle); color: var(--fg); }
+  .ign-add input { width: 14rem; }
+  .ign { font: inherit; font-size: .75rem; padding: .1rem .5rem; border-radius: 2em; cursor: pointer; border: 1px solid var(--border); background: var(--canvas-subtle); color: var(--fg); }
+  .ign.sugg { border-style: dashed; color: var(--attention); }
+  .viz-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; }
+  .viz .line { fill: none; stroke: var(--series-3); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .viz .s3, .viz-legend .s3 { fill: var(--series-3); background: var(--series-3); }
+  .st-merged { fill: var(--st-merged); background: var(--st-merged); }
+  .st-open { fill: var(--success); background: var(--success); }
+  .st-closed { fill: var(--danger); background: var(--danger); }
+  .v-approved { background: var(--success); } .v-changes { background: var(--danger); } .v-commented { background: var(--fg-muted); opacity: .6; }
+  .mini { display: inline-block; width: 4rem; height: 6px; border-radius: 3px; background: var(--canvas-subtle); vertical-align: middle; margin-right: .35rem; overflow: hidden; }
+  .mini i { display: block; height: 100%; background: var(--series-1); border-radius: 3px; }
+  .share { display: inline-flex; width: 6rem; height: 6px; border-radius: 3px; overflow: hidden; background: var(--canvas-subtle); vertical-align: middle; gap: 1px; }
+  .share i { display: block; height: 100%; }
+  table.team td.num, table.team th.num { text-align: right; white-space: nowrap; }
+  table.team th { white-space: nowrap; }
+  table.team .add { color: var(--success); } table.team .del { color: var(--danger); }
+  .viz .team-dot { fill: var(--fg-muted); opacity: .3; }
+  .viz .dot { stroke: var(--canvas); stroke-width: 2; }
+  .viz a:hover .dot, .viz a:focus .dot { stroke: var(--fg); }
+  .viz .ref { stroke: var(--fg-muted); stroke-width: 1; }
+  .viz-legend .sw.round { border-radius: 50%; }
+  .viz-legend .sw.team { background: var(--fg-muted); opacity: .5; }
+  .team-wrap { max-height: 22rem; overflow-y: auto; }
+  table.team { font-size: .8125rem; border-collapse: collapse; width: 100%; }
+  table.team th { text-align: left; font-weight: 600; color: var(--fg-muted); font-size: .75rem; position: sticky; top: 0; background: var(--canvas); }
+  table.team th, table.team td { padding: .25rem .75rem .25rem 0; font-variant-numeric: tabular-nums; border-bottom: 1px solid var(--border-muted); }
+  table.team tr.me td { font-weight: 600; background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  table.team .dot { width: .55rem; height: .55rem; border-radius: 50%; display: inline-block; margin-right: .35rem; }
+  .viz-sub { font-size: .75rem; font-weight: 400; color: var(--fg-muted); }
+  .stats-status { color: var(--fg-muted); font-size: .8125rem; margin: 0 0 .5rem; }
+  .stats-hint { color: var(--fg-muted); font-size: .8125rem; margin: -.25rem 0 1rem; }
+  .stats-loading { margin: 0 0 1rem; }
+  .pm-list { display: grid; gap: .3rem; max-width: 34rem; }
+  .pm { display: grid; grid-template-columns: 5.5rem 1fr 7.5rem; align-items: center; gap: .75rem; font-size: .75rem; }
+  .pm-k { color: var(--fg-muted); }
+  .pm-n { color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+  .pm-bar { height: 6px; border-radius: 3px; background: var(--canvas-subtle); border: 1px solid var(--border-muted); overflow: hidden; }
+  .pm-bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; transition: width .4s; }
+  .pm-cached .pm-bar i { background: var(--fg-muted); opacity: .45; }
+  .pm-done .pm-bar i { background: var(--success); }
+  .pm-error .pm-bar i { width: 100% !important; background: var(--danger); }
+  .pm-error .pm-n { color: var(--danger); }
+  .pm-short .pm-bar i { background: var(--attention); }
+  .pm-short .pm-n { color: var(--attention); }
+  .pm-bar.busy i { width: 30% !important; animation: pm-busy 1.1s ease-in-out infinite alternate; }
+  @keyframes pm-busy { from { margin-left: 0; } to { margin-left: 70%; } }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
+  .tile { border: 1px solid var(--border); border-radius: 6px; padding: .75rem 1rem; background: var(--canvas-subtle); }
+  .tile-label { font-size: .75rem; color: var(--fg-muted); }
+  .tile-value { font-size: 1.75rem; font-weight: 600; margin: .15rem 0; display: flex; align-items: baseline; gap: .5rem; }
+  .tile-flag { font-size: .75rem; font-weight: 500; color: var(--fg-muted); display: inline-flex; align-items: center; gap: .3rem; }
+  .tile-flag .dot { width: .6rem; height: .6rem; border-radius: 50%; display: inline-block; }
+  .tile-sub { font-size: .75rem; color: var(--fg-muted); line-height: 1.5; }
+  .viz { border: 1px solid var(--border); border-radius: 6px; padding: .75rem 1rem; margin-bottom: 1rem; background: var(--canvas); }
+  .viz h3 { font-size: .875rem; margin: 0 0 .5rem; }
+  .viz svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .viz .grid { stroke: var(--border-muted); stroke-width: 1; }
+  .viz .axis { stroke: var(--border); stroke-width: 1; }
+  .viz .tick, .viz .val { fill: var(--fg-muted); font-size: 11px; }
+  .viz .lbl-y { fill: var(--fg); font-size: 12px; }
+  .viz .s1, .viz-legend .s1 { fill: var(--series-1); background: var(--series-1); }
+  .viz .s2, .viz-legend .s2 { fill: var(--series-2); background: var(--series-2); }
+  .viz .hit { outline: none; }
+  .viz .hit:hover path, .viz .hit:focus path { filter: brightness(1.12); }
+  .viz .hit:hover rect[fill="transparent"], .viz .hit:focus rect[fill="transparent"] { fill: color-mix(in srgb, var(--fg) 4%, transparent); }
+  .viz rect[data-tip]:hover { stroke: var(--fg); stroke-width: 1; }
+  .viz-legend { display: flex; gap: 1rem; font-size: .75rem; color: var(--fg-muted); margin-bottom: .25rem; align-items: center; }
+  .viz-legend span { display: inline-flex; align-items: center; gap: .35rem; }
+  .viz-legend .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .heat-legend { justify-content: flex-end; gap: 3px; margin-top: .4rem; }
+  .h0 { fill: var(--heat-0); background: var(--heat-0); } .h1 { fill: var(--heat-1); background: var(--heat-1); }
+  .h2 { fill: var(--heat-2); background: var(--heat-2); } .h3 { fill: var(--heat-3); background: var(--heat-3); }
+  .h4 { fill: var(--heat-4); background: var(--heat-4); }
+  .viz-table summary { font-size: .75rem; color: var(--fg-muted); cursor: pointer; margin-top: .5rem; }
+  .viz-table table { font-size: .75rem; border-collapse: collapse; margin-top: .4rem; }
+  .viz-table th, .viz-table td { padding: .15rem .75rem .15rem 0; text-align: left; font-variant-numeric: tabular-nums; }
+  #tip { position: fixed; pointer-events: none; z-index: 50; white-space: pre-line; font-size: .75rem; line-height: 1.5;
+         background: var(--canvas); color: var(--fg); border: 1px solid var(--border); border-radius: 6px;
+         padding: .35rem .6rem; box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+  #tip::first-line { font-weight: 600; }
+  /* Series & heat ramp: light steps on light, dark steps on dark (validated). */
+  :root { --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --st-merged: #8250df;
+          --heat-0: #ebeef1; --heat-1: #b7d3f6; --heat-2: #6da7ec; --heat-3: #2a78d6; --heat-4: #184f95; }
+  @media (prefers-color-scheme: dark) {
+    :root[data-theme="auto"] { --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --st-merged: #a371f7;
+          --heat-0: #1f2630; --heat-1: #184f95; --heat-2: #256abf; --heat-3: #3987e5; --heat-4: #86b6ef; }
+  }
+  :root[data-theme="dark"] { --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --st-merged: #a371f7;
+          --heat-0: #1f2630; --heat-1: #184f95; --heat-2: #256abf; --heat-3: #3987e5; --heat-4: #86b6ef; }
+`;
+
+// Stats page shell: same head as the dashboard, its own tiny script — fetch
+// /stats-fragment, re-poll every 2 s while the server is collecting
+// (`data-loading`), 🔄 = POST /stats/refresh (refetches the current month),
+// one shared tooltip for every `[data-tip]` mark (textContent, never HTML).
+// `scope` = the typed ?scope= (field value), `defaultLabel` = the dashboard's
+// scope used when the field is empty (placeholder), `favorites` = suggestions.
+export function renderStatsShell({ theme = 'auto', scope = '', defaultLabel = '', favorites = [] } = {}) {
+  const suggestions = favorites.map((f) => `<option value="${escapeHtml(f)}"></option>`).join('');
+  return `${shellHead(theme, 'gh notif · stats')}
+<body>
+<style>${STATS_CSS}</style>
+<header>
+  <div class="brand"><h1><a href="/" title="Back to the dashboard">🔔 gh notif</a> · stats</h1></div>
+  <form class="search" id="scope-form">
+    <input id="scope" name="scope" value="${escapeHtml(scope)}" list="scope-favs" placeholder="${escapeHtml(defaultLabel ? `${defaultLabel} (dashboard scope)` : 'org or owner/repo')}" autocomplete="off" spellcheck="false" title="Org (acme or acme/*) or repository (acme/api); empty = the dashboard's scope">
+    <datalist id="scope-favs">${suggestions}</datalist>
+    <button type="submit" title="Show the stats of this org / repository">Stats</button>
+    <button type="button" id="refresh" title="Refresh the current month (past months are final)">🔄</button>
+  </form>
+</header>
+<main id="content"><p class="empty" data-loading="1"><span class="spinner"></span> Loading…</p></main>
+<div id="tip" hidden></div>
+<script>
+  var content = document.getElementById('content');
+  var tip = document.getElementById('tip');
+  var timer = null;
+  // The URL is the state (?period=…&month=…): shareable, back/forward work.
+  function load(refresh) {
+    clearTimeout(timer);
+    var qs = location.search;
+    fetch((refresh ? '/stats/refresh' : '/stats-fragment') + qs, refresh ? { method: 'POST' } : {})
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        content.innerHTML = html;
+        content.classList.remove('loading');
+        if (content.querySelector('[data-loading]')) timer = setTimeout(function () { load(false); }, 2000);
+      })
+      .catch(function () { content.innerHTML = '<p class="empty offline">⚠️ offline</p>'; });
+  }
+  function showTip(el, x, y) {
+    tip.textContent = el.getAttribute('data-tip');
+    tip.hidden = false;
+    var w = tip.offsetWidth, h = tip.offsetHeight;
+    tip.style.left = Math.min(x + 14, window.innerWidth - w - 8) + 'px';
+    tip.style.top = (y + h + 20 > window.innerHeight ? y - h - 12 : y + 16) + 'px';
+  }
+  content.addEventListener('pointermove', function (e) {
+    var el = e.target.closest('[data-tip]');
+    if (el) showTip(el, e.clientX, e.clientY); else tip.hidden = true;
+  });
+  content.addEventListener('pointerleave', function () { tip.hidden = true; });
+  content.addEventListener('focusin', function (e) {
+    var el = e.target.closest('[data-tip]');
+    if (el) { var b = el.getBoundingClientRect(); showTip(el, b.left + b.width / 2, b.top); }
+  });
+  content.addEventListener('focusout', function () { tip.hidden = true; });
+  function go(changes) {
+    var p = new URLSearchParams(location.search);
+    Object.keys(changes).forEach(function (k) { if (changes[k]) p.set(k, changes[k]); else p.delete(k); });
+    var qs = p.toString();
+    history.pushState(null, '', '/stats' + (qs ? '?' + qs : ''));
+    content.classList.add('loading');
+    load(false);
+  }
+  content.addEventListener('change', function (e) {
+    if (e.target.id === 'period') go({ period: e.target.value === 'last12' ? '' : e.target.value, month: '' });
+    if (e.target.id === 'team') go({ team: e.target.value });
+    if (e.target.id === 'include-ignored') go({ all: e.target.checked ? '1' : '' });
+  });
+  // Ignore / un-ignore an account (prefs, server side), page state kept.
+  function toggleIgnore(login) {
+    var p = new URLSearchParams(location.search);
+    p.set('login', login);
+    content.classList.add('loading');
+    fetch('/stats/ignore?' + p.toString(), { method: 'POST' })
+      .then(function (r) { return r.text(); })
+      .then(function (html) { content.innerHTML = html; content.classList.remove('loading'); });
+  }
+  content.addEventListener('submit', function (e) {
+    if (e.target.id !== 'ignore-form') return;
+    e.preventDefault();
+    var v = document.getElementById('ignore-login').value.trim();
+    if (v) toggleIgnore(v);
+  });
+  function toggleMonth(el) {
+    var cur = new URLSearchParams(location.search).get('month');
+    var m = el.getAttribute('data-month');
+    tip.hidden = true;
+    go({ month: cur === m ? '' : m });
+  }
+  content.addEventListener('click', function (e) {
+    var ign = e.target.closest('[data-ignore]');
+    if (ign) { toggleIgnore(ign.getAttribute('data-ignore')); return; }
+    var chip = e.target.closest('[data-scope]');
+    if (chip) {
+      var v = chip.getAttribute('data-scope');
+      document.getElementById('scope').value = v === '*' ? '' : v;
+      go({ scope: v, period: '', month: '' });
+      return;
+    }
+    var el = e.target.closest('[data-month]');
+    if (el) toggleMonth(el);
+  });
+  content.addEventListener('keydown', function (e) {
+    var el = e.target.closest && e.target.closest('[data-month]');
+    if (el && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggleMonth(el); }
+  });
+  document.getElementById('scope-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    // A new scope has its own months and years: back to the default period.
+    go({ scope: document.getElementById('scope').value.trim(), period: '', month: '' });
+  });
+  window.addEventListener('popstate', function () {
+    document.getElementById('scope').value = new URLSearchParams(location.search).get('scope') || '';
+    load(false);
+  });
+  document.getElementById('refresh').addEventListener('click', function () { load(true); });
+  load(false);
 </script>
 </body>
 </html>`;

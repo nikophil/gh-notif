@@ -313,6 +313,56 @@ export function makeGh(runner = defaultRunner, { onError = () => {} } = {}) {
     async searchAuthored(qualifier = '') {
       return searchIssues(`is:open is:pr author:@me${qualifier}`);
     },
+    // Stats page (§40): one page of MERGED PRs for a search query, with just
+    // what the stats need. ⚠️ Keep it light and the page small: the nested
+    // connections (reviews, timeline) are what cost — a bare search of 100 PRs
+    // answers in ~1 s, the same 100 with these fields hits GitHub's ~10 s
+    // timeout (502/504, measured). The caller halves `first` on failure.
+    // `latestReviews` = one entry per reviewer (measured: same reviewer set as
+    // the full `reviews` list); `firstReviews` dates the first review.
+    async searchMergedPRs(q, { first = 25, after = null } = {}) {
+      const query = `query($q: String!, $after: String) {
+  search(query: $q, type: ISSUE, first: ${Number(first)}, after: $after) {
+    issueCount
+    pageInfo { hasNextPage endCursor }
+    nodes { ... on PullRequest {
+      number repository { nameWithOwner } author { __typename login } createdAt mergedAt additions deletions
+      ready: timelineItems(last: 1, itemTypes: [READY_FOR_REVIEW_EVENT]) { nodes { ... on ReadyForReviewEvent { createdAt } } }
+      firstReviews: reviews(first: 5) { nodes { author { __typename login } submittedAt } }
+      latestReviews(first: 30) { nodes { author { __typename login } submittedAt state } }
+      reviewEvents: reviews { totalCount }
+    } }
+  }
+}`;
+      const args = ['api', 'graphql', '-f', `query=${query}`, '-f', `q=${q}`];
+      if (after) args.push('-f', `after=${after}`);
+      const out = parseJson(await run('STATS', args));
+      return out?.data?.search ?? { issueCount: 0, pageInfo: { hasNextPage: false }, nodes: [] };
+    },
+    // Stats page (§40): one page of UNMERGED PRs (closed without merge, or
+    // still open) — light fields only, for the opened / merge-rate numbers.
+    async searchUnmergedPRs(q, { first = 50, after = null } = {}) {
+      const query = `query($q: String!, $after: String) {
+  search(query: $q, type: ISSUE, first: ${Number(first)}, after: $after) {
+    issueCount
+    pageInfo { hasNextPage endCursor }
+    nodes { ... on PullRequest { number repository { nameWithOwner } author { __typename login } createdAt closedAt state additions deletions } }
+  }
+}`;
+      const args = ['api', 'graphql', '-f', `query=${query}`, '-f', `q=${q}`];
+      if (after) args.push('-f', `after=${after}`);
+      const out = parseJson(await run('STATS', args));
+      return out?.data?.search ?? { issueCount: 0, pageInfo: { hasNextPage: false }, nodes: [] };
+    },
+    // Stats team filter (§40): the org's teams, then one team's members.
+    async listTeams(org) {
+      const out = parseJson(await run('TEAMS', ['api', '--paginate', `orgs/${org}/teams?per_page=100`])) ?? [];
+      return out.map((t) => ({ slug: t.slug, name: t.name }));
+    },
+    async teamMembers(org, slug) {
+      const out = parseJson(await run('TEAMS', ['api', '--paginate', `orgs/${org}/teams/${slug}/members?per_page=100`])) ?? [];
+      return out.map((u) => u.login);
+    },
     // Review coverage (§38): only GitHub's total_count matters → one page of 1.
     // A timed-out search (incomplete_results) undercounts → thrown, never cached.
     async countPRs(q) {

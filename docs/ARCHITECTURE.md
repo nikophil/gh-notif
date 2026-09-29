@@ -41,6 +41,7 @@ error).
 | `src/errlog.js` | GitHub error journal (§35): `recordError` (bounded, folds repeats), `openErrorLog` (persisted, fed by `makeGh`'s `onError`). | yes (tmp dir) |
 | `src/stale.js` | Stale stacks (§31): `isStaleStack(number, signal)` — a conflicting PR that drags a rewritten parent's commits. Pure. | yes |
 | `src/update.js` | Update hint (§32): `newerRelease(dir, runner)` (git fetch of the tags + highest tag not in HEAD, injectable runner), `isLocalInstall`, `extensionDir`, `UPGRADE_COMMANDS`. Nothing is installed. | yes via runner stub |
+| `src/stats.js` | Stats page (§40): month keys / periods, per-month cache (`collectStats`, merged + unmerged datasets, truncation recovery), `computeStats` (me, team, repository, who's shipping / reviewing, filters). Pure except the cache file I/O. | yes via gh stub |
 | `src/sort.js` | Sorting of the web tables (« others » AND « Your PRs », each with its own key set): `normalizeSort`, `toggleSort` (click cycle), `sortRows` (sorted copy, missing at the end). Pure. | yes |
 
 Each module has a clear responsibility; the hard logic lives in **pure functions** tested on
@@ -1183,6 +1184,8 @@ sequenceDiagram
     | `GH-COMMENT` / `GH-REVIEW_COMMENTS` | `getComment` / `getReviewComments` | `inspectThread` (per changed thread) |
     | `GH-GRAPHQL` | `graphqlPullChunk` | PR details / stale signals batch, `markReady` |
     | `GH-SEARCH` | `searchPage`, `countPRs` | `searchReviewRequested`, `searchAuthored`, `searchPRs` (§29), review coverage (§38) |
+    | `GH-STATS` | `searchMergedPRs`, `searchUnmergedPRs` | stats page collection (§40) |
+    | `GH-TEAMS` | `listTeams`, `teamMembers` | stats page team filter (§40) |
     | `GH-SUBSCRIBE` | `setRepoSubscription` | favorite « all » mode §27 |
     | `GH-SCOPE_EXISTS` | `scopeExists` | favorite add / `--org` `--repo` check |
     | `GH-PR_READY` / `GH-PR_DRAFT` | `markReady` / `convertToDraft` | dashboard toggle §30 |
@@ -1208,28 +1211,29 @@ sequenceDiagram
     unknown (base branch deleted → `baseRef` null → `behindBy` null).
 
 38. **Review ratio (« ratio: 1.76 » pill next to « my reviews ↗ »).** How much I review
-    compared with how much I ship: `reviewed / merged` over a **sliding year**, with
-    `reviewed` = `is:pr merged:>=<today−365d> reviewed-by:@me -author:@me <scope>` (others'
-    PRs I reviewed) and `merged` = `is:pr merged:>=<today−365d> author:@me <scope>` (mine)
-    (`reviewCoverageQueries`, favorites.js). Both sides are dated on the **merge** — the only
-    date a review search can carry (there is no « reviewed at » qualifier); a PR I reviewed
-    that was closed unmerged or is still open does not count. `merged:>=` implies
-    `is:merged`, dropped so the query stays under GitHub's 256-char cap with the full
-    favorites budget. Shown as a GitHub-label pill « ratio: 1.76 » (same `.lbl` + `labelColors`
-    recipe as §25, so light/dark come for free), colored by `ratioColor` (`RATIO_COLORS`: ≥ 2
-    light green, ≥ 1.5 lime, ≥ 1 yellow, ≥ 0.5 orange, below red); tooltip « reviewed: N -
-    merged: M (last 12 months) ». Scope = the same `linkScopes` as
-    the link (ad-hoc > active favorite > union > all of GitHub — fine here, both sides are
-    about me). Only the counts matter → `gh.countPRs` = **one search page of 1 item**
-    (`total_count`); a response flagged `incomplete_results` **throws** (GitHub undercounts
-    on a timeout, §10 — never cache a lie). ⚠️ **Never in the poll** (same lesson as §29):
-    `coverageFor` (serve.js) is consulted when `/view`/`/fragment`/an action renders the
-    dashboard; a missing or stale entry (per scope qualifier) launches the two counts **in
-    the background** and the view renders **without** the badge — the next `/view` poll
-    shows it. TTL 1 h (a yearly ratio barely moves → 2 search requests/h/scope); a failure
-    keeps the previous numbers and retries after 1 min (≈ one poll: a network blip must not hide the pill for 5 min); one fetch in flight per scope
-    (`pending`). Rendering: `renderFragment` opt `reviewCoverage: {reviewed, merged}`,
-    absent or `merged = 0` → nothing (byte-identical compat).
+    compared with how much I ship: `reviewed / merged`, with `reviewed` = `is:pr
+    merged:>=<since> reviewed-by:@me -author:@me <scope>` (others' PRs I reviewed) and `merged`
+    = `is:pr merged:>=<since> author:@me <scope>` (mine) (`reviewCoverageQueries`,
+    favorites.js), over **two sliding windows**: the pill shows the **last 30 days** (what I do
+    now — a yearly figure barely moved), its tooltip the last 30 days' counts **and** the last
+    365 days' ratio with its counts. Both sides are dated on the **merge** — the only date a
+    review search can carry (no « reviewed at » qualifier); a PR I reviewed that was closed
+    unmerged or is still open does not count. `merged:>=` implies `is:merged`, dropped so the
+    query stays under GitHub's 256-char cap with the full favorites budget. 30 days with
+    reviews but nothing merged → `∞` (a good month, green); nothing at all → `–`, uncolored.
+    Shown as a GitHub-label pill (same `.lbl` + `labelColors` recipe as §25, so light/dark come
+    for free), colored by `ratioColor` (`RATIO_COLORS`: ≥ 2 light green, ≥ 1.5 lime, ≥ 1 yellow,
+    ≥ 0.5 orange, below red), a link to `/stats` (§40). Scope = the same `linkScopes` as the
+    link (ad-hoc > active favorite > union > all of GitHub — fine here, both sides are about
+    me). Only the counts matter → `gh.countPRs` = **one search page of 1 item**
+    (`total_count`), 4 per refresh (2 windows × 2 sides); a response flagged
+    `incomplete_results` **throws** (GitHub undercounts on a timeout, §10 — never cache a lie).
+    ⚠️ **Never in the poll** (same lesson as §29): `coverageFor` (serve.js) is consulted when
+    `/view`/`/fragment`/an action renders the dashboard; a missing or stale entry (per scope
+    qualifier) launches the counts **in the background** and the view renders **without** the
+    pill — the next `/view` poll shows it. TTL 1 h; a failure keeps the previous numbers and
+    retries after 1 min (≈ one poll: a network blip must not hide the pill for long); one fetch
+    in flight per scope (`pending`). `reviewCoverage` absent → nothing (byte-identical compat).
     `reviewed-by` counts any submitted review, comment-only included (GitHub's semantics).
 
 39. **A failed poll never hides the tables (stale banner).** Before, any poll error
@@ -1242,6 +1246,72 @@ sequenceDiagram
     of the `.update` banner. Same rule on `/debug`. `updatedAt` keeps the last **success**, so
     the header stamp (`upd HH:MM:SS`) was already honest and still is; the next successful
     poll clears `error` and the banner.
+
+40. **Stats page (`/stats`): a year of merged PRs, cached per month, never in the poll.**
+    Linked from the 📊 header icon and the ratio pill (§38). Module `src/stats.js` (pure except
+    the cache file I/O), rendering in `html.js` (`renderStatsShell` / `renderStatsFragment`),
+    routes in `serve.js` (`GET /stats`, `GET /stats-fragment`, `POST /stats/refresh`,
+    `POST /stats/ignore`). **The URL is the state**: `?scope=` (empty = the dashboard's
+    `linkScopes`; `*` = the union of the favorites; else an org / repo, `owner/*` accepted,
+    checked once with `scopeExists`), `period=last12|YYYY`, `month=YYYY-MM` (focus), `team=`,
+    `all=1` (include the ignored accounts).
+    - **Datasets.** (a) **Merged PRs per MERGE month** — with a scope, every merged PR of it;
+      without, mine + the ones I reviewed (`datasetQueries`). Per PR (`compactPR`): repo, number,
+      author (+ `bot`), created / ready (`timelineItems` ReadyForReviewEvent) / merged dates,
+      additions / deletions, `rv` = `[login, submittedAt, state]` from `latestReviews` (one
+      entry per reviewer = their verdict; measured: same reviewer set as the full `reviews`
+      list), `frs` = the first reviews `[login, at]`, `ev` = `reviews.totalCount`. (b) **Unmerged
+      PRs per CREATION month** (`searchUnmergedPRs`, light fields: closed / still open) — for
+      « opened », outcomes and merge rates. Bots are dropped from the reviewers; a bot PR keeps
+      a `bot` flag (out of the team numbers, still in my ratio, like the §38 pill).
+    - **Cache per month, on disk** (`stats-v1/<sha1(me|qualifier)>.json`, one file per scope):
+      `months[YYYY-MM]` and `unmerged[YYYY-MM]` = `{ fetchedAt, count, schema, prs }`. A merged
+      month fetched a day after its end is **final** — never refetched; the current month is
+      refetched after 6 h (or 🔄). An unmerged month is never final while it holds an open PR.
+      No pruning: older months serve the year views. `SCHEMA` (2) versions the record: a
+      bucket of another schema is refetched once. `myFirstYear` (the older of my first merged
+      PR and my first review in the scope, `firstPRYear`) bounds the period dropdown; looked up
+      on its own when unknown (a cache whose months are all fresh never ran it — real bug).
+    - ⚠️ **GitHub truncates a slow search SILENTLY**: a page just says « no next page » —
+      measured 200 of 339 PRs for a month, 339/339 on a replay. `fetchRange` checks what it
+      got against the range's `issueCount`; if short, refetches the range in two halves (down
+      to one day, a day retried once); still short → the bucket is `incomplete` (orange bar,
+      page banner, refetched next visit). Ranges above the 1 000-result search cap are split
+      the same way.
+    - ⚠️ **Query weight**: the nested connections (reviews, timeline) are what cost — a bare
+      search of 100 PRs answers in ~1 s, the same 100 with these fields hits GitHub's ~10 s
+      timeout (502/504). Pages of 40, halved on a failure (the halved size sticks for the run),
+      4 months in parallel (`CONCURRENCY`). The per-reviewer turnaround (open → that
+      reviewer's first review) was rejected: it needs the full review list per PR.
+    - **Collection** runs in the background, one job per scope file, started by a fragment
+      request when a month of the period needs it; the cache is saved after every month (an
+      interrupted first run resumes). The page shows **one progress bar per month** (always
+      « x/12 », cached months count as done) and re-polls every 2 s while `data-loading`. The
+      first collection of a big org takes minutes (a busy org: ~3 500 PRs/year); later visits only
+      refresh the current month.
+    - **`computeStats`** (pure) — for the period's months, optionally focused on one month
+      (tiles, ranks, repos, tables narrow to it; the per-month charts keep the period):
+      *me*: ratio, verdicts, medians (from ready-for-review), days I reviewed (heatmap), per
+      repo, reciprocity (who reviews me / whom I review), size vs time to merge;
+      *team* (scope only): ranks by ratio (≥ 3 merged), reviews, merged — competition ranking;
+      *repository* (scope only, aggregates): merged, opened + outcome, merged without review /
+      approval, reviewers and review events per PR, median size, time to 1st review / merge
+      with **p90**, outcomes per creation month, speed per merge month, volume per repo;
+      *who's shipping* (per author: merged, opened / outcome / merge rate over the PRs opened
+      in the period, mean diff, medians) and *who's reviewing* (reviews given, verdict mix,
+      own merged, ratio).
+    - **Filters.** *Ignored accounts* (`prefs.statsIgnored`, managed on the page — chips ✕,
+      an add field, `POST /stats/ignore?login=` toggles): their reviews do not count (an AI
+      reviewer posting on a human account, a bot-like user GitHub types as `User`); the first
+      review time is recomputed without them (why `frs` is stored, not a precomputed `fr`).
+      Accounts with ≥ 30 reviews that are ≥ 90 % plain comments are **suggested**. *Team*:
+      the GitHub teams of the scope's org (`listTeams` / `teamMembers`, cached a day, failure →
+      no filter): only the members' PRs and reviews count, mine always kept.
+    - Charts: server-rendered SVG, zero dependency, one tooltip for every `[data-tip]`
+      (textContent), a « Show as table » where values matter. Two series in the validated
+      categorical slots 1–2 (blue = my reviews, orange = my PRs, both themes checked on the
+      Primer surfaces), GitHub state colors for outcomes (merged violet, open green, closed
+      red) and verdicts, one-hue blue ramp for the heatmap.
 
 ## Test conventions
 

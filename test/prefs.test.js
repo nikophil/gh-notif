@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync, mkdtempSync } from 'node:fs';
-import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, ignoredChecksFor, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, setStacks, stacksSeenOf, hiddenColsOf, toggleHiddenCol } from '../src/prefs.js';
+import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, ignoredChecksFor, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, setStacks, stacksSeenOf, hiddenColsOf, toggleHiddenCol, statsIgnoredOf, toggleStatsIgnored } from '../src/prefs.js';
 
 test('prefsPath respects XDG_STATE_HOME', () => {
   const prev = process.env.XDG_STATE_HOME;
@@ -263,4 +263,14 @@ test('toggleHiddenCol: adds, removes, deletes the pref key when empty', () => {
   const bad = { cols: 'oops' };
   toggleHiddenCol(bad, 'others', 'ci');
   assert.deepEqual(bad.cols, ['ci']);
+});
+
+test('statsIgnoredOf / toggleStatsIgnored: trimmed, @ dropped, de-duplicated, key deleted when empty', () => {
+  assert.deepEqual(statsIgnoredOf({ statsIgnored: [' ai ', '@bot', 'ai', 3, ''] }), ['ai', 'bot']);
+  assert.deepEqual(statsIgnoredOf({}), []);
+  const prefs = {};
+  assert.deepEqual(toggleStatsIgnored(prefs, '@ai'), ['ai']);
+  assert.deepEqual(prefs.statsIgnored, ['ai']);
+  assert.deepEqual(toggleStatsIgnored(prefs, 'ai'), []);
+  assert.ok(!('statsIgnored' in prefs));
 });

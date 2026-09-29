@@ -155,3 +155,22 @@ export function toggleIgnoredCheck(prefs, repo, name) {
   else prefs.ignoredChecks[repo] = next;
   return prefs;
 }
+
+// Stats page (§40): accounts whose reviews do not count — an AI reviewer
+// posting on a human account, a bot-like user GitHub does not flag as a Bot.
+// Trimmed, de-duplicated, order kept; absent/tampered → [].
+export function statsIgnoredOf(prefs) {
+  const raw = Array.isArray(prefs?.statsIgnored) ? prefs.statsIgnored : [];
+  return [...new Set(raw.filter((x) => typeof x === 'string').map((x) => x.trim().replace(/^@/, '')).filter(Boolean))];
+}
+
+// Adds / removes one login (click on a suggestion, ✕ on a chip). The key is
+// deleted when the list empties (clean file, like `stacks`).
+export function toggleStatsIgnored(prefs, login) {
+  const l = String(login ?? '').trim().replace(/^@/, '');
+  if (!l) return statsIgnoredOf(prefs);
+  const cur = statsIgnoredOf(prefs);
+  const next = cur.includes(l) ? cur.filter((x) => x !== l) : [...cur, l];
+  if (next.length) prefs.statsIgnored = next; else delete prefs.statsIgnored;
+  return next;
+}

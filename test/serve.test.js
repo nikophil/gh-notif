@@ -1482,3 +1482,20 @@ test('GET /fragment: the update banner survives an error state, and is absent wh
   assert.doesNotMatch(handleRequest('/fragment', okSnapshot(), OPTS).body, /class="update"/);
   assert.doesNotMatch(handleRequest('/fragment', { ...okSnapshot(), updateTag: null }, OPTS).body, /class="update"/);
 });
+
+test('GET /stats : scope field pre-filled from ?scope= (escaped), dashboard scope in the placeholder, favorites suggested', () => {
+  const res = handleRequest('/stats', mixedSnapshot(), { ...OPTS, statsScope: 'acme/<x>', favorites: ['acme', 'o/r'], activeFav: 'acme' });
+  assert.match(res.body, /<input id="scope" name="scope" value="acme\/&lt;x&gt;"/);
+  assert.match(res.body, /placeholder="acme\/\* \(dashboard scope\)"/);
+  assert.match(res.body, /<option value="acme\/\*"><\/option><option value="o\/r"><\/option>/);
+});
+
+test('GET /stats : no favorite, no scope → « all of GitHub » placeholder', () => {
+  const res = handleRequest('/stats', mixedSnapshot(), { ...OPTS });
+  assert.match(res.body, /placeholder="all of GitHub \(dashboard scope\)"/);
+});
+
+test('GET /view : ratioPending passes through (the client re-polls quickly while the pill is counted)', () => {
+  assert.equal(JSON.parse(handleRequest('/view', mixedSnapshot(), { ...OPTS, ratioPending: true }).body).ratioPending, true);
+  assert.equal(JSON.parse(handleRequest('/view', mixedSnapshot(), { ...OPTS }).body).ratioPending, false);
+});

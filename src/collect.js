@@ -252,7 +252,7 @@ function memoAlive(key, d, me) {
 
 // Runs fn on each item with at most `limit` concurrent executions
 // (avoids launching dozens of `gh pr view` at once).
-async function mapLimit(items, limit, fn) {
+export async function mapLimit(items, limit, fn) {
   const results = new Array(items.length);
   let i = 0;
   const worker = async () => {
