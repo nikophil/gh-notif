@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
 import { handleRequest, serve, parseScope, scopeLabel, shouldRefresh, singleFlight, teamCacheMs } from '../src/serve.js';
 import { loadPrefs, prefsPath } from '../src/prefs.js';
+import { statsPath, saveStatsCache, SCHEMA } from '../src/stats.js';
 
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
 const OPTS = { now: NOW, intervalMs: 10000 };
@@ -1515,4 +1516,52 @@ test('GET /stats : a late response of a page the user left is dropped (scope / p
   assert.match(body, /var mine = \+\+seq;[\s\S]*if \(mine !== seq\) return;/, 'only the latest request renders');
   assert.match(body, /function load\(refresh\) \{\s*show\(/, 'the fragment polls go through it');
   assert.match(body, /function toggleIgnore\(login\) \{[\s\S]*?show\('\/stats\/ignore\?/, 'and the ignore toggles');
+});
+
+// ── integration: the stats tabs (§40) ────────────────────────────────────────
+// « Me » never follows the team filter (same ratio as the dashboard pill);
+// « Team » carries the filter, the rank and the repository sections.
+test('GET /stats-fragment : the Me tab ignores the team filter, the Team tab applies it', async () => {
+  const tmp = `/tmp/gh-notif-test-stats-tabs-${process.pid}`;
+  rmSync(tmp, { recursive: true, force: true });
+  process.env.XDG_STATE_HOME = tmp;
+  const month = new Date().toISOString().slice(0, 7);
+  const at = `${month}-01T10:00:00Z`;
+  const pr = (n, a, rv = []) => ({ repo: 'acme/web', n, a, bot: false, c: at, rd: null, m: at, add: 1, del: 0, frs: [], rv, ev: rv.length });
+  saveStatsCache(statsPath('me', parseScope('acme')), {
+    months: { [month]: { fetchedAt: Date.now(), count: 3, schema: SCHEMA, prs: [
+      pr(1, 'me'),
+      pr(2, 'bob', [['me', at, 'APPROVED']]), // a team member's PR
+      pr(3, 'carol', [['me', at, 'APPROVED']]), // outside the team
+    ] } },
+  });
+  // No searchMergedPRs → no collection: the page renders the cache above.
+  const gh = {
+    getCurrentUser: async () => 'me',
+    listNotifications: async () => [],
+    searchReviewRequested: async () => [],
+    searchAuthored: async () => [],
+    getPullDetailsBatch: async (prs) => prs.map(() => null),
+    listTeams: async () => [{ slug: 'core', name: 'Core' }],
+    teamMembers: async () => ['bob'],
+  };
+  const PORT = 7814;
+  const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false });
+  try {
+    const get = async (qs) => (await fetch(`http://localhost:${PORT}/stats-fragment?scope=acme&team=core${qs}`)).text();
+    const me = await get('');
+    assert.match(me, /Review ratio<\/div><div class="tile-value">2\.00/, 'both reviews count, carol\'s included');
+    assert.ok(!me.includes('id="team"'), 'no team select on Me');
+    assert.ok(!me.includes('🏢 Repository'));
+    assert.ok(!me.includes('Your rank in the team'));
+
+    const team = await get('&tab=team');
+    assert.match(team, /<option value="core" selected>/);
+    assert.match(team, /of 2<\/span><\/span><span>merged PRs/, 'ranked among me + bob: carol filtered out');
+    assert.ok(team.includes('🏢 Repository'));
+    assert.ok(!team.includes('Review ratio'), 'my tiles live on Me');
+  } finally {
+    server.close();
+    rmSync(tmp, { recursive: true, force: true });
+  }
 });

@@ -636,7 +636,10 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
     // the teams of the scope's org (a repo → its owner).
     const ignored = statsIgnoredOf(prefs);
     const includeIgnored = params.get('all') === '1';
-    const org = list?.length === 1 ? (list[0].type === 'org' ? list[0].value : list[0].value.split('/')[0]) : null;
+    // ?tab=team: the team filter lives there — « Me » never follows it (same
+    // ratio as the dashboard pill), so its teams are not even read.
+    const tab = scoped && params.get('tab') === 'team' ? 'team' : 'me';
+    const org = tab === 'team' && list.length === 1 ? (list[0].type === 'org' ? list[0].value : list[0].value.split('/')[0]) : null;
     const teams = org && typeof gh.listTeams === 'function' ? await cachedTeam(org, () => gh.listTeams(org)) : null;
     const team = teams?.find((t) => t.slug === params.get('team')) ?? null;
     const teamMembers = team ? await cachedTeam(`${org}/${team.slug}`, () => gh.teamMembers(org, team.slug)) : null;
@@ -648,6 +651,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       // mid-collection) is still shown — it is what the server is doing.
       progress: running ? (e.progress ?? { done: 0, total: keys.length, months: [] }) : null,
       period,
+      tab,
       periods: periodOptions(e.cache.myFirstYear, now),
       chips: renderStatsFavorites(favorites, activeChip),
       me,

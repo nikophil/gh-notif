@@ -2834,11 +2834,11 @@ function reviewingTable(rows, me, focus) {
 <div class="team-wrap"><table class="team"><thead><tr><th>Reviewer</th><th class="num">Reviews</th><th>Verdicts</th><th class="num">Approved</th><th class="num">Changes</th><th class="num">Commented</th><th class="num">Own merged</th><th class="num">Ratio</th></tr></thead><tbody>${trs}</tbody></table></div></section>`;
 }
 
-// Filters row (§40): team of the scope's org, ignored accounts (chips ✕ +
-// add field), include-them toggle, automated-looking suggestions.
-function statsFilters(f, { automated = [], reviewers = [] }) {
+// Filters row (§40): team of the scope's org (Team tab only), ignored accounts
+// (chips ✕ + add field), include-them toggle, automated-looking suggestions.
+function statsFilters(f, { automated = [], reviewers = [], tab }) {
   if (!f) return '';
-  const team = f.teams.length
+  const team = tab === 'team' && f.teams.length
     ? `<label class="flt">team <select id="team"><option value="">everyone</option>${f.teams.map((t) => `<option value="${escapeHtml(t.slug)}"${t.slug === f.team ? ' selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}</select></label>`
       + (f.teamFailed ? ' <span class="viz-sub offline">team members could not be read</span>' : '')
     : '';
@@ -2888,11 +2888,18 @@ const rankLine = (r, what) => (r?.rank ? `<span><b>#${r.rank}</b> <span class="v
 // { done, total, months } while collecting; `errors` = messages of the
 // months that failed; `period`/`periods` = the dropdown state.
 // `filters` = { teams, team, teamFailed, ignored, includeIgnored } (null → no filter row).
-export function renderStatsFragment(stats, { progress = null, errors = [], scopeLabel = '', scoped = false, repoOwner = null, period = 'last12', periods = ['last12'], chips = '', me = null, filters = null, now = Date.now() } = {}) {
-  return chips + statsBody(stats, { progress, errors, scopeLabel, scoped, repoOwner, period, periods, me, filters, now });
+export function renderStatsFragment(stats, { progress = null, errors = [], scopeLabel = '', scoped = false, repoOwner = null, period = 'last12', periods = ['last12'], tab = 'me', chips = '', me = null, filters = null, now = Date.now() } = {}) {
+  return chips + statsBody(stats, { progress, errors, scopeLabel, scoped, repoOwner, period, periods, tab, me, filters, now });
 }
 
-function statsBody(stats, { progress, errors, scopeLabel, scoped, repoOwner, period, periods, me: login, filters, now }) {
+// « Me » / « Team » tabs (§40), only with a scope: without one there is no
+// team side to show. The page script turns a click into ?tab=.
+function statsTabs(tab) {
+  const btn = (value, label) => `<button type="button" data-tab="${value}"${(value || 'me') === tab ? ' class="on" aria-current="page"' : ''}>${label}</button>`;
+  return `<nav class="stats-tabs" aria-label="Stats">${btn('', 'Me')}${btn('team', 'Team')}</nav>`;
+}
+
+function statsBody(stats, { progress, errors, scopeLabel, scoped, repoOwner, period, periods, tab, me: login, filters, now }) {
   const running = !!progress;
   const step = running ? ` · ${progress.done}/${progress.total} months` : '';
   if (!stats) {
@@ -2928,20 +2935,24 @@ function statsBody(stats, { progress, errors, scopeLabel, scoped, repoOwner, per
     ? tile('Your verdicts', `${pctText(v.APPROVED, vTot)} <span class="tile-flag">approved</span>`,
       `${shareBar([['v-approved', v.APPROVED], ['v-commented', v.COMMENTED], ['v-changes', v.CHANGES_REQUESTED]])}<br>${v.APPROVED} approved · ${v.COMMENTED} commented · ${v.CHANGES_REQUESTED} changes`)
     : '';
-  const tiles = `<div class="tiles">${ratioTile}${rankTile}${verdictTile}`
+  const tiles = `<div class="tiles">${ratioTile}${verdictTile}`
     + tile('Time to merge', fmtDuration(me.ttm), vs(team?.ttm) || `median of your ${me.merged} merged PRs`)
     + tile('Time to 1st review', fmtDuration(me.ttfr), vs(team?.ttfr) || 'median, from ready for review')
     + (stats.month ? '' : tile('Waiting for your review', String(queue.count), queue.oldest != null ? `oldest ${fmtDuration(queue.oldest)}` : 'nothing waiting'))
     + '</div>';
   const hint = scoped ? '' : '<p class="stats-hint">No scope: your own PRs and reviews only. Pick a favorite (or filter an org) on the dashboard to compare with your team.</p>';
   const head = statsHead({ scopeLabel, period, periods, focus: stats.month, fetchedAt: stats.fetchedAt, now });
-  const flt = statsFilters(filters, { automated: stats.automated ?? [], reviewers: stats.reviewers ?? [] });
-  return err + short + status + head + flt + tiles + hint + monthsChart(stats.months, stats.month)
-    + heatmap(stats.days, stats.since, stats.until, stats.month) + reposChart(stats.repos, repoOwner, stats.month)
-    + reciprocityChart(stats.reciprocity ?? [], stats.month)
-    + sizeChart(stats.sizes ?? { mine: [], team: [] }, team?.ttm, stats.month)
-    + repositorySection(stats.repo, { scopeLabel, repoOwner, focus: stats.month })
-    + shippingTable(stats.shipping ?? [], login, stats.month) + reviewingTable(stats.reviewing ?? [], login, stats.month);
+  const flt = statsFilters(filters, { automated: stats.automated ?? [], reviewers: stats.reviewers ?? [], tab });
+  const tabs = scoped ? statsTabs(tab) : '';
+  const body = tab === 'team'
+    ? (rankTile ? `<div class="tiles solo">${rankTile}</div>` : '')
+      + repositorySection(stats.repo, { scopeLabel, repoOwner, focus: stats.month })
+      + shippingTable(stats.shipping ?? [], login, stats.month) + reviewingTable(stats.reviewing ?? [], login, stats.month)
+    : tiles + hint + monthsChart(stats.months, stats.month)
+      + heatmap(stats.days, stats.since, stats.until, stats.month) + reposChart(stats.repos, repoOwner, stats.month)
+      + reciprocityChart(stats.reciprocity ?? [], stats.month)
+      + sizeChart(stats.sizes ?? { mine: [], team: [] }, team?.ttm, stats.month);
+  return err + short + status + head + tabs + flt + body;
 }
 
 const STATS_CSS = `
@@ -2962,6 +2973,12 @@ const STATS_CSS = `
   .viz .month.on .band { fill: color-mix(in srgb, var(--accent) 10%, transparent); }
   .viz rect.dim { opacity: .25; }
   .stats-title.section { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border-muted); }
+  /* GitHub's UnderlineNav, small. */
+  .stats-tabs { display: flex; gap: .25rem; border-bottom: 1px solid var(--border); margin: -.5rem 0 1rem; }
+  .stats-tabs button { font: inherit; font-size: .8125rem; background: none; border: 0; border-bottom: 2px solid transparent;
+                       margin-bottom: -1px; padding: .3rem .6rem; color: var(--fg-muted); cursor: pointer; }
+  .stats-tabs button:hover { color: var(--fg); }
+  .stats-tabs button.on { color: var(--fg); font-weight: 600; border-bottom-color: #fd8c73; }
   .stats-filters { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .6rem; margin: -.5rem 0 1rem; font-size: .75rem; color: var(--fg-muted); }
   .stats-filters select, .ign-add input { font: inherit; padding: .15rem .4rem; border-radius: 6px; border: 1px solid var(--border); background: var(--canvas-subtle); color: var(--fg); }
   .ign-add input { width: 14rem; }
@@ -3012,6 +3029,8 @@ const STATS_CSS = `
   .pm-bar.busy i { width: 30% !important; animation: pm-busy 1.1s ease-in-out infinite alternate; }
   @keyframes pm-busy { from { margin-left: 0; } to { margin-left: 70%; } }
   .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
+  /* A lone tile (rank, Team tab): auto-fit stretched it across the page. */
+  .tiles.solo { grid-template-columns: minmax(145px, 260px); }
   .tile { border: 1px solid var(--border); border-radius: 6px; padding: .75rem 1rem; background: var(--canvas-subtle); }
   .tile-label { font-size: .75rem; color: var(--fg-muted); }
   .tile-value { font-size: 1.75rem; font-weight: 600; margin: .15rem 0; display: flex; align-items: baseline; gap: .5rem; }
@@ -3154,6 +3173,8 @@ export function renderStatsShell({ theme = 'auto', scope = '', defaultLabel = ''
   content.addEventListener('click', function (e) {
     var ign = e.target.closest('[data-ignore]');
     if (ign) { toggleIgnore(ign.getAttribute('data-ignore')); return; }
+    var tab = e.target.closest('[data-tab]');
+    if (tab) { go({ tab: tab.getAttribute('data-tab') }); return; }
     var chip = e.target.closest('[data-scope]');
     if (chip) {
       var v = chip.getAttribute('data-scope');
