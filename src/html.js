@@ -2884,15 +2884,20 @@ const periodLabel = (p) => (p === 'last12' ? 'last 12 months' : p);
 // Favorites bar of the stats page: the dashboard's chips (same look), minus
 // counters / mode / remove — here a chip only picks the scope of the stats
 // (?scope=…, « ⭐ all » = '*', the union). Independent of the dashboard's
-// active favorite. No favorite → nothing.
-// ⚠️ Plain buttons, no `.chip` wrapper: on the dashboard `.chip > button` is
-// the left part of a segmented control (square right corners) — alone, it
-// rendered cut (real bug).
-export function renderStatsFavorites(favorites = [], active = null) {
-  if (!favorites.length) return '';
+// active favorite. Then, after a separator, the stats favorites (`pinned`,
+// scopes pinned from the page's field), each with a ✕ — the dashboard ones
+// are managed on the dashboard. No favorite at all → nothing.
+// ⚠️ Plain buttons, no `.chip` wrapper, for a chip without ✕: on the dashboard
+// `.chip > button` is the left part of a segmented control (square right
+// corners) — alone, it rendered cut (real bug).
+export function renderStatsFavorites(favorites = [], active = null, pinned = []) {
+  if (!favorites.length && !pinned.length) return '';
   const on = (v) => (v === active ? ' class="on"' : '');
-  const chips = favorites.map((f) => `<button data-scope="${escapeHtml(f)}"${on(f)}>${escapeHtml(favoriteLabel(f))}</button>`).join('');
-  return `<div class="favs" role="group" aria-label="Favorites"><button data-scope="*"${on('*')} title="All favorites">⭐ all</button>${chips}</div>`;
+  const chip = (f) => `<button data-scope="${escapeHtml(f)}"${on(f)}>${escapeHtml(favoriteLabel(f))}</button>`;
+  const all = favorites.length ? `<button data-scope="*"${on('*')} title="All favorites">⭐ all</button>${favorites.map(chip).join('')}` : '';
+  const sep = favorites.length && pinned.length ? '<span class="favs-sep"></span>' : '';
+  const mine = pinned.map((f) => `<span class="chip">${chip(f)}<button class="chip-x" data-unpin="${escapeHtml(f)}" title="Remove from the stats favorites">×</button></span>`).join('');
+  return `<div class="favs" role="group" aria-label="Favorites">${all}${sep}${mine}</div>`;
 }
 
 // Header of the stats page: scope, period dropdown (last 12 months, then the
@@ -2984,6 +2989,7 @@ const STATS_CSS = `
   .stats-title { font-size: 1.1rem; margin: .5rem 0 1rem; display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
                  background: none; border: 0; padding: 0; }
   #content > .favs { margin: 0 0 1rem; }
+  .favs-sep { align-self: stretch; width: 1px; margin: 0 .2rem; background: var(--border); }
   #scope { min-width: 20rem; }
   .stats-title select { font: inherit; font-size: .8125rem; padding: .15rem .4rem; border-radius: 6px;
                         border: 1px solid var(--border); background: var(--canvas-subtle); color: var(--fg); }
@@ -3162,13 +3168,14 @@ export function renderStatsShell({ theme = 'auto', scope = '', defaultLabel = ''
     if (el) { var b = el.getBoundingClientRect(); showTip(el, b.left + b.width / 2, b.top); }
   });
   content.addEventListener('focusout', function () { tip.hidden = true; });
-  function go(changes) {
+  // pin = the « Stats » button: the server also pins the typed scope.
+  function go(changes, pin) {
     var p = new URLSearchParams(location.search);
     Object.keys(changes).forEach(function (k) { if (changes[k]) p.set(k, changes[k]); else p.delete(k); });
     var qs = p.toString();
     history.pushState(null, '', '/stats' + (qs ? '?' + qs : ''));
     content.classList.add('loading');
-    load(false);
+    if (pin) show('/stats/pin' + location.search, { method: 'POST' }); else load(false);
   }
   content.addEventListener('change', function (e) {
     if (e.target.id === 'period') go({ period: e.target.value === 'last12' ? '' : e.target.value, month: '' });
@@ -3197,6 +3204,14 @@ export function renderStatsShell({ theme = 'auto', scope = '', defaultLabel = ''
   content.addEventListener('click', function (e) {
     var ign = e.target.closest('[data-ignore]');
     if (ign) { toggleIgnore(ign.getAttribute('data-ignore')); return; }
+    var unpin = e.target.closest('[data-unpin]');
+    if (unpin) {
+      var q = new URLSearchParams(location.search);
+      q.set('value', unpin.getAttribute('data-unpin'));
+      content.classList.add('loading');
+      show('/stats/unpin?' + q.toString(), { method: 'POST' });
+      return;
+    }
     var tab = e.target.closest('[data-tab]');
     if (tab) { go({ tab: tab.getAttribute('data-tab') }); return; }
     var chip = e.target.closest('[data-scope]');
@@ -3216,7 +3231,7 @@ export function renderStatsShell({ theme = 'auto', scope = '', defaultLabel = ''
   document.getElementById('scope-form').addEventListener('submit', function (e) {
     e.preventDefault();
     // A new scope has its own months and years: back to the default period.
-    go({ scope: document.getElementById('scope').value.trim(), period: '', month: '' });
+    go({ scope: document.getElementById('scope').value.trim(), period: '', month: '' }, true);
   });
   window.addEventListener('popstate', function () {
     document.getElementById('scope').value = new URLSearchParams(location.search).get('scope') || '';

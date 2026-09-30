@@ -174,3 +174,22 @@ export function toggleStatsIgnored(prefs, login) {
   if (next.length) prefs.statsIgnored = next; else delete prefs.statsIgnored;
   return next;
 }
+
+// Stats page (§40): scopes pinned from the page's field — its own chips, next
+// to the dashboard favorites, never collected by the poll. Canonical like a
+// favorite (`acme/*` → the org `acme`), de-duplicated, order kept.
+const canonicalScope = (v) => v.trim().replace(/\/\*?$/, '');
+export function statsFavoritesOf(prefs) {
+  const raw = Array.isArray(prefs?.statsFavorites) ? prefs.statsFavorites : [];
+  return [...new Set(raw.filter((x) => typeof x === 'string').map(canonicalScope).filter(Boolean))];
+}
+
+// Pins (`on`) or unpins one scope. The key is deleted when the list empties.
+export function setStatsFavorite(prefs, value, on) {
+  const v = canonicalScope(String(value ?? ''));
+  const cur = statsFavoritesOf(prefs);
+  if (!v) return cur;
+  const next = on ? (cur.includes(v) ? cur : [...cur, v]) : cur.filter((x) => x !== v);
+  if (next.length) prefs.statsFavorites = next; else delete prefs.statsFavorites;
+  return next;
+}

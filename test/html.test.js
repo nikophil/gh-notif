@@ -1479,6 +1479,16 @@ test('renderStatsFavorites: « ⭐ all » (*) + one chip per favorite, the activ
   assert.equal(renderStatsFavorites([], null), '');
 });
 
+test('renderStatsFavorites: the stats favorites follow, after a separator, each with a ✕ (escaped); alone, no « ⭐ all »', () => {
+  const out = renderStatsFavorites(['acme'], 'o/r<x>', ['zorg', 'o/r<x>']);
+  assert.match(out, /acme\/\*<\/button><span class="favs-sep"><\/span><span class="chip"><button data-scope="zorg">zorg\/\*<\/button><button class="chip-x" data-unpin="zorg"/);
+  assert.match(out, /<button data-scope="o\/r&lt;x&gt;" class="on">o\/r&lt;x&gt;<\/button><button class="chip-x" data-unpin="o\/r&lt;x&gt;"/);
+  const alone = renderStatsFavorites([], null, ['zorg']);
+  assert.ok(!alone.includes('⭐ all'), 'no dashboard favorite → no union to show');
+  assert.ok(!alone.includes('favs-sep'));
+  assert.match(alone, /data-unpin="zorg"/);
+});
+
 test('renderStatsFragment: new sections — reciprocity + team tables; size scatter (PR links)', () => {
   const stats = {
     since: Date.parse('2025-10-01T00:00:00Z'), until: Date.parse('2026-09-28T00:00:00Z'), month: null,

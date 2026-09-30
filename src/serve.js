@@ -12,7 +12,7 @@ import { statsPath, loadStatsCache, saveStatsCache, collectStats, computeStats, 
 import { CATEGORY } from './filter.js';
 import { hiddenPath, loadHidden, saveHidden, toggleHidden, isHidden, keyOf } from './hidden.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './state.js';
-import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, setStacks, stacksSeenOf, hiddenColsOf, toggleHiddenCol, statsIgnoredOf, toggleStatsIgnored } from './prefs.js';
+import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, setStacks, stacksSeenOf, hiddenColsOf, toggleHiddenCol, statsIgnoredOf, toggleStatsIgnored, statsFavoritesOf, setStatsFavorite } from './prefs.js';
 import {
   parseScope, normalizeFavorites, addFavorite, removeFavorite,
   favoriteScopes, activeFavoriteOf, filterDataByScope, favoriteCounts, closedPRsUrl, reviewedPRsUrl, reviewCoverageQueries, repoInAllMode, favoriteLabel,
@@ -179,19 +179,19 @@ export function handleRequest(pathname, snapshot, opts = {}) {
   const {
     now, intervalMs, showHidden, scope, notifyEnabled = true, theme = 'auto',
     favorites = [], activeFav = null, adhoc = false, sort = null, sortMine = null, ignoredChecks = {},
-    favModes = null, stacks = null, cols = null, searchQ = '', events = [], after = null, errors = [], reviewCoverage = null, ratioPending = false, statsScope = '',
+    favModes = null, stacks = null, cols = null, searchQ = '', events = [], after = null, errors = [], reviewCoverage = null, ratioPending = false, statsScope = '', statsFavorites = [],
   } = opts;
   // Search page shell (§29): the query comes from the URL (pre-filled field);
   // the data itself goes through /search-fragment (I/O, outside this pure router).
   // Stats page (§40): the field shows the `?scope=` of the URL; empty = the
-  // dashboard's scope (named in the placeholder), favorites suggested.
+  // dashboard's scope (named in the placeholder), favorites (dashboard + stats) suggested.
   if (pathname === '/stats') {
     const def = toScopeList(linkScopes({ scope, activeFav, favorites }));
     return { status: 200, type: 'text/html; charset=utf-8', body: renderStatsShell({
       theme,
       scope: statsScope === '*' ? '' : statsScope,
       defaultLabel: def ? def.map((s) => (s.type === 'org' ? `${s.value}/*` : s.value)).join(', ') : 'all of GitHub',
-      favorites: favorites.map(favoriteLabel),
+      favorites: [...favorites, ...statsFavorites].map(favoriteLabel),
     }) };
   }
   if (pathname === '/search') {
@@ -596,7 +596,10 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
     teamCache.set(key, { value, until: Date.now() + teamCacheMs(err) });
     return value;
   };
-  const statsFragment = async (params, { force = false } = {}) => {
+  // `pin` (« Stats » button, POST /stats/pin): a typed scope that exists joins
+  // the stats favorites, unless the dashboard already pins it. Never on a
+  // plain load — the ✕ of the shown scope would re-pin it at once.
+  const statsFragment = async (params, { force = false, pin = false } = {}) => {
     // ?scope= : '' = the dashboard's scope, '*' = the union of the favorites
     // (the « ⭐ all » chip), anything else = that org / repository.
     const raw = (params.get('scope') ?? '').trim();
@@ -608,11 +611,17 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       }
     }
     const scopes = raw === '*' ? favoriteScopes(favorites) : typed ?? linkScopes({ scope, activeFav, favorites });
+    const same = (f) => { const p = parseScope(f); return typed && p && p.type === typed.type && p.value === typed.value; };
+    if (pin && typed && !favorites.some(same)) {
+      setStatsFavorite(prefs, typed.value, true); // ⚠️ mutates prefs (rewritten IN FULL)
+      savePrefs(prefsFile, prefs);
+    }
+    // A stats favorite later pinned on the dashboard shows once, there.
+    const pinned = statsFavoritesOf(prefs).filter((f) => !favorites.some((d) => parseScope(d)?.value === f));
     // Highlighted chip: the typed favorite, « all » for '*', else what the
     // dashboard shows (none in ad-hoc mode, where no favorite drives it).
-    const same = (f) => { const p = parseScope(f); return typed && p && p.type === typed.type && p.value === typed.value; };
     const activeChip = raw === '*' ? '*'
-      : typed ? (favorites.find(same) ?? null)
+      : typed ? (favorites.find(same) ?? pinned.find(same) ?? null)
       : scope ? null : (activeFav ?? '*');
     const path = statsPath(me, scopes);
     let e = statsEntries.get(path);
@@ -653,7 +662,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       period,
       tab,
       periods: periodOptions(e.cache.myFirstYear, now),
-      chips: renderStatsFavorites(favorites, activeChip),
+      chips: renderStatsFavorites(favorites, activeChip, pinned),
       me,
       filters: { teams: teams ?? [], team: team?.slug ?? null, teamFailed: !!team && !teamMembers, ignored, includeIgnored },
       errors: e.errors,
@@ -892,6 +901,16 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         savePrefs(prefsFile, prefs);
         return send(200, 'text/html; charset=utf-8', await statsFragment(url.searchParams));
       }
+      // Stats favorites: « Stats » pins the typed scope, ✕ unpins one (?value=)
+      // — same contract as /stats/ignore, the page state re-rendered as is.
+      if (pathname === '/stats/pin') {
+        return send(200, 'text/html; charset=utf-8', await statsFragment(url.searchParams, { pin: true }));
+      }
+      if (pathname === '/stats/unpin') {
+        setStatsFavorite(prefs, url.searchParams.get('value'), false); // ⚠️ mutates prefs (rewritten IN FULL)
+        savePrefs(prefsFile, prefs);
+        return send(200, 'text/html; charset=utf-8', await statsFragment(url.searchParams));
+      }
       if (pathname === '/stats/refresh') {
         return send(200, 'text/html; charset=utf-8', await statsFragment(url.searchParams, { force: true }));
       }
@@ -939,6 +958,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       cols,
       searchQ: url.searchParams.get('q') ?? '',
       statsScope: url.searchParams.get('scope') ?? '',
+      statsFavorites: statsFavoritesOf(prefs),
       errors: errorLog.entries,
       reviewCoverage,
       ratioPending: dashboard && coveragePending(linkScopes({ scope, activeFav, favorites })),

@@ -1251,10 +1251,20 @@ sequenceDiagram
     Linked from the 📊 header icon and the ratio pill (§38). Module `src/stats.js` (pure except
     the cache file I/O), rendering in `html.js` (`renderStatsShell` / `renderStatsFragment`),
     routes in `serve.js` (`GET /stats`, `GET /stats-fragment`, `POST /stats/refresh`,
-    `POST /stats/ignore`). **The URL is the state**: `?scope=` (empty = the dashboard's
+    `POST /stats/ignore`, `POST /stats/pin`, `POST /stats/unpin`). **The URL is the state**: `?scope=` (empty = the dashboard's
     `linkScopes`; `*` = the union of the favorites; else an org / repo, `owner/*` accepted,
     checked once with `scopeExists`), `period=last12|YYYY`, `month=YYYY-MM` (focus), `tab=team`,
     `team=`, `all=1` (include the ignored accounts).
+    - **Favorites bar** (`renderStatsFavorites`): the dashboard favorites (« ⭐ all » = `*`,
+      one chip each, managed on the dashboard), then, after a thin separator, the **stats
+      favorites** (`prefs.statsFavorites`, canonical like a favorite: `acme/*` → `acme`), each
+      with a ✕. The « Stats » button goes through `POST /stats/pin` (page state in the query
+      string, like `/stats/ignore`): a typed scope that exists (`scopeExists` ≠ false) is
+      pinned, unless it is empty, `*` or already a dashboard favorite. ✕ = `POST
+      /stats/unpin?value=`, the page keeps its scope. Never collected by the poll, no qualifier
+      budget (each chip is a scope of its own). ⚠️ A plain `GET /stats-fragment` never pins:
+      the ✕ of the scope on screen would re-pin it at once, and back / a pasted URL would pin
+      silently.
     - **Two tabs, with a scope only** (`statsTabs`): **Me** (default) = my tiles and charts,
       **never** filtered by team — my ratio stays the dashboard pill's (§38), and a team filter
       silently dropped my reviews outside the team (reported as confusing: the select sat above

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
 import { handleRequest, serve, parseScope, scopeLabel, shouldRefresh, singleFlight, teamCacheMs } from '../src/serve.js';
-import { loadPrefs, prefsPath } from '../src/prefs.js';
+import { loadPrefs, savePrefs, prefsPath } from '../src/prefs.js';
 import { statsPath, saveStatsCache, SCHEMA } from '../src/stats.js';
 
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
@@ -1564,4 +1564,78 @@ test('GET /stats-fragment : the Me tab ignores the team filter, the Team tab app
     server.close();
     rmSync(tmp, { recursive: true, force: true });
   }
+});
+
+// ── integration: the stats favorites (§40) ──────────────────────────────────
+// « Stats » (POST /stats/pin) pins a typed scope that exists, ✕ (POST
+// /stats/unpin) removes it; a plain fragment load never pins.
+test('POST /stats/pin · /stats/unpin : the stats favorites, persisted, never the dashboard ones', async () => {
+  const tmp = `/tmp/gh-notif-test-stats-favs-${process.pid}`;
+  rmSync(tmp, { recursive: true, force: true });
+  process.env.XDG_STATE_HOME = tmp;
+  const gh = {
+    getCurrentUser: async () => 'me',
+    listNotifications: async () => [],
+    searchReviewRequested: async () => [],
+    searchAuthored: async () => [],
+    getPullDetailsBatch: async (prs) => prs.map(() => null),
+    scopeExists: async (s) => s.value !== 'ghost',
+  };
+  const PORT = 7815;
+  const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false });
+  const pinned = () => loadPrefs(prefsPath()).statsFavorites ?? [];
+  const post = async (path) => (await fetch(`http://localhost:${PORT}${path}`, { method: 'POST' })).text();
+  try {
+    await fetch(`http://localhost:${PORT}/stats-fragment?scope=zorg`);
+    assert.deepEqual(pinned(), [], 'a plain load (back button, pasted URL) pins nothing');
+
+    const html = await post('/stats/pin?scope=zorg/*');
+    assert.deepEqual(pinned(), ['zorg']);
+    assert.match(html, /<button data-scope="zorg" class="on">zorg\/\*<\/button><button class="chip-x" data-unpin="zorg"/);
+    await post('/stats/pin?scope=acme/web');
+    await post('/stats/pin?scope=ghost');
+    await post('/stats/pin?scope=');
+    await post('/stats/pin?scope=*');
+    assert.deepEqual(pinned(), ['zorg', 'acme/web'], 'unknown scope, dashboard scope, « all » → not pinned');
+
+    const after = await post('/stats/unpin?value=zorg&scope=zorg');
+    assert.deepEqual(pinned(), ['acme/web']);
+    assert.ok(!after.includes('data-unpin="zorg"'), 'chip gone, the page keeps its scope');
+    assert.ok(!('favorites' in loadPrefs(prefsPath())) || loadPrefs(prefsPath()).favorites.length === 0, 'dashboard favorites untouched');
+  } finally {
+    server.close();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('POST /stats/pin : a scope the dashboard already pins is not pinned twice', async () => {
+  const tmp = `/tmp/gh-notif-test-stats-favs-dup-${process.pid}`;
+  rmSync(tmp, { recursive: true, force: true });
+  process.env.XDG_STATE_HOME = tmp;
+  savePrefs(prefsPath(), { favorites: ['acme'] });
+  const gh = {
+    getCurrentUser: async () => 'me',
+    listNotifications: async () => [],
+    searchReviewRequested: async () => [],
+    searchAuthored: async () => [],
+    getPullDetailsBatch: async (prs) => prs.map(() => null),
+  };
+  const PORT = 7816;
+  const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false });
+  try {
+    const html = await (await fetch(`http://localhost:${PORT}/stats/pin?scope=acme/*`, { method: 'POST' })).text();
+    assert.equal(loadPrefs(prefsPath()).statsFavorites, undefined);
+    assert.match(html, /<button data-scope="acme" class="on">acme\/\*<\/button>/, 'its dashboard chip lights up');
+    assert.ok(!html.includes('data-unpin'));
+  } finally {
+    server.close();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('GET /stats : « Stats » pins through POST /stats/pin, ✕ unpins through POST /stats/unpin; stats favorites suggested', () => {
+  const body = handleRequest('/stats', mixedSnapshot(), { ...OPTS, favorites: ['acme'], statsFavorites: ['zorg'] }).body;
+  assert.match(body, /<option value="acme\/\*"><\/option><option value="zorg\/\*"><\/option>/);
+  assert.match(body, /getElementById\('scope-form'\)[\s\S]*?go\(\{[^}]*\}, true\)/, 'the submit pins');
+  assert.match(body, /\[data-unpin\][\s\S]*?show\('\/stats\/unpin\?/);
 });

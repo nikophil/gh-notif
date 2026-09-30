@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync, mkdtempSync } from 'node:fs';
-import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, ignoredChecksFor, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, setStacks, stacksSeenOf, hiddenColsOf, toggleHiddenCol, statsIgnoredOf, toggleStatsIgnored } from '../src/prefs.js';
+import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, ignoredChecksFor, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, setStacks, stacksSeenOf, hiddenColsOf, toggleHiddenCol, statsIgnoredOf, toggleStatsIgnored, statsFavoritesOf, setStatsFavorite } from '../src/prefs.js';
 
 test('prefsPath respects XDG_STATE_HOME', () => {
   const prev = process.env.XDG_STATE_HOME;
@@ -273,4 +273,17 @@ test('statsIgnoredOf / toggleStatsIgnored: trimmed, @ dropped, de-duplicated, ke
   assert.deepEqual(prefs.statsIgnored, ['ai']);
   assert.deepEqual(toggleStatsIgnored(prefs, 'ai'), []);
   assert.ok(!('statsIgnored' in prefs));
+});
+
+test('statsFavoritesOf / setStatsFavorite: canonical (owner/* → org), de-duplicated, key deleted when empty', () => {
+  assert.deepEqual(statsFavoritesOf({ statsFavorites: [' acme/* ', 'o/r', 'acme', 3, '', 'zorg/'] }), ['acme', 'o/r', 'zorg']);
+  assert.deepEqual(statsFavoritesOf({}), []);
+  const prefs = {};
+  assert.deepEqual(setStatsFavorite(prefs, 'acme/*', true), ['acme']);
+  assert.deepEqual(setStatsFavorite(prefs, 'o/r', true), ['acme', 'o/r']);
+  assert.deepEqual(setStatsFavorite(prefs, 'acme', true), ['acme', 'o/r'], 'idempotent');
+  assert.deepEqual(setStatsFavorite(prefs, '  ', true), ['acme', 'o/r'], 'empty ignored');
+  assert.deepEqual(setStatsFavorite(prefs, 'acme/', false), ['o/r']);
+  assert.deepEqual(setStatsFavorite(prefs, 'o/r', false), []);
+  assert.ok(!('statsFavorites' in prefs));
 });
