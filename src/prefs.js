@@ -1,6 +1,7 @@
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { STACK_HUES } from './sort.js';
 
 // Persisted UI preferences: `notify` (desktop notifications), `theme` (CSS
 // skin), `favorites` (pinned scopes), `activeFav` (displayed favorite), `sort`
@@ -71,6 +72,15 @@ export function setStacks(prefs, table, on) {
 // non-string entries dropped.
 export function stacksSeenOf(prefs) {
   return Array.isArray(prefs?.stacksSeen) ? prefs.stacksSeen.filter((x) => typeof x === 'string') : [];
+}
+
+// Sticky stack tints (§20): repo#number of every stack member → its block's
+// hue (0..STACK_HUES-1), so a stack never changes color. Robust against a tampered file:
+// non-object → {}, any other value dropped.
+export function stackHuesOf(prefs) {
+  const h = prefs?.stackHues;
+  if (!h || typeof h !== 'object' || Array.isArray(h)) return {};
+  return Object.fromEntries(Object.entries(h).filter(([, v]) => Number.isInteger(v) && v >= 0 && v < STACK_HUES));
 }
 
 // Chosen CSS theme: 'light' | 'dark' | 'auto'. Any unknown/absent value falls

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rmSync, mkdtempSync } from 'node:fs';
-import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, ignoredChecksFor, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, setStacks, stacksSeenOf, hiddenColsOf, toggleHiddenCol, statsIgnoredOf, toggleStatsIgnored, statsFavoritesOf, setStatsFavorite } from '../src/prefs.js';
+import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, ignoredChecksFor, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, setStacks, stacksSeenOf, stackHuesOf, hiddenColsOf, toggleHiddenCol, statsIgnoredOf, toggleStatsIgnored, statsFavoritesOf, setStatsFavorite } from '../src/prefs.js';
 
 test('prefsPath respects XDG_STATE_HOME', () => {
   const prev = process.env.XDG_STATE_HOME;
@@ -224,6 +224,12 @@ test('stacksSeenOf: [] by default, non-array or non-string entries dropped (tamp
   assert.deepEqual(stacksSeenOf({}), []);
   assert.deepEqual(stacksSeenOf({ stacksSeen: ['o/r#2', 3, null] }), ['o/r#2']);
   assert.deepEqual(stacksSeenOf({ stacksSeen: 'o/r#2' }), []);
+});
+
+test('stackHuesOf: {} by default, only known integer hues kept (tampered file)', () => {
+  assert.deepEqual(stackHuesOf({}), {});
+  assert.deepEqual(stackHuesOf({ stackHues: { 'o/r#1': 5, 'o/r#2': 6, 'o/r#3': '1', 'o/r#4': 0, 'o/r#5': -1 } }), { 'o/r#1': 5, 'o/r#4': 0 });
+  assert.deepEqual(stackHuesOf({ stackHues: [1] }), {});
 });
 
 test('setStacks: touches one table only, the key is DELETED when off (clean file)', () => {

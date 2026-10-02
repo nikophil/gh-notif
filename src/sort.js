@@ -123,7 +123,14 @@ export function hasStacks(rows) {
   return stackLinks(rows ?? []).parentOf.size > 0;
 }
 
-export function groupStacks(rows) {
+// Number of block tints (`tr.stack-1…6` / `--stack-1…6` in html.js). Six is
+// the most that stay distinguishable at the tints' 8 % opacity.
+export const STACK_HUES = 6;
+
+// `hues` (repo#number → hue index, prefs `stackHues`) remembers the tint of every
+// stack member: a block takes the hue of its first known member, so a stack
+// keeps its color whatever the block order, and after its root merges.
+export function groupStacks(rows, hues = {}) {
   const list = rows ?? [];
   const { parentOf, childrenOf } = stackLinks(list);
   // Canonical stacked view — NO sort semantics (the sorts are dropped while
@@ -153,16 +160,15 @@ export function groupStacks(rows) {
     }
     return false;
   };
-  // `inStack` flags every row of a block and `stackIndex` numbers it →
-  // alternating block backgrounds (two adjacent stacks must read as two units).
-  // Folding (§33): each child carries `stackRoot` (its root's repo#number) and
-  // the root its descendant count `stackKids` — the client hides the children
-  // of a folded root by that key.
+  // `inStack` flags every row of a block and `stackBlock` numbers it (the hue
+  // pass below reads it). Folding (§33): each child carries `stackRoot` (its
+  // root's repo#number) and the root its descendant count `stackKids` — the
+  // client hides the children of a folded root by that key.
   const emit = (r, depth, block, branched, root) => {
     if (visited.has(r)) return;
     visited.add(r);
     out.push({
-      ...r, inStack: true, stackIndex: block,
+      ...r, inStack: true, stackBlock: block,
       ...(depth > 0 ? { stackDepth: depth, stackRoot: root } : {}),
       ...(depth > 0 && branched ? { stackBranched: true } : {}),
     });
@@ -178,6 +184,18 @@ export function groupStacks(rows) {
   }
   // base cycle (defensive): a component without a root, emit it as its own block
   for (const r of list) if (inStack.has(r) && !visited.has(r)) emit(r, 0, nextBlock++, false);
+  // Hues: a block with a remembered member keeps that hue; a new one takes the
+  // least used hue, so up to STACK_HUES stacks never share a tint.
+  const known = Array(nextBlock).fill(null);
+  for (const r of out) known[r.stackBlock] ??= hues[`${r.repo}#${r.number}`] ?? null;
+  const used = Array(STACK_HUES).fill(0);
+  for (const h of known) if (h !== null) used[h]++;
+  for (let b = 0; b < nextBlock; b++) {
+    if (known[b] !== null) continue;
+    known[b] = used.indexOf(Math.min(...used));
+    used[known[b]]++;
+  }
+  for (const r of out) { r.stackHue = known[r.stackBlock]; delete r.stackBlock; }
   return [...out, ...solos];
 }
 

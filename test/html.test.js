@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { escapeHtml, isMergeable, addBusinessDays, partyWorthy, labelColors, ratioColor, renderStatsFavorites, renderStatsFragment, renderStatsShell, renderFragment, renderShell, renderLoading, renderDebug, renderDebugShell, renderErrorsSection, renderFavorites, searchUrl, renderSearchFragment, renderSearchShell, renderUpdateBanner } from '../src/html.js';
+import { STACK_HUES } from '../src/sort.js';
 
 const NOW = new Date('2026-06-24T12:00:00Z').getTime();
 
@@ -1203,20 +1204,29 @@ test('renderFragment: the rows of a stack carry the .stack class (block backgrou
     mine: [myRow({ inStack: true }), myRow({ number: 121, stackDepth: 1 }), myRow({ number: 122 })],
     others: [],
   }, { now: NOW });
-  assert.equal((out.match(/<tr class="stack stack-a">/g) || []).length, 2, 'parent + child, not the solo row');
+  assert.equal((out.match(/<tr class="stack stack-1">/g) || []).length, 2, 'parent + child, not the solo row');
 });
 
-test('renderFragment: adjacent stacks rotate four block tints (stack-a → stack-d, then back)', () => {
+test('renderFragment: the block tint follows the stack hue (stack-1 → stack-6)', () => {
   const block = (i) => [
-    myRow({ number: 200 + 2 * i, inStack: true, stackIndex: i }),
-    myRow({ number: 201 + 2 * i, stackDepth: 1, inStack: true, stackIndex: i }),
+    myRow({ number: 200 + 2 * i, inStack: true, stackHue: i }),
+    myRow({ number: 201 + 2 * i, stackDepth: 1, inStack: true, stackHue: i }),
   ];
   const out = renderFragment({
-    mine: [...[0, 1, 2, 3, 4].flatMap(block), myRow({ number: 124 })],
+    mine: [...[5, 3, 0, 4, 2, 1].flatMap(block), myRow({ number: 124 })],
     others: [],
   }, { now: NOW });
-  assert.equal((out.match(/<tr class="stack stack-a">/g) || []).length, 4, 'blocks 0 and 4');
-  for (const t of ['b', 'c', 'd']) assert.equal((out.match(new RegExp(`<tr class="stack stack-${t}">`, 'g')) || []).length, 2);
+  for (let n = 1; n <= STACK_HUES; n++) assert.equal((out.match(new RegExp(`<tr class="stack stack-${n}">`, 'g')) || []).length, 2);
+  assert.ok(out.indexOf('stack-6') < out.indexOf('stack-1'), 'hue, not position');
+});
+
+test('renderShell: one tint rule and one --stack-N var per stack hue, in both themes', () => {
+  const out = renderShell({ intervalMs: 10000 });
+  assert.equal(STACK_HUES, 6);
+  for (let n = 1; n <= STACK_HUES; n++) {
+    assert.ok(out.includes(`tbody tr.stack-${n} { background-color: var(--stack-${n}); }`), `rule stack-${n}`);
+    assert.equal(new Set(out.match(new RegExp(`--stack-${n}: #[0-9a-f]{8}`, 'g'))).size, 2, `--stack-${n} light + dark`);
+  }
 });
 
 test('renderFragment: single ↳ marker, root always above', () => {
@@ -1501,14 +1511,14 @@ test('renderFragment: a stack root gets a fold button + data-stack-root, its chi
   const out = renderFragment({
     mine: [],
     others: [
-      otherRow({ number: 1, inStack: true, stackIndex: 0, stackKids: 2 }),
-      otherRow({ number: 2, inStack: true, stackIndex: 0, stackDepth: 1, stackRoot: 'stark/api#1' }),
-      otherRow({ number: 3, inStack: true, stackIndex: 0, stackDepth: 2, stackRoot: 'stark/api#1' }),
+      otherRow({ number: 1, inStack: true, stackHue: 0, stackKids: 2 }),
+      otherRow({ number: 2, inStack: true, stackHue: 0, stackDepth: 1, stackRoot: 'stark/api#1' }),
+      otherRow({ number: 3, inStack: true, stackHue: 0, stackDepth: 2, stackRoot: 'stark/api#1' }),
       otherRow({ number: 4 }),
     ],
   }, { now: NOW });
-  assert.equal((out.match(/<tr class="stack stack-a" data-stack-root="stark\/api#1">/g) || []).length, 1);
-  assert.equal((out.match(/<tr class="stack stack-a" data-stack-of="stark\/api#1">/g) || []).length, 2);
+  assert.equal((out.match(/<tr class="stack stack-1" data-stack-root="stark\/api#1">/g) || []).length, 1);
+  assert.equal((out.match(/<tr class="stack stack-1" data-stack-of="stark\/api#1">/g) || []).length, 2);
   assert.equal((out.match(/class="stack-fold"/g) || []).length, 1, 'one button, on the root only');
   assert.ok(out.includes('<span class="stack-fold-n">+2</span>'));
 });

@@ -4,7 +4,7 @@
 import { ciIcon, stateIcon, relativeDate, durationSince, checksByRepo } from './render.js';
 import { isReady } from './approvals.js';
 import { favoriteLabel } from './favorites.js';
-import { hasStacks, toggleSort, DEFAULT_SORT } from './sort.js';
+import { hasStacks, toggleSort, DEFAULT_SORT, STACK_HUES } from './sort.js';
 
 // Labels shown on hover (title="") of the icons — they give the meaning.
 const STATE_LABEL = { draft: 'Draft', open: 'Open', merged: 'Merged', closed: 'Closed' };
@@ -92,7 +92,8 @@ const FAVICON = `<link rel="icon" href="${faviconHref('%231f2328', '%239198a1')}
 // GitHub Primer color variables, single source reused for the 4 theme cases
 // (auto/system, auto/dark, forced light, forced dark) without tripling them.
 // Row tints are alpha hex (last byte = opacity: 0f ≈ 6 %, 14 ≈ 8 %, 1c ≈ 11 %,
-// 24 ≈ 14 %). --stack-1…4: green / violet / red / light blue block tints (§20).
+// 24 ≈ 14 %). --stack-1…6: green / violet / red / light blue / yellow / pink
+// block tints (§20) — one per STACK_HUES.
 // --row-hover / --row-clicked: a veil of --fg — lighter on dark, darker on light.
 const LIGHT_VARS =
   '--canvas: #ffffff; --canvas-subtle: #f6f8fa; --canvas-inset: #f6f8fa;\n' +
@@ -100,6 +101,7 @@ const LIGHT_VARS =
   '    --accent: #0969da; --success: #1a7f37; --danger: #cf222e; --attention: #9a6700;\n' +
   '    --btn-bg: #f6f8fa; --btn-border: #1f23280f; --btn-hover: #eef1f4; --shadow: 0 1px 0 #1f23280a;\n' +
   '    --stack-1: #1a7f3714; --stack-2: #8250df14; --stack-3: #cf222e14; --stack-4: #1b95d314;\n' +
+  '    --stack-5: #9a670014; --stack-6: #bf398914;\n' +
   '    --row-hover: #1f23280f; --row-clicked: #1f23281c;';
 const DARK_VARS =
   '--canvas: #0d1117; --canvas-subtle: #151b23; --canvas-inset: #010409;\n' +
@@ -107,6 +109,7 @@ const DARK_VARS =
   '    --accent: #4493f8; --success: #3fb950; --danger: #f85149; --attention: #d29922;\n' +
   '    --btn-bg: #212830; --btn-border: #f0f6fc1a; --btn-hover: #2a313c; --shadow: 0 0 transparent;\n' +
   '    --stack-1: #3fb9501c; --stack-2: #ab7df81c; --stack-3: #f851491c; --stack-4: #56c8f01c;\n' +
+  '    --stack-5: #d299221c; --stack-6: #db61a21c;\n' +
   '    --row-hover: #e6edf314; --row-clicked: #e6edf324;';
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -545,12 +548,12 @@ const reviewCell = (r, now) => {
   return titled(`In review since ${preciseDate(iso)}`, escapeHtml(durationSince(iso, now)));
 };
 
-// Row classes: `hid` (hidden mode) + `stack stack-a…d` (row of a stacked-PRs
-// block → tinted background, parent and children alike; the tint rotates over
-// 4 hues with the block's stackIndex so adjacent stacks read as separate units).
+// Row classes: `hid` (hidden mode) + `stack stack-1…6` (row of a stacked-PRs
+// block → tinted background, parent and children alike; the tint is the
+// stack's sticky `stackHue`, cf. sort.js#groupStacks).
 const rowClass = (r, hidden) =>
   [
-    (r.stackDepth || r.inStack) && `stack stack-${'abcd'[(r.stackIndex ?? 0) % 4]}`,
+    (r.stackDepth || r.inStack) && `stack stack-${((r.stackHue ?? 0) % STACK_HUES) + 1}`,
     hidden && 'hid',
   ].filter(Boolean).join(' ');
 
@@ -1104,12 +1107,8 @@ ${FAVICON}
   table.resized th, table.resized td { overflow: hidden; text-overflow: ellipsis; }
   body.col-resizing { cursor: col-resize; user-select: none; }
   /* Stacked-PRs blocks: a tint on every row of a stack (parent + children) so
-     each block reads as one unit; four rotating hues tell adjacent blocks
-     apart. */
-  tbody tr.stack-a { background-color: var(--stack-1); }
-  tbody tr.stack-b { background-color: var(--stack-2); }
-  tbody tr.stack-c { background-color: var(--stack-3); }
-  tbody tr.stack-d { background-color: var(--stack-4); }
+     each block reads as one unit; each stack keeps its own hue. */
+  ${Array.from({ length: STACK_HUES }, (_, i) => `tbody tr.stack-${i + 1} { background-color: var(--stack-${i + 1}); }`).join('\n  ')}
   /* Hover and last-clicked row: a --fg veil painted OVER the stack tint
      (background-image sits above background-color), so a stack row keeps its
      hue under the pointer. The clicked row adds an accent bar on its left

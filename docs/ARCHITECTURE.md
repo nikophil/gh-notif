@@ -712,11 +712,24 @@ sequenceDiagram
     plain `base: main`. Pure logic in `sort.js`: `hasStacks(rows)` (≥ 1 parent/child link;
     an orphan alone does not count) and `groupStacks(rows)` (reordered copy: each child is
     pulled under its parent depth-first, annotated `stackDepth`; **every row of a stack,
-    parent included, is annotated `inStack` + `stackIndex`** (block number) → `tr.stack
-    stack-a…d` background (four rotating hues — green / violet / red / light blue,
-    `--stack-1…4` in the theme vars — so adjacent blocks read as separate units; a first
+    parent included, is annotated `inStack` + `stackHue`** (0..`STACK_HUES`−1) → `tr.stack
+    stack-1…6` background (six hues — green / violet / red / light blue / yellow / pink,
+    `--stack-1…6` in the theme vars — so blocks read as separate units; a first
     version alternated accent 5 % / success 6 %, and the accent one was indistinguishable
-    from the last-clicked row §19). ⚠️ The stack hue is a `background-color`, while the
+    from the last-clicked row §19). ⚠️ **Six is the ceiling** at the tints' 8 % (light) /
+    11 % (dark) opacity: orange and teal were tried and read as yellow and green / light
+    blue. `STACK_HUES` (sort.js) is the single source: html.js generates one CSS rule per
+    hue from it (the `--stack-N` vars must follow, a test locks both themes).
+    **A stack never changes color**: the hue used to be the block's position, so a stack
+    switched color whenever another one became fresher and the block order moved. Now every member's hue is remembered in `prefs-v1.json`
+    `stackHues` (`repo#number` → hue index, accessor `stackHuesOf`), written at each poll by
+    `rememberStackHues` (serve.js, right after `surfaceNewStacks`, file rewritten only when
+    it changed) and passed to `groupStacks(rows, hues)` at render. A block takes the hue
+    of its first known member, so a new child inherits it and the stack keeps it once its
+    root merges; a never-seen block takes the **least used** hue of its table, so up to 6
+    stacks never share a tint (beyond, collisions are unavoidable). ⚠️ Never pruned on
+    absence (a poll is a partial sample, §10): capped at 200 entries, oldest dropped
+    first. ⚠️ The stack hue is a `background-color`, while the
     hover and the last-clicked row are a `--fg` veil in `background-image` (lighter on dark,
     darker on light): the veil is painted **over** the hue instead of replacing it, so a stack
     row keeps its color under the pointer. Any other row background (e.g. the 🚀 `tr.party`

@@ -357,20 +357,40 @@ test('groupStacks: every row of a stack (parent included) is flagged for the blo
   assert.equal(byNum[12].inStack, undefined, 'solo row untouched');
 });
 
-test('groupStacks: each block gets its own stackIndex (parent and children alike)', () => {
+const twoStacks = () => [
+  { repo: 'o/a', number: 30, branch: 'p1', base: 'main', defaultBranch: 'main' },
+  { repo: 'o/a', number: 31, branch: 'c1', base: 'p1', defaultBranch: 'main' },
+  { repo: 'o/a', number: 40, branch: 'p2', base: 'main', defaultBranch: 'main' },
+  { repo: 'o/a', number: 41, branch: 'c2', base: 'p2', defaultBranch: 'main' },
+  { repo: 'o/a', number: 50, branch: 'solo', base: 'main', defaultBranch: 'main' },
+];
+const huesOf = (out) => Object.fromEntries(out.filter((r) => r.inStack).map((r) => [r.number, r.stackHue]));
+
+test('groupStacks: unknown stacks get distinct hues, parent and children alike', () => {
+  const out = groupStacks(twoStacks());
+  assert.deepEqual(huesOf(out), { 30: 0, 31: 0, 40: 1, 41: 1 });
+  assert.equal(out.find((r) => r.number === 50).stackHue, undefined, 'solo row: no hue');
+});
+
+test('groupStacks: a remembered hue sticks to its stack whatever the block order', () => {
+  const [p1, c1, p2, c2] = twoStacks();
+  const out = groupStacks([p2, c2, p1, c1], { 'o/a#30': 2, 'o/a#41': 3 });
+  assert.deepEqual(huesOf(out), { 30: 2, 31: 2, 40: 3, 41: 3 });
+});
+
+test('groupStacks: a new stack takes the least used hue among the known ones', () => {
+  const out = groupStacks(twoStacks(), { 'o/a#30': 0 });
+  assert.equal(huesOf(out)[40], 1);
+  const crowded = groupStacks(twoStacks(), { 'o/a#30': 1 });
+  assert.equal(huesOf(crowded)[40], 0, 'the lowest free hue');
+});
+
+test('groupStacks: the stack keeps its hue once its root is gone (merged parent)', () => {
   const out = groupStacks([
-    { repo: 'o/a', number: 30, branch: 'p1', base: 'main', defaultBranch: 'main' },
-    { repo: 'o/a', number: 31, branch: 'c1', base: 'p1', defaultBranch: 'main' },
-    { repo: 'o/a', number: 40, branch: 'p2', base: 'main', defaultBranch: 'main' },
-    { repo: 'o/a', number: 41, branch: 'c2', base: 'p2', defaultBranch: 'main' },
-    { repo: 'o/a', number: 50, branch: 'solo', base: 'main', defaultBranch: 'main' },
-  ]);
-  const byNum = Object.fromEntries(out.map((r) => [r.number, r]));
-  assert.equal(byNum[30].stackIndex, 0);
-  assert.equal(byNum[31].stackIndex, 0);
-  assert.equal(byNum[40].stackIndex, 1);
-  assert.equal(byNum[41].stackIndex, 1);
-  assert.equal(byNum[50].stackIndex, undefined, 'solo row: no block');
+    { repo: 'o/a', number: 31, branch: 'c1', base: 'main', defaultBranch: 'main' },
+    { repo: 'o/a', number: 32, branch: 'c2', base: 'c1', defaultBranch: 'main' },
+  ], { 'o/a#30': 2, 'o/a#31': 2, 'o/a#32': 2 });
+  assert.deepEqual(huesOf(out), { 31: 2, 32: 2 });
 });
 
 test('groupStacks: root always on top → never a stackUp flag (single ↳ marker)', () => {

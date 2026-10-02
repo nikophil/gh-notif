@@ -1263,6 +1263,48 @@ test('auto-surfaced stacks: toggled off → stays off on the next poll; a NEW ch
   }
 });
 
+// ── integration: a stack keeps its tint when the block order changes ──
+test('sticky stack tints: the block order flips, every stack keeps its color (persisted stackHues)', async () => {
+  let fresh = 3; // root of the freshest stack (stacks 1 ← 2 and 3 ← 4)
+  const detail = (n) => ({
+    number: n, title: `PR-${n}`, author: { login: 'me' },
+    createdAt: '2026-06-20T00:00:00Z', updatedAt: `2026-06-2${n === fresh || n === fresh + 1 ? 5 : 1}T00:00:00Z`,
+    additions: 1, deletions: 0, isDraft: false, state: 'OPEN', reviews: [], statusCheckRollupState: 'SUCCESS',
+    branch: `feat/${n}`, base: n % 2 ? 'main' : `feat/${n - 1}`, defaultBranch: 'main',
+  });
+  const gh = {
+    getCurrentUser: async () => 'me',
+    listNotifications: async () => [],
+    searchReviewRequested: async () => [],
+    searchAuthored: async () => [1, 2, 3, 4].map((n) => ({ repository_url: 'https://api.github.com/repos/o/r', number: n, title: `PR-${n}`, html_url: `u${n}`, updated_at: '2026-06-24T00:00:00Z' })),
+    getPullDetailsBatch: async (list) => list.map((p) => detail(p.number)),
+    getComment: async () => null,
+    getReviewComments: async () => [],
+  };
+  const tmp = `/tmp/gh-notif-test-stack-hues-${process.pid}`;
+  process.env.XDG_STATE_HOME = tmp;
+  rmSync(tmp, { recursive: true, force: true });
+
+  const PORT = 7817;
+  const server = serve({ gh, me: 'me', scope: null, port: PORT, intervalSeconds: 3600, open: false });
+  const repoll = async () => (await (await fetch(`http://localhost:${PORT}/scope?value=`, { method: 'POST' })).json()).fragment;
+  const tintOf = (html, title) => html.slice(0, html.indexOf(title)).match(/<tr class="stack stack-\d/g).pop();
+  try {
+    await new Promise((r) => setTimeout(r, 250)); // 1st poll: stacks mode on by itself (§28)
+    const before = await repoll();
+    assert.ok(before.indexOf('PR-3') < before.indexOf('PR-1'), 'freshest stack first');
+    fresh = 1;
+    const after = await repoll();
+    assert.ok(after.indexOf('PR-1') < after.indexOf('PR-3'), 'the block order flipped');
+    for (const t of ['PR-1', 'PR-2', 'PR-3', 'PR-4']) assert.equal(tintOf(after, t), tintOf(before, t), `${t} keeps its tint`);
+    assert.notEqual(tintOf(after, 'PR-1'), tintOf(after, 'PR-3'), 'two stacks, two tints');
+    assert.deepEqual(Object.keys(loadPrefs(prefsPath()).stackHues).sort(), ['o/r#1', 'o/r#2', 'o/r#3', 'o/r#4']);
+  } finally {
+    server.close();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test('POST /cols : hides/shows a column per table, persists, 400 on invalid key', async () => {
   let polls = 0;
   const gh = {

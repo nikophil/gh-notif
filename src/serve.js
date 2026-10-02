@@ -12,7 +12,7 @@ import { statsPath, loadStatsCache, saveStatsCache, collectStats, computeStats, 
 import { CATEGORY } from './filter.js';
 import { hiddenPath, loadHidden, saveHidden, toggleHidden, isHidden, keyOf } from './hidden.js';
 import { statePath, loadState, saveState, isNew, markSeen } from './state.js';
-import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, setStacks, stacksSeenOf, hiddenColsOf, toggleHiddenCol, statsIgnoredOf, toggleStatsIgnored, statsFavoritesOf, setStatsFavorite } from './prefs.js';
+import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, setStacks, stacksSeenOf, stackHuesOf, hiddenColsOf, toggleHiddenCol, statsIgnoredOf, toggleStatsIgnored, statsFavoritesOf, setStatsFavorite } from './prefs.js';
 import {
   parseScope, normalizeFavorites, addFavorite, removeFavorite,
   favoriteScopes, activeFavoriteOf, filterDataByScope, favoriteCounts, closedPRsUrl, reviewedPRsUrl, authorPRsUrl, reviewCoverageQueries, repoInAllMode, favoriteLabel,
@@ -30,6 +30,7 @@ const POLL_SECONDS = 60;
 const BACKOFF_CAP = 600; // ceiling of the backoff on rate-limit (10 min)
 const REFRESH_MIN_AGE_MS = 10_000; // debounce of POST /refresh (see shouldRefresh)
 const UPDATE_CHECK_MS = 3_600_000; // hourly `git fetch` of the install (§32)
+const STACK_HUES_MAX = 200; // remembered stack tints (§20), oldest dropped first
 // Search page (§29): result cap per query (the most recently updated ones),
 // page size, cache TTL (sort/page never refetch) and the query of a bare /search.
 const SEARCH_MAX = 200;
@@ -115,7 +116,7 @@ function fragmentBody(snapshot, opts = {}) {
   return renderUpdateBanner(snapshot.updateTag, UPGRADE_COMMANDS) + fragmentTables(snapshot, opts);
 }
 
-function fragmentTables(snapshot, { now, showHidden, viewScope = null, closedUrl = null, reviewedUrl = null, authorUrl = null, reviewCoverage = null, sort = null, sortMine = null, ignoredChecks = {}, stacks = null, cols = null } = {}) {
+function fragmentTables(snapshot, { now, showHidden, viewScope = null, closedUrl = null, reviewedUrl = null, authorUrl = null, reviewCoverage = null, sort = null, sortMine = null, ignoredChecks = {}, stacks = null, stackHues = {}, cols = null } = {}) {
   // A failed poll only takes the page over when there is nothing to show yet;
   // otherwise the last good tables stay, under a « stale » banner (§39).
   if (snapshot.error && !snapshot.updatedAt) return `<p class="empty offline">⚠️ Error: ${escapeHtml(snapshot.error)}</p>`;
@@ -137,13 +138,13 @@ function fragmentTables(snapshot, { now, showHidden, viewScope = null, closedUrl
   const NO_SORT = { key: null, dir: null };
   const stk = { mine: !!stacks?.mine, others: !!stacks?.others };
   if (stk.others) {
-    data = { ...data, others: groupStacks(sortRows(data.others, DEFAULT_SORT)), hidden: sortRows(data.hidden, DEFAULT_SORT) };
+    data = { ...data, others: groupStacks(sortRows(data.others, DEFAULT_SORT), stackHues), hidden: sortRows(data.hidden, DEFAULT_SORT) };
     sort = NO_SORT;
   } else if (sort) {
     data = { ...data, others: sortRows(data.others, sort), hidden: sortRows(data.hidden, sort) };
   }
   if (stk.mine) {
-    data = { ...data, mine: groupStacks(sortRows(data.mine, DEFAULT_SORT, MINE_SORT_KEYS)), hiddenMine: sortRows(data.hiddenMine, DEFAULT_SORT, MINE_SORT_KEYS) };
+    data = { ...data, mine: groupStacks(sortRows(data.mine, DEFAULT_SORT, MINE_SORT_KEYS), stackHues), hiddenMine: sortRows(data.hiddenMine, DEFAULT_SORT, MINE_SORT_KEYS) };
     sortMine = NO_SORT;
   } else if (sortMine) {
     data = { ...data, mine: sortRows(data.mine, sortMine, MINE_SORT_KEYS), hiddenMine: sortRows(data.hiddenMine, sortMine, MINE_SORT_KEYS) };
@@ -184,7 +185,7 @@ export function handleRequest(pathname, snapshot, opts = {}) {
   const {
     now, intervalMs, showHidden, scope, notifyEnabled = true, theme = 'auto',
     favorites = [], activeFav = null, adhoc = false, sort = null, sortMine = null, ignoredChecks = {},
-    favModes = null, stacks = null, cols = null, searchQ = '', events = [], after = null, errors = [], reviewCoverage = null, ratioPending = false, statsScope = '', statsFavorites = [],
+    favModes = null, stacks = null, stackHues = {}, cols = null, searchQ = '', events = [], after = null, errors = [], reviewCoverage = null, ratioPending = false, statsScope = '', statsFavorites = [],
   } = opts;
   // Search page shell (§29): the query comes from the URL (pre-filled field);
   // the data itself goes through /search-fragment (I/O, outside this pure router).
@@ -216,14 +217,14 @@ export function handleRequest(pathname, snapshot, opts = {}) {
     return { status: 200, type: 'text/html; charset=utf-8', body: renderShell({ intervalMs, scopeLabel: scopeLabel(scope), notifyEnabled, theme, favorites, activeFav, adhoc, counts, favModes }) };
   }
   if (pathname === '/fragment') {
-    return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, reviewedUrl, authorUrl, reviewCoverage, sort, sortMine, ignoredChecks, stacks, cols }) };
+    return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, reviewedUrl, authorUrl, reviewCoverage, sort, sortMine, ignoredChecks, stacks, stackHues, cols }) };
   }
   // Unified poll of the client: filtered tables + favorites bar (up-to-date counters)
   // + updatedAt (the client probes until it changes after an add/remove).
   if (pathname === '/view') {
     return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify({
       chips: renderFavorites(favorites, activeFav, { adhoc, counts, favModes }),
-      fragment: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, reviewedUrl, authorUrl, reviewCoverage, sort, sortMine, ignoredChecks, stacks, cols }),
+      fragment: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, reviewedUrl, authorUrl, reviewCoverage, sort, sortMine, ignoredChecks, stacks, stackHues, cols }),
       updatedAt: snapshot.updatedAt,
       // Browser notifications (§34): `after` present ⇒ the client can show them;
       // '' = its first poll (it only learns lastSeq), 'N' = everything newer than N.
@@ -425,6 +426,23 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
     savePrefs(prefsFile, prefs);
   };
 
+  // Sticky stack tints (§20): every stack member remembers its block's hue in
+  // `prefs.stackHues`, so the color never moves with the block order. Never
+  // pruned on absence (a poll is a partial sample, §10), only capped: the
+  // oldest entries go first. Rewritten only when it changed.
+  const rememberStackHues = (data) => {
+    const known = stackHuesOf(prefs);
+    const next = { ...known };
+    for (const rows of [data.mine, data.others]) {
+      for (const r of groupStacks(rows, known)) if (r.inStack) next[`${r.repo}#${r.number}`] = r.stackHue;
+    }
+    const keys = Object.keys(next);
+    for (const k of keys.slice(0, keys.length - STACK_HUES_MAX)) delete next[k];
+    if (JSON.stringify(next) === JSON.stringify(known)) return;
+    prefs.stackHues = next;
+    savePrefs(prefsFile, prefs);
+  };
+
   // Never two polls at once (singleFlight): the loop, /scope, /fav* queue a
   // follow-up; /refresh joins the poll in flight.
   const refresh = singleFlight(async () => {
@@ -438,6 +456,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       notifyNew(data);
       snapshot.data = data;
       surfaceNewStacks(data);
+      rememberStackHues(data);
       snapshot.updatedAt = Date.now();
       snapshot.error = null;
       backoff = 0; // success: we restart at the normal interval
@@ -519,6 +538,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         sortMine,
         ignoredChecks,
         stacks,
+        stackHues: stackHuesOf(prefs),
         cols,
       }),
       updatedAt: snapshot.updatedAt,
@@ -977,6 +997,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
       ignoredChecks,
       favModes,
       stacks,
+      stackHues: stackHuesOf(prefs),
       cols,
       searchQ: url.searchParams.get('q') ?? '',
       statsScope: url.searchParams.get('scope') ?? '',
