@@ -990,9 +990,13 @@ ${FAVICON}
   header h1 { font-size: 1rem; font-weight: 600; margin: 0; white-space: nowrap; }
   #stamp { font-size: .8rem; color: var(--fg-muted); }
   .spacer { flex: 1; }
-  /* Identity (title + timestamp), stuck to the left. */
+  /* Identity (title + timestamp), stuck to the left. The 🔄 sits right after
+     the « next check » countdown it short-circuits: chrome-less, muted until hovered. */
   .brand { display: flex; align-items: baseline; gap: .5rem; }
-  /* Two clusters of controls: « data » (scope/hidden/refresh) then
+  .brand #refresh { border: 0; background: none; box-shadow: none; padding: 0 .2rem;
+                    font-size: .75rem; opacity: .55; }
+  .brand #refresh:hover { opacity: 1; }
+  /* Two clusters of controls: « data » (scope/hidden) then
      « settings » (notifs/theme/debug). Tight inside (gap .4rem = « it goes
      together »), separated from each other by a vertical rule. */
   .group { display: inline-flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
@@ -1344,6 +1348,7 @@ export function renderShell({ intervalMs = 10000, scopeLabel = '', notifyEnabled
   <div class="brand">
     <h1>🔔 gh notif</h1>
     <span id="stamp">loading…</span>
+    <button id="refresh" title="Refresh now">🔄</button>
   </div>
   <span class="spacer"></span>
   <div class="group" role="group" aria-label="Displayed data">
@@ -1354,7 +1359,6 @@ export function renderShell({ intervalMs = 10000, scopeLabel = '', notifyEnabled
       <button id="scope-all" title="Show all">All</button>
     </span>
     <button id="toggle-hidden" title="Show/hide hidden PRs">🙈 hidden</button>
-    <button id="refresh" title="Refresh now">🔄</button>
   </div>
   <div class="group" role="group" aria-label="Settings">
     <label id="notify-label" title="Enable/disable desktop notifications">
