@@ -40,6 +40,8 @@ A third **📋 Issues** table appears only if a favorite is in « all » mode (s
   requested reviewers**, which GitHub itself keeps);
 - **✅** — number of **approvals** (distinct users whose last review approves, `·` if none); a
   red diff icon is appended when someone **requested changes**;
+- **Threads** (GitHub's conversation icon as header) — number of **unresolved review
+  threads** opened by someone else than the PR's author (empty when there is none);
 - **CI** — aggregated verdict; **click the icon** to open a GitHub-like popover listing every
   check (failing / pending / successful) with a link to each run.
 

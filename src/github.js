@@ -22,6 +22,7 @@ const PR_FRAGMENT = `fragment pr on PullRequest {
   labels(first: 20) { nodes { name color } }
   files(first: 100) { totalCount pageInfo { hasNextPage } nodes { path additions deletions } }
   latestOpinionatedReviews(first: 100) { nodes { author { login } state submittedAt } }
+  reviewThreads(first: 100) { nodes { id isResolved } }
   timelineItems(itemTypes: READY_FOR_REVIEW_EVENT, last: 1) { nodes { ... on ReadyForReviewEvent { createdAt } } }
   commits(last: 1) { nodes { commit { statusCheckRollup {
     state
@@ -32,6 +33,15 @@ const PR_FRAGMENT = `fragment pr on PullRequest {
     } }
   } } } }
 }`;
+
+// Who opened each unresolved review thread (its first comment) — a second
+// request, after the batch: `comments(first: 1)` nested under
+// `reviewThreads(first: 100)` in PR_FRAGMENT costs 100 sub-requests per PR,
+// a batch of 30 went from 2 to 32 rate-limit points (measured). Here: 1 point
+// per 100 threads.
+const THREAD_OPENERS_QUERY = `query($ids: [ID!]!) { nodes(ids: $ids) {
+  ... on PullRequestReviewThread { id comments(first: 1) { nodes { author { login } } } }
+} }`;
 
 // Commits of the base branch the PR lacks (Behind column). `refs/pull/N/head`
 // resolves on the BASE repo, forks included, so the per-PR arg is the number
@@ -115,6 +125,12 @@ function normalizePull(pr) {
       state: r.state,
       submittedAt: r.submittedAt,
     })),
+    // Ids of the unresolved review threads; getPullDetailsBatch turns them
+    // into `unresolvedThreads` once it knows who opened them. null on an
+    // older response (unknown ≠ 0).
+    unresolvedThreadIds: pr.reviewThreads
+      ? pr.reviewThreads.nodes.filter((t) => !t.isResolved).map((t) => t.id)
+      : null,
     statusCheckRollupState: pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state ?? null,
     // individual normalized checks (for CI recomputation via blocklist + the debug view).
     checks: (pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? [])
@@ -217,6 +233,20 @@ export function makeGh(runner = defaultRunner, { onError = () => {} } = {}) {
     return results.flat();
   }
 
+  // Thread id → login of its opener (null for a deleted account), 100 ids
+  // per request in parallel. A failed chunk leaves its ids out of the map.
+  async function threadOpeners(ids) {
+    const openers = new Map();
+    const chunks = [];
+    for (let i = 0; i < ids.length; i += 100) chunks.push(ids.slice(i, i + 100));
+    await Promise.all(chunks.map(async (chunk) => {
+      const args = ['api', 'graphql', '-f', `query=${THREAD_OPENERS_QUERY}`, ...chunk.flatMap((id) => ['-f', `ids[]=${id}`])];
+      const nodes = parseJson(await run('THREADS', args).catch(() => ''))?.data?.nodes ?? [];
+      for (const t of nodes) if (t?.id) openers.set(t.id, t.comments?.nodes?.[0]?.author?.login ?? null);
+    }));
+    return openers;
+  }
+
   // `search/issues` returns **30 results per page by default**: without an
   // explicit loop, any perimeter with more than 30 open PRs silently loses the
   // surplus at every poll. That is not cosmetic — a PR absent from `entries`
@@ -299,8 +329,19 @@ export function makeGh(runner = defaultRunner, { onError = () => {} } = {}) {
     // Details of N PRs in a minimum of requests (GraphQL batch, chunks of 30 in
     // parallel). Returns an array aligned with `prs` ([{repo, number}]); null
     // for a PR not found, and null for an entire failed chunk (degradation).
+    // `unresolvedThreads` = unresolved review threads NOT opened by the PR
+    // author (§41); null when a thread's opener is unknown (failed request).
     async getPullDetailsBatch(prs) {
-      return batched(prs, { perPr: behindField });
+      const details = await batched(prs, { perPr: behindField });
+      const openers = await threadOpeners(details.flatMap((d) => d?.unresolvedThreadIds ?? []));
+      for (const d of details) {
+        if (!d) continue;
+        const ids = d.unresolvedThreadIds;
+        d.unresolvedThreads = ids?.every((id) => openers.has(id))
+          ? ids.filter((id) => openers.get(id) !== d.author?.login).length
+          : null;
+      }
+      return details;
     },
     // Stale-stack signals (§31) of N PRs — same batching, `stale` fragment.
     // Aligned with `prs`; null for a PR not found or a failed chunk.

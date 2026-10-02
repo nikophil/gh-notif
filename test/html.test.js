@@ -309,9 +309,9 @@ test('renderFragment: « In review » shows « – » for a draft, empty for a f
 
 test('renderFragment: content-sized columns carry the « fit » class, aligned despite hidden columns', () => {
   const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW, cols: { mine: ['behind'], others: [] } });
-  // review, diff, files, status, approvals, triggers, ci (behind hidden)
-  assert.equal((out.match(/<th class="fit"/g) || []).length, 7);
-  assert.equal((out.match(/<td class="fit"/g) || []).length, 7);
+  // review, diff, files, status, approvals, threads, triggers, ci (behind hidden)
+  assert.equal((out.match(/<th class="fit"/g) || []).length, 8);
+  assert.equal((out.match(/<td class="fit"/g) || []).length, 8);
   assert.match(out, /<th>Opened<\/th><th class="fit">In review<\/th>/); // resizable Opened: no class
 });
 
@@ -1331,6 +1331,33 @@ test('renderFragment: Files column (file-diff octicon header) after Diff, in bot
   assert.match(mineTbl, /<td class="fit">4<\/td>/);
   assert.match(othersTbl, /<td class="fit">9<\/td>/);
   assert.ok(!out.includes('diff-btn'));
+});
+
+test('renderFragment: Threads column (comment-discussion header) after Approvals, in both tables', () => {
+  const out = renderFragment({ mine: [myRow({ unresolvedThreads: 3 })], others: [otherRow({ unresolvedThreads: 1 })] },
+    { now: NOW, sort: { key: 'date', dir: 'desc' }, sortMine: { key: 'date', dir: 'desc' } });
+  const [mineTbl, othersTbl] = out.split('👥');
+  assert.match(othersTbl, /data-sort-key="approvals"[^>]*>.*?<\/th><th[^>]*data-sort-key="threads"[^>]*><abbr title="Unresolved review threads"[^>]*><svg/);
+  assert.match(mineTbl, /data-sort-key="threads"[^>]*data-sort-table="mine"/);
+  assert.match(mineTbl, /<td class="fit"><span title="3 unresolved review threads">3<\/span><\/td>/);
+  assert.match(othersTbl, /<td class="fit"><span title="1 unresolved review thread">1<\/span><\/td>/);
+});
+
+test('renderFragment: 0 or unknown unresolved threads → empty Threads cell', () => {
+  for (const unresolvedThreads of [0, undefined]) {
+    const out = renderFragment({ mine: [myRow({ unresolvedThreads })], others: [] }, { now: NOW });
+    assert.doesNotMatch(out, /unresolved review thread/);
+  }
+});
+
+test('renderFragment: Threads is hideable via the column selector (headers/cells stay aligned)', () => {
+  const out = renderFragment({ mine: [myRow({ unresolvedThreads: 3 })], others: [] }, { now: NOW, sortMine: { key: 'date', dir: 'desc' }, cols: { mine: ['threads'], others: [] } });
+  assert.doesNotMatch(out, /data-sort-key="threads"/);
+  assert.doesNotMatch(out, /3 unresolved review threads/);
+  assert.match(out, /data-cols-table="mine" data-cols-key="threads"(?![^>]*checked)/);
+  const ths = (out.match(/<th[ >]/g) || []).length;
+  const tds = (out.match(/<td[ >]/g) || []).length;
+  assert.equal(ths, tds);
 });
 
 test('renderFragment: no changedFiles (older snapshot) → empty Files cell', () => {

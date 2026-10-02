@@ -5,20 +5,21 @@
 // has its own key set and its own persisted state (`sort` for « others »,
 // `sortMine` for « Your PRs »).
 
-export const SORT_KEYS = ['repo', 'number', 'title', 'labels', 'branch', 'behind', 'date', 'review', 'updated', 'approvals', 'author', 'diff', 'files', 'status', 'triggers', 'ci'];
+export const SORT_KEYS = ['repo', 'number', 'title', 'labels', 'branch', 'behind', 'date', 'review', 'updated', 'approvals', 'threads', 'author', 'diff', 'files', 'status', 'triggers', 'ci'];
 // « Your PRs »: every column except Author (always me).
 export const MINE_SORT_KEYS = SORT_KEYS.filter((k) => k !== 'author');
 
 // Default direction on the first click on a column: dates → newest first,
 // number → highest first (a higher number = a more recent PR within a repo),
 // approvals → least approved first (the ones that most need a review),
+// threads → most unresolved review threads first (the most to address),
 // review → longest in review first (the ones waiting the most), text
 // columns (repo/title/branch/author) → alphabetical, behind → most behind first, diff/files → smallest
 // first (the quick reviews — diff counts added lines only), status/triggers/ci → actionable first (open, review,
 // failing CI…).
 const DEFAULT_DIR = {
   repo: 'asc', number: 'desc', title: 'asc', labels: 'asc', branch: 'asc', behind: 'desc',
-  date: 'desc', review: 'asc', updated: 'desc', approvals: 'asc', author: 'asc',
+  date: 'desc', review: 'asc', updated: 'desc', approvals: 'asc', threads: 'desc', author: 'asc',
   diff: 'asc', files: 'asc', status: 'asc', triggers: 'asc', ci: 'asc',
 };
 const DIRS = ['asc', 'desc'];
@@ -76,6 +77,7 @@ function valueOf(row, key) {
     return row.state === 'open' ? (row.readyAt ?? row.createdAt ?? null) : null;
   }
   if (key === 'approvals') return row.approvals ?? null; // 0 is a real value
+  if (key === 'threads') return row.unresolvedThreads ?? null; // 0 is a real value; older snapshot → missing
   if (key === 'author') return lower(row.author);
   if (key === 'updated') return row.updatedAt ?? null; // ISO 8601: lexical comparison is enough
   if (key === 'status') return STATE_RANK[row.state] ?? null;

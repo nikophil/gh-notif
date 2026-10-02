@@ -31,6 +31,13 @@ const FILES_ICON =
   '<path d="M1 1.75C1 .784 1.784 0 2.75 0h7.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16H2.75A1.75 1.75 0 0 1 1 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25V4.664a.25.25 0 0 0-.073-.177l-2.914-2.914a.25.25 0 0 0-.177-.073ZM8 3.25a.75.75 0 0 1 .75.75v1.5h1.5a.75.75 0 0 1 0 1.5h-1.5v1.5a.75.75 0 0 1-1.5 0V7h-1.5a.75.75 0 0 1 0-1.5h1.5V4A.75.75 0 0 1 8 3.25Zm-3 8a.75.75 0 0 1 .75-.75h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1-.75-.75Z"></path>' +
   '</svg>';
 const FILES_TH = iconTh(FILES_ICON, 'Changed files');
+// GitHub `comment-discussion` octicon (the « Conversation » tab glyph), header
+// of the Threads column.
+const THREADS_ICON =
+  '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" style="fill:currentColor;vertical-align:text-bottom">' +
+  '<path d="M1.75 1h8.5c.966 0 1.75.784 1.75 1.75v5.5A1.75 1.75 0 0 1 10.25 10H7.061l-2.574 2.573A1.458 1.458 0 0 1 2 11.543V10h-.25A1.75 1.75 0 0 1 0 8.25v-5.5C0 1.784.784 1 1.75 1ZM1.5 2.75v5.5c0 .138.112.25.25.25h1a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h3.5a.25.25 0 0 0 .25-.25v-5.5a.25.25 0 0 0-.25-.25h-8.5a.25.25 0 0 0-.25.25Zm13 2a.25.25 0 0 0-.25-.25h-.5a.75.75 0 0 1 0-1.5h.5c.966 0 1.75.784 1.75 1.75v5.5A1.75 1.75 0 0 1 14.25 12H14v1.543a1.458 1.458 0 0 1-2.487 1.03L9.22 12.28a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215l2.22 2.22v-2.19a.75.75 0 0 1 .75-.75h1a.25.25 0 0 0 .25-.25Z"></path>' +
+  '</svg>';
+const THREADS_TH = iconTh(THREADS_ICON, 'Unresolved review threads');
 
 // Sort indicator on the active column (▴ asc / ▾ desc).
 const SORT_ARROW = { asc: ' ▴', desc: ' ▾' };
@@ -276,6 +283,11 @@ const approvalsCell = (n, ready = false, changesRequested = 0) => {
   return cr ? `${count}${badge} ${cr}` : `${count}${badge}`;
 };
 
+// Threads cell: unresolved review threads opened by someone else than the PR
+// author. 0 or unknown (older snapshot) → empty, like the Behind cell.
+const threadsCell = (n) =>
+  n > 0 ? titled(`${n} unresolved review thread${n > 1 ? 's' : ''}`, String(n)) : '';
+
 // GitHub « eye » octicon (the Watch icon), inline SVG — the per-favorite
 // Normal / « all » mode toggle on the chips (zero external asset).
 const EYE_ICON =
@@ -458,12 +470,12 @@ export function partyWorthy(r, now) {
 // (same single-source guarantee as the colgroup: filtering both through the
 // same list cannot desynchronize them). 'act' = the ✕/⚙ column. Title is the
 // pivot column (absorbs the leftover width, §23) → never hideable.
-const MINE_COL_KEYS = ['repo', 'title', 'labels', 'branch', 'behind', 'date', 'review', 'updated', 'diff', 'files', 'status', 'approvals', 'triggers', 'ci', 'act'];
-const OTHERS_COL_KEYS = ['repo', 'title', 'labels', 'branch', 'behind', 'author', 'date', 'review', 'updated', 'diff', 'files', 'status', 'approvals', 'triggers', 'ci', 'act'];
+const MINE_COL_KEYS = ['repo', 'title', 'labels', 'branch', 'behind', 'date', 'review', 'updated', 'diff', 'files', 'status', 'approvals', 'threads', 'triggers', 'ci', 'act'];
+const OTHERS_COL_KEYS = ['repo', 'title', 'labels', 'branch', 'behind', 'author', 'date', 'review', 'updated', 'diff', 'files', 'status', 'approvals', 'threads', 'triggers', 'ci', 'act'];
 const COL_LABELS = {
   repo: 'Repository', labels: 'Labels', branch: 'Branch', behind: 'Behind', author: 'Author',
   date: 'Opened', review: 'In review', updated: 'Updated', diff: 'Diff', files: 'Files', status: 'Status',
-  approvals: 'Approvals', triggers: 'Triggers', ci: 'CI', act: 'Hide button',
+  approvals: 'Approvals', threads: 'Threads', triggers: 'Triggers', ci: 'CI', act: 'Hide button',
 };
 const NEVER_HIDDEN = new Set(['title']);
 // GitHub `gear` octicon (16 px inline SVG — the ⚙ text glyph renders tiny and
@@ -476,7 +488,7 @@ const dropHidden = (arr, keys, hidden) =>
 // Content-sized columns (short figures, icons): tighter horizontal padding
 // and no resize grip (§23), they always keep their natural width. The class
 // list is filtered like the cells, so it stays aligned with them.
-const FIT_COLS = new Set(['behind', 'review', 'diff', 'files', 'status', 'approvals', 'triggers', 'ci']);
+const FIT_COLS = new Set(['behind', 'review', 'diff', 'files', 'status', 'approvals', 'threads', 'triggers', 'ci']);
 const fitClasses = (keys, hidden) =>
   dropHidden(keys.map((k) => (FIT_COLS.has(k) ? 'fit' : '')), keys, hidden);
 
@@ -568,6 +580,7 @@ function mineRow(r, now, hidden, ignoredChecks = {}, hiddenCols = [], owner = nu
     filesCell(r),
     stateCell(r.state, r.conflicting && (r.staleStack ? 'stale' : true), hidden ? null : r), // a hidden row only offers « restore »
     approvalsCell(r.approvals, r.state === 'open' && isReady(r.approvals), r.changesRequested),
+    threadsCell(r.unresolvedThreads),
     triggersCell(r.triggers),
     ciCell(r, ignoredChecks),
     actionButton(r, hidden),
@@ -595,6 +608,7 @@ function mineTable(rows, hiddenRows, now, showHidden, sort = null, ignoredChecks
     sortableTh(FILES_TH, 'files', sort, 'mine'),
     sortableTh(STATUS_TH, 'status', sort, 'mine'),
     sortableTh(APPROVALS_TH, 'approvals', sort, 'mine'),
+    sortableTh(THREADS_TH, 'threads', sort, 'mine'),
     sortableTh(TRIGGERS_TH, 'triggers', sort, 'mine'),
     sortableTh('CI', 'ci', sort, 'mine'),
     '',
@@ -629,6 +643,7 @@ function otherRow(r, now, hidden, ignoredChecks = {}, hiddenCols = [], owner = n
     filesCell(r),
     stateCell(r.state, r.conflicting),
     approvalsCell(r.approvals, false, r.changesRequested),
+    threadsCell(r.unresolvedThreads),
     triggersCell(r.triggers),
     ciCell(r, ignoredChecks),
     actionButton(r, hidden),
@@ -659,6 +674,7 @@ function othersTable(others, hiddenRows, now, showHidden, sort = null, ignoredCh
     th(FILES_TH, 'files'),
     th(STATUS_TH, 'status'),
     th(APPROVALS_TH, 'approvals'),
+    th(THREADS_TH, 'threads'),
     th(TRIGGERS_TH, 'triggers'),
     th('CI', 'ci'),
     '',

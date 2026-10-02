@@ -404,6 +404,50 @@ test('getPullDetailsBatch: exposes changedFiles (GraphQL PR field), null when ab
   assert.equal(old[0].changedFiles, null);
 });
 
+test('getPullDetailsBatch: unresolvedThreads = unresolved review threads NOT opened by the PR author', async () => {
+  const pr = (extra) => JSON.stringify({ data: { p0: { pullRequest: {
+    number: 42, title: 'A', author: { login: 'alice' }, createdAt: 'd1', additions: 1, deletions: 0,
+    isDraft: false, state: 'OPEN', latestOpinionatedReviews: { nodes: [] }, ...extra,
+  } } } });
+  const opener = (id, login) => ({ id, comments: { nodes: [{ author: login ? { login } : null }] } });
+  const openers = JSON.stringify({ data: { nodes: [
+    opener('T1', 'bob'),   // counted
+    opener('T2', null),    // deleted account (ghost): not the author → counted
+    opener('T4', 'alice'), // opened by the PR author herself
+  ] } });
+  const threads = { reviewThreads: { nodes: [
+    { id: 'T1', isResolved: false }, { id: 'T2', isResolved: false },
+    { id: 'T3', isResolved: true }, { id: 'T4', isResolved: false },
+  ] } };
+  // the openers request goes first in the stub list: both calls are `api graphql`
+  const runner = fakeRunner([['nodes(ids', openers], ['api graphql', pr(threads)]]);
+  const out = await makeGh(runner).getPullDetailsBatch([{ repo: 'o/r', number: 42 }]);
+  assert.equal(out[0].unresolvedThreads, 2);
+  assert.equal(runner.calls.length, 2);
+  // only the unresolved threads are looked up
+  assert.deepEqual(runner.calls[1].filter((a) => a.startsWith('ids[]=')), ['ids[]=T1', 'ids[]=T2', 'ids[]=T4']);
+});
+
+test('getPullDetailsBatch: unresolvedThreads null when unknown, no openers request without unresolved thread', async () => {
+  const pr = (extra) => JSON.stringify({ data: { p0: { pullRequest: {
+    number: 42, title: 'A', author: { login: 'alice' }, createdAt: 'd1', additions: 1, deletions: 0,
+    isDraft: false, state: 'OPEN', latestOpinionatedReviews: { nodes: [] }, ...extra,
+  } } } });
+  // older response: no reviewThreads → unknown
+  const old = await makeGh(fakeRunner([['api graphql', pr({})]])).getPullDetailsBatch([{ repo: 'o/r', number: 42 }]);
+  assert.equal(old[0].unresolvedThreads, null);
+  // all resolved → 0, and a single request (the batch)
+  const resolved = fakeRunner([['api graphql', pr({ reviewThreads: { nodes: [{ id: 'T1', isResolved: true }] } })]]);
+  assert.equal((await makeGh(resolved).getPullDetailsBatch([{ repo: 'o/r', number: 42 }]))[0].unresolvedThreads, 0);
+  assert.equal(resolved.calls.length, 1);
+  // failed openers request → unknown (journaled, never thrown)
+  const errors = [];
+  const failing = fakeRunner([['api graphql', pr({ reviewThreads: { nodes: [{ id: 'T1', isResolved: false }] } })]]);
+  const gh = makeGh(async (args) => { if (args.join(' ').includes('nodes(ids')) throw new Error('boom'); return failing(args); }, { onError: (e) => errors.push(e.ghCode) });
+  assert.equal((await gh.getPullDetailsBatch([{ repo: 'o/r', number: 42 }]))[0].unresolvedThreads, null);
+  assert.deepEqual(errors, ['GH-THREADS']);
+});
+
 // ── Search page (§29) ───────────────────────────────────────────────────────
 test('searchPRs: sort=updated desc, stops at `max` (2 full pages of 100), returns total_count', async () => {
   const full = Array.from({ length: 100 }, (_, i) => ({ number: i + 1 }));

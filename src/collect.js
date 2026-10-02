@@ -392,6 +392,7 @@ export function buildRow(e, d, ignoredForRepo = []) {
     staleStack: false, // set by collectPRs (§31): the conflict drags a rewritten parent's commits
     approvals: approvalsOf(d?.reviews).length,
     changesRequested: changesRequestedOf(d?.reviews).length, // reviewers whose latest review requests changes
+    unresolvedThreads: d?.unresolvedThreads ?? null, // others' unresolved review threads (Threads column)
   };
 }
 

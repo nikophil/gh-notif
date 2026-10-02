@@ -1100,6 +1100,14 @@ test('collectPRs: rows carry changedFiles (GitHub total), null when the detail l
   assert.equal((await collectPRs(without, ME, {})).others[0].changedFiles, null);
 });
 
+test('collectPRs: rows carry unresolvedThreads, null when the detail lacks it', async () => {
+  const search = [{ number: 42, title: 'PR A', html_url: 'https://github.com/o/r/pull/42', updated_at: '2026-06-24T12:00:00Z', repository_url: 'https://api.github.com/repos/o/r' }];
+  const withCount = fakeGh({ search, details: () => ({ number: 42, title: 'PR A', author: { login: 'alice' }, unresolvedThreads: 3 }) });
+  assert.equal((await collectPRs(withCount, ME, {})).others[0].unresolvedThreads, 3);
+  const without = fakeGh({ search, details: () => ({ number: 42, title: 'PR A', author: { login: 'alice' } }) });
+  assert.equal((await collectPRs(without, ME, {})).others[0].unresolvedThreads, null);
+});
+
 // ── Search page (§29) ───────────────────────────────────────────────────────
 test('searchQuery: is:pr forced once, whitespace normalized', () => {
   assert.equal(searchQuery('  author:alice   org:x '), 'is:pr author:alice org:x');

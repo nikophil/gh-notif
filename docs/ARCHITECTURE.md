@@ -77,7 +77,7 @@ flowchart LR
     E1["GET /notifications<br/>×1"]
     E2["GET /search/issues<br/>is:open is:pr review-requested:@me · 1 per page of 100"]
     E3["GET /search/issues<br/>is:open is:pr author:@me · 1 per page of 100"]
-    E4["POST graphql<br/>PR details · 1 per batch of 30"]
+    E4["POST graphql<br/>PR details · 1 per batch of 30<br/>+ thread openers · 1 per 100 unresolved threads (§41)"]
     E5["GET latest_comment_url<br/>1 per modified thread"]
     E6["GET /repos/.../pulls/N/comments<br/>per_page=100 (+since) · 1 per modified thread"]
     E7["PATCH /notifications/threads/id<br/>1 per noise-verdict thread (auto-purge, §22)"]
@@ -249,7 +249,7 @@ sequenceDiagram
 - **Thread** (`/notifications`): `{ id, reason, updated_at, subject:{title,url,latest_comment_url,type}, repository:{full_name} }`
 - **Item** (output of `classify`): `{ category, actor, url, repo, number, title, threadId, updatedAt }` — the watch items (« all » mode, §18) also carry `subjectType` (`'issue' | 'pull'`) and `createdAt` (creation date, null for an activity)
 - **Issue row** (`data.issues`, « all » mode only, §18): `{ repo, number, title, url, actor, createdAt, updatedAt, triggers:[…] }` — no CI/diff/approvals (meaningless for an issue), no hiding in v1
-- **Row** (output of `collectPRs`): `{ repo, number, url, title, triggers:[…], author, branch, branchRepo, base, defaultBranch, behindBy, createdAt, readyAt, updatedAt, additions, deletions, changedFiles, diffTypes, moreFiles, ci, checks:[{name,state}], statusCheckRollupState, state, conflicting, approvals, changesRequested }` — `readyAt` = date of the last draft → « ready for review » transition (GraphQL `timelineItems`, same batch; null if never draft), consumed by the easter-egg business-days gate (§21) and by the « In review » column (§26) — `branch` = the PR's `headRefName` and `branchRepo` = `headRepository.nameWithOwner` (same GraphQL batch, zero extra cost; null if missing), shown in the web « Branch » column as a small GitHub-like ref chip linking to the branch tree on the head repo (the fork for external PRs; fallback on `repo` if the fork is gone) with a copy button — `state` ∈ {draft,open,merged,closed} (via `prState`), `staleStack` = the conflict is a stale stack (§31: trailing commits of a force-pushed or squash-merged parent; set by `collectPRs` only, `false` in `buildRow`) — an others' PR flagged is **dropped from `others`** like a draft, mine keeps its row with a dedicated ⚠️ tooltip. `approvals` = number of **approvals** (via `countApprovals`: distinct users whose last review is APPROVED — not `reviews.length`), `changesRequested` = number of distinct users whose **last review is CHANGES_REQUESTED** (via `changesRequestedOf`, mirror of `approvalsOf`; zero cost, same GraphQL `reviews`). In the ✅ column, a non-zero `changesRequested` appends the GitHub `file-diff` octicon in red (`--danger`) — shown **even at 0 approvals** (a request-changes with no approval is exactly the signal to surface), tooltip « N change(s) requested ». `labels` = the PR's GitHub labels (`[{name, color}]`, `color` = 6-digit hex **without** `#`, same GraphQL batch, zero extra cost) — shown in the « Labels » column as GitHub-look pills (§25). `checks` = individual CI jobs normalized (`{name, state, url}`, `state` ∈ {pass,fail,pending}, `url` = run page — CheckRun `detailsUrl` / StatusContext `targetUrl`, null if absent), consumed by the debug view, the CI recompute (cf. §16) and the CI checks popover (cf. §17). `ci` = aggregated verdict (`ciOf`: `ciFromState` by default; `ciFromChecks` if the repo has a blocklist). `statusCheckRollupState` = raw rollup, kept for the **local recompute** (`recomputeCi`) after a web toggle — allows falling back on `ciFromState` if the repo's blocklist becomes empty again. `conflicting` = the PR conflicts with its base branch: it comes from the GraphQL field `mergeable` (same batch, zero extra cost) and is true **only** for an explicit `CONFLICTING`. ⚠️ GitHub computes the merge commit **lazily**: the first read after a push returns `UNKNOWN` and merely *triggers* the computation — the next poll gives the verdict. Testing `mergeable !== 'MERGEABLE'` would therefore flash a false conflict on every fresh push. Shown in the 🚦 column, next to the state icon: a ⚠️, tooltip « Merge conflicts » — no column of its own (both tables would widen for a rare case). ⚠️ An **emoji**, not an octicon: the state icon is itself an emoji (📝🟢🟣🔴) and an inline SVG never lines up next to one (an emoji carries its own metrics and sits low in its box — neither `vertical-align` nor an `inline-flex` centring the boxes fixes it; both were tried and shipped visibly off).
+- **Row** (output of `collectPRs`): `{ repo, number, url, title, triggers:[…], author, branch, branchRepo, base, defaultBranch, behindBy, createdAt, readyAt, updatedAt, additions, deletions, changedFiles, diffTypes, moreFiles, ci, checks:[{name,state}], statusCheckRollupState, state, conflicting, approvals, changesRequested }` — `readyAt` = date of the last draft → « ready for review » transition (GraphQL `timelineItems`, same batch; null if never draft), consumed by the easter-egg business-days gate (§21) and by the « In review » column (§26) — `branch` = the PR's `headRefName` and `branchRepo` = `headRepository.nameWithOwner` (same GraphQL batch, zero extra cost; null if missing), shown in the web « Branch » column as a small GitHub-like ref chip linking to the branch tree on the head repo (the fork for external PRs; fallback on `repo` if the fork is gone) with a copy button — `state` ∈ {draft,open,merged,closed} (via `prState`), `staleStack` = the conflict is a stale stack (§31: trailing commits of a force-pushed or squash-merged parent; set by `collectPRs` only, `false` in `buildRow`) — an others' PR flagged is **dropped from `others`** like a draft, mine keeps its row with a dedicated ⚠️ tooltip. `approvals` = number of **approvals** (via `countApprovals`: distinct users whose last review is APPROVED — not `reviews.length`), `changesRequested` = number of distinct users whose **last review is CHANGES_REQUESTED** (via `changesRequestedOf`, mirror of `approvalsOf`; zero cost, same GraphQL `reviews`). `unresolvedThreads` = unresolved review threads **not opened by the PR author** (Threads column, §41; null = unknown). In the ✅ column, a non-zero `changesRequested` appends the GitHub `file-diff` octicon in red (`--danger`) — shown **even at 0 approvals** (a request-changes with no approval is exactly the signal to surface), tooltip « N change(s) requested ». `labels` = the PR's GitHub labels (`[{name, color}]`, `color` = 6-digit hex **without** `#`, same GraphQL batch, zero extra cost) — shown in the « Labels » column as GitHub-look pills (§25). `checks` = individual CI jobs normalized (`{name, state, url}`, `state` ∈ {pass,fail,pending}, `url` = run page — CheckRun `detailsUrl` / StatusContext `targetUrl`, null if absent), consumed by the debug view, the CI recompute (cf. §16) and the CI checks popover (cf. §17). `ci` = aggregated verdict (`ciOf`: `ciFromState` by default; `ciFromChecks` if the repo has a blocklist). `statusCheckRollupState` = raw rollup, kept for the **local recompute** (`recomputeCi`) after a web toggle — allows falling back on `ciFromState` if the repo's blocklist becomes empty again. `conflicting` = the PR conflicts with its base branch: it comes from the GraphQL field `mergeable` (same batch, zero extra cost) and is true **only** for an explicit `CONFLICTING`. ⚠️ GitHub computes the merge commit **lazily**: the first read after a push returns `UNKNOWN` and merely *triggers* the computation — the next poll gives the verdict. Testing `mergeable !== 'MERGEABLE'` would therefore flash a false conflict on every fresh push. Shown in the 🚦 column, next to the state icon: a ⚠️, tooltip « Merge conflicts » — no column of its own (both tables would widen for a rare case). ⚠️ An **emoji**, not an octicon: the state icon is itself an emoji (📝🟢🟣🔴) and an inline SVG never lines up next to one (an emoji carries its own metrics and sits low in its box — neither `vertical-align` nor an `inline-flex` centring the boxes fixes it; both were tried and shipped visibly off).
 - **scope**: `null` (everything) | `{ type:'org', value }` | `{ type:'repo', value:'owner/name' }` | **array** of these objects (union of favorites, cf. §14)
 - **Search result** (output of `collectSearch`, search page §29): `{ query, url, rows:[Row…], total, capped }` — `query` = the normalized query (`is:pr` forced), `url` = the same search on github.com, `rows` = the same **Row** shape as the dashboard (via `buildRow`, `triggers` always `[]`), `total` = GitHub's `total_count`, `capped` = `total > rows.length`. The server adds `fetchedAt` (cache) and, on failure, `error` (last line of the `gh` message) with `rows: []`.
 
@@ -577,7 +577,7 @@ sequenceDiagram
 15. **Sorting of the tables (`--serve`) = display state, like the active favorite.** ONE
     criterion per table (never a multi-column cumulation), each with its own persisted state
     in `prefs-v1.json`: `sort` for « others » (`{key, dir}`, every column — `SORT_KEYS`:
-    repo|number|title|labels|branch|behind|date|review|updated|approvals|author|diff|files|status|triggers|ci) and
+    repo|number|title|labels|branch|behind|date|review|updated|approvals|threads|author|diff|files|status|triggers|ci) and
     `sortMine` for « Your PRs » (`MINE_SORT_KEYS` = the same minus `author`, always me).
     Text keys (repo/title/branch/author) compare lowercased, missing at the end; `number`
     defaults desc (higher = more recent within a repo); `ci` sorts on a semantic rank
@@ -832,7 +832,7 @@ sequenceDiagram
     **dragging Title's own edge**. **No column is ever wider than its content, except Title.**
     Grips (`.col-grip`, invisible, accent line on hover) only on the resizable columns:
     Repository, Title, Labels, Branch, Author, Opened, Updated. The content-sized ones
-    (`FIT_COLS`: behind, review, diff, files, status, approvals, triggers, ci — plus ✕) have
+    (`FIT_COLS`: behind, review, diff, files, status, approvals, threads, triggers, ci — plus ✕) have
     none and always keep their natural width. They are tagged **server-side**: `fitClasses`
     (html.js) puts `class="fit"` on their `th`/`td`, filtered through `dropHidden` like the
     cells, so it stays aligned. The class halves their horizontal padding (short figures and
@@ -1183,6 +1183,7 @@ sequenceDiagram
     | `GH-MARK_READ` / `GH-MARK_READ_BEFORE` | `markThreadRead` / `markReadBefore` | auto-purge §22 |
     | `GH-COMMENT` / `GH-REVIEW_COMMENTS` | `getComment` / `getReviewComments` | `inspectThread` (per changed thread) |
     | `GH-GRAPHQL` | `graphqlPullChunk` | PR details / stale signals batch, `markReady` |
+| `GH-THREADS` | `threadOpeners` | `getPullDetailsBatch`, after the batch (§41) |
     | `GH-SEARCH` | `searchPage`, `countPRs` | `searchReviewRequested`, `searchAuthored`, `searchPRs` (§29), review coverage (§38) |
     | `GH-STATS` | `searchMergedPRs`, `searchUnmergedPRs` | stats page collection (§40) |
     | `GH-TEAMS` | `listTeams`, `teamMembers` | stats page team filter (§40) |
@@ -1353,6 +1354,23 @@ sequenceDiagram
       categorical slots 1–2 (blue = my reviews, orange = my PRs, both themes checked on the
       Primer surfaces), GitHub state colors for outcomes (merged violet, open green, closed
       red) and verdicts, one-hue blue ramp for the heatmap.
+
+41. **Threads column (unresolved review threads, both PR tables + search page).** Right
+    after ✅: the number of **unresolved** review threads **opened by someone else than the
+    PR author** (the opener = the thread's first comment; a deleted account counts). Empty
+    at 0 and when unknown, tooltip « N unresolved review thread(s) », sortable (`threads`
+    key, first click **desc** = the most to address first) and hideable via the §24 gear.
+    ⚠️ **Two phases, never one nested query.** GraphQL has no author on a
+    `PullRequestReviewThread`: the opener needs `comments(first: 1)`, and nested under
+    `reviewThreads(first: 100)` in `PR_FRAGMENT` the cost is computed on the `first`
+    arguments — 100 sub-requests per PR, a batch of 30 went from **2 to 32 rate-limit
+    points** (measured, dry-run). So the batch only fetches `reviewThreads { id isResolved }`
+    (cost unchanged: 2), then `getPullDetailsBatch` resolves the openers of the
+    **unresolved** threads only, in ONE `nodes(ids:)` request per 100 threads
+    (`threadOpeners`, 1 point) — no request at all when nothing is unresolved. A failed
+    lookup (journaled `GH-THREADS`) gives `null` for the PRs it concerned, never a guess.
+    The count lives on the detail, so `buildRow` carries it to the dashboard and the search
+    page (§29) alike. `reviewThreads(first: 100)`: beyond, the count is truncated (rare).
 
 ## Test conventions
 
