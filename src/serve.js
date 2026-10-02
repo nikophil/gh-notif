@@ -15,7 +15,7 @@ import { statePath, loadState, saveState, isNew, markSeen } from './state.js';
 import { prefsPath, loadPrefs, savePrefs, isNotifyEnabled, themeOf, ignoredChecksOf, toggleIgnoredCheck, favModesOf, toggleFavMode, stacksOf, setStacks, stacksSeenOf, hiddenColsOf, toggleHiddenCol, statsIgnoredOf, toggleStatsIgnored, statsFavoritesOf, setStatsFavorite } from './prefs.js';
 import {
   parseScope, normalizeFavorites, addFavorite, removeFavorite,
-  favoriteScopes, activeFavoriteOf, filterDataByScope, favoriteCounts, closedPRsUrl, reviewedPRsUrl, reviewCoverageQueries, repoInAllMode, favoriteLabel,
+  favoriteScopes, activeFavoriteOf, filterDataByScope, favoriteCounts, closedPRsUrl, reviewedPRsUrl, authorPRsUrl, reviewCoverageQueries, repoInAllMode, favoriteLabel,
 } from './favorites.js';
 import { diffApprovals } from './approvals.js';
 import { normalizeSort, toggleSort, sortRows, groupStacks, stackChildKeys, SORT_KEYS, MINE_SORT_KEYS, DEFAULT_SORT } from './sort.js';
@@ -35,6 +35,11 @@ const UPDATE_CHECK_MS = 3_600_000; // hourly `git fetch` of the install (§32)
 const SEARCH_MAX = 200;
 const SEARCH_PAGE = 25;
 const SEARCH_TTL_MS = 5 * 60_000;
+// Sorts GitHub's search does itself (our key → its `sort` param): the page then
+// fetches ONE GitHub page and details only its rows. GitHub only serves the
+// first 1000 results of a search.
+const SEARCH_GH_SORTS = { updated: 'updated', date: 'created' };
+const SEARCH_GH_LIMIT = 1000;
 const COVERAGE_TTL_MS = 3_600_000; // review ratio (§38): hourly
 const COVERAGE_RETRY_MS = 60_000; // …and 1 min after a failure (a transient network error must not hide it for long)
 export const SEARCH_DEFAULT_QUERY = 'is:open author:@me';
@@ -110,7 +115,7 @@ function fragmentBody(snapshot, opts = {}) {
   return renderUpdateBanner(snapshot.updateTag, UPGRADE_COMMANDS) + fragmentTables(snapshot, opts);
 }
 
-function fragmentTables(snapshot, { now, showHidden, viewScope = null, closedUrl = null, reviewedUrl = null, reviewCoverage = null, sort = null, sortMine = null, ignoredChecks = {}, stacks = null, cols = null } = {}) {
+function fragmentTables(snapshot, { now, showHidden, viewScope = null, closedUrl = null, reviewedUrl = null, authorUrl = null, reviewCoverage = null, sort = null, sortMine = null, ignoredChecks = {}, stacks = null, cols = null } = {}) {
   // A failed poll only takes the page over when there is nothing to show yet;
   // otherwise the last good tables stay, under a « stale » banner (§39).
   if (snapshot.error && !snapshot.updatedAt) return `<p class="empty offline">⚠️ Error: ${escapeHtml(snapshot.error)}</p>`;
@@ -147,7 +152,7 @@ function fragmentTables(snapshot, { now, showHidden, viewScope = null, closedUrl
   // verdict itself was already recomputed at collection (§16).
   // An org favorite implies the owner → the Repository column drops it.
   const repoOwner = viewScope?.type === 'org' ? viewScope.value : null;
-  return stale + renderFragment(data, { now, showHidden, closedUrl, reviewedUrl, reviewCoverage, sort, sortMine, ignoredChecks, stacks: stk, cols, repoOwner });
+  return stale + renderFragment(data, { now, showHidden, closedUrl, reviewedUrl, authorUrl, reviewCoverage, sort, sortMine, ignoredChecks, stacks: stk, cols, repoOwner });
 }
 
 // Scope(s) that the view DISPLAYS, to contextualize the « closed ↗ » link:
@@ -200,24 +205,25 @@ export function handleRequest(pathname, snapshot, opts = {}) {
   // Display filter: the active favorite, except in ad-hoc mode (the entered scope
   // already drives the collection, re-filtering would be redundant).
   const viewScope = adhoc ? null : parseScope(activeFav);
-  // « closed ↗ » / « my reviews ↗ » links contextualized on what the view displays.
+  // « closed ↗ » / « my reviews ↗ » / Author links contextualized on what the view displays.
   const links = linkScopes({ scope, activeFav, favorites });
   const closedUrl = closedPRsUrl(links);
   const reviewedUrl = reviewedPRsUrl(links);
+  const authorUrl = (login) => authorPRsUrl(login, links);
   // Chip counters = others' activity per scope, on the raw UNION.
   const counts = favoriteCounts(favorites, snapshot.data);
   if (pathname === '/') {
     return { status: 200, type: 'text/html; charset=utf-8', body: renderShell({ intervalMs, scopeLabel: scopeLabel(scope), notifyEnabled, theme, favorites, activeFav, adhoc, counts, favModes }) };
   }
   if (pathname === '/fragment') {
-    return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, reviewedUrl, reviewCoverage, sort, sortMine, ignoredChecks, stacks, cols }) };
+    return { status: 200, type: 'text/html; charset=utf-8', body: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, reviewedUrl, authorUrl, reviewCoverage, sort, sortMine, ignoredChecks, stacks, cols }) };
   }
   // Unified poll of the client: filtered tables + favorites bar (up-to-date counters)
   // + updatedAt (the client probes until it changes after an add/remove).
   if (pathname === '/view') {
     return { status: 200, type: 'application/json; charset=utf-8', body: JSON.stringify({
       chips: renderFavorites(favorites, activeFav, { adhoc, counts, favModes }),
-      fragment: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, reviewedUrl, reviewCoverage, sort, sortMine, ignoredChecks, stacks, cols }),
+      fragment: fragmentBody(snapshot, { now, showHidden, viewScope, closedUrl, reviewedUrl, authorUrl, reviewCoverage, sort, sortMine, ignoredChecks, stacks, cols }),
       updatedAt: snapshot.updatedAt,
       // Browser notifications (§34): `after` present ⇒ the client can show them;
       // '' = its first poll (it only learns lastSeq), 'N' = everything newer than N.
@@ -507,6 +513,7 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
         viewScope: scope ? null : parseScope(activeFav),
         closedUrl: closedPRsUrl(linkScopes({ scope, activeFav, favorites })),
         reviewedUrl: reviewedPRsUrl(linkScopes({ scope, activeFav, favorites })),
+        authorUrl: (login) => authorPRsUrl(login, linkScopes({ scope, activeFav, favorites })),
         reviewCoverage,
         sort,
         sortMine,
@@ -525,31 +532,33 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
   // by POST /search/refresh (page load, 🔄) — debounced like POST /refresh
   // (REFRESH_MIN_AGE_MS): a stale entry is refetched, spamming ctrl+R is not
   // spamming GitHub. Errors are NOT cached (a rate-limit must be retryable) and
-  // concurrent identical queries share one in-flight fetch.
-  const searchCache = new Map(); // normalized query → { …collectSearch result, fetchedAt }
-  const searchPending = new Map(); // normalized query → in-flight promise
-  const searchResult = (raw, { force = false } = {}) => {
+  // concurrent identical queries share one in-flight fetch. A GitHub-paged
+  // result (`paged`, SEARCH_GH_SORTS) is one entry per (query, sort, page).
+  const searchCache = new Map(); // normalized query [+ paged params] → { …collectSearch result, fetchedAt }
+  const searchPending = new Map(); // same key → in-flight promise
+  const searchResult = (raw, { force = false, paged = null } = {}) => {
     const query = searchQuery(raw || SEARCH_DEFAULT_QUERY);
-    const hit = searchCache.get(query);
+    const key = paged ? `${query} · ${paged.sort} ${paged.order} p${paged.page}` : query;
+    const hit = searchCache.get(key);
     // One line per decision in the journal: the only way to tell, after the fact,
     // whether a « stale » page came from this cache (age ≤ 5 min by construction)
     // or from somewhere else (browser, GitHub's search index).
     const age = hit ? Math.round((Date.now() - hit.fetchedAt) / 1000) : null;
-    const log = (what) => process.stderr.write(`🔍 search ${what} · ${query} · ${hit ? `cached ${age}s ago, ${hit.rows.length} rows` : 'no cache'}${force ? ' · forced' : ''}\n`);
+    const log = (what) => process.stderr.write(`🔍 search ${what} · ${key} · ${hit ? `cached ${age}s ago, ${hit.rows.length} rows` : 'no cache'}${force ? ' · forced' : ''}\n`);
     if (hit && !shouldRefresh(hit.fetchedAt, Date.now(), force ? REFRESH_MIN_AGE_MS : SEARCH_TTL_MS)) { log('hit'); return Promise.resolve(hit); }
-    if (searchPending.has(query)) { log('pending'); return searchPending.get(query); }
+    if (searchPending.has(key)) { log('pending'); return searchPending.get(key); }
     log('fetch');
-    const p = collectSearch(gh, query, { max: SEARCH_MAX, ignoredChecks })
+    const p = collectSearch(gh, query, { max: SEARCH_MAX, ignoredChecks, paged })
       .then((r) => {
         const entry = { ...r, fetchedAt: Date.now() };
-        searchCache.delete(query); // re-insert → most recent, so the eviction below drops the oldest
-        searchCache.set(query, entry);
+        searchCache.delete(key); // re-insert → most recent, so the eviction below drops the oldest
+        searchCache.set(key, entry);
         if (searchCache.size > 10) searchCache.delete(searchCache.keys().next().value);
         return entry;
       })
       .catch((err) => ({ query, rows: [], total: 0, error: (err.ghCode ? `[${err.ghCode}] ` : '') + String(err.message ?? err).trim().split('\n').pop(), fetchedAt: Date.now() }))
-      .finally(() => searchPending.delete(query));
-    searchPending.set(query, p);
+      .finally(() => searchPending.delete(key));
+    searchPending.set(key, p);
     return p;
   };
   // sort/page come from the URL (the URL is the state); the raw `q` is kept
@@ -675,14 +684,27 @@ export function serve({ gh, me, scope: initialScope = null, all = false, port = 
 
   const searchFragment = async (params, { force = false } = {}) => {
     const q = params.get('q') || SEARCH_DEFAULT_QUERY;
-    const r = await searchResult(q, { force });
     const srt = normalizeSort({ key: params.get('sort'), dir: params.get('dir') });
-    const rows = sortRows(r.rows ?? [], srt);
-    const pages = Math.max(1, Math.ceil(rows.length / SEARCH_PAGE));
-    const page = Math.min(Math.max(1, Number(params.get('page')) || 1), pages);
+    const asked = Math.max(1, Number(params.get('page')) || 1);
+    const ghSort = SEARCH_GH_SORTS[srt.key];
+    let r, rows, page, fetched;
+    if (ghSort) {
+      // GitHub sorts and paginates: ONE page fetched, only its PRs detailed.
+      page = Math.min(asked, SEARCH_GH_LIMIT / SEARCH_PAGE);
+      r = await searchResult(q, { force, paged: { sort: ghSort, order: srt.dir, page, perPage: SEARCH_PAGE } });
+      rows = r.rows ?? [];
+      fetched = Math.min(r.total ?? 0, SEARCH_GH_LIMIT);
+    } else {
+      // Any other sort needs the details of every PR: the capped list, sorted here.
+      r = await searchResult(q, { force });
+      const all = sortRows(r.rows ?? [], srt);
+      fetched = all.length;
+      page = Math.min(asked, Math.max(1, Math.ceil(fetched / SEARCH_PAGE)));
+      rows = all.slice((page - 1) * SEARCH_PAGE, page * SEARCH_PAGE);
+    }
     return renderSearchFragment({
-      q, rows: rows.slice((page - 1) * SEARCH_PAGE, page * SEARCH_PAGE), page, pages, pageSize: SEARCH_PAGE,
-      total: r.total ?? 0, fetched: (r.rows ?? []).length, sort: srt, fetchedAt: r.fetchedAt, error: r.error ?? null, ghUrl: r.url ?? null,
+      q, rows, page, pages: Math.max(1, Math.ceil(fetched / SEARCH_PAGE)), pageSize: SEARCH_PAGE,
+      total: r.total ?? 0, fetched, paged: !!ghSort, sort: srt, fetchedAt: r.fetchedAt, error: r.error ?? null, ghUrl: r.url ?? null,
     }, { now: Date.now(), ignoredChecks });
   };
 

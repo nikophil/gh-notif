@@ -1150,6 +1150,27 @@ test('collectSearch: one capped search + details → full rows, GitHub total and
   assert.equal(r.capped, true);
 });
 
+test('collectSearch: details fetched light (no Behind, no per-type diff on the search page)', async () => {
+  const gh = fakeGh({});
+  const seen = [];
+  gh.getPullDetailsBatch = async (prs, opts) => { seen.push(opts); return prs.map(() => null); };
+  gh.searchPRs = async () => ({ items: [searchItem(1)], total: 1 });
+  await collectSearch(gh, 'author:a');
+  assert.deepEqual(seen, [{ light: true }]);
+});
+
+test('collectSearch: `paged` → ONE GitHub-sorted page (searchPRsPage), never the capped search', async () => {
+  const gh = fakeGh({ details: (repo, number) => ({ number, title: `PR ${number}`, author: { login: 'alice' }, state: 'OPEN' }) });
+  const calls = [];
+  gh.searchPRs = async () => { throw new Error('capped search must not run'); };
+  gh.searchPRsPage = async (q, opts) => { calls.push([q, opts]); return { items: [searchItem(9), searchItem(8)], total: 1704 }; };
+  const paged = { sort: 'created', order: 'desc', page: 2, perPage: 25 };
+  const r = await collectSearch(gh, 'author:alice', { paged });
+  assert.deepEqual(calls, [['is:pr author:alice', paged]]);
+  assert.deepEqual(r.rows.map((x) => x.number), [9, 8], 'GitHub order kept');
+  assert.equal(r.total, 1704);
+});
+
 test('collectSearch: the per-repo CI blocklist applies (same rows as the dashboard); not capped when complete', async () => {
   const gh = fakeGh({ details: () => ({ number: 1, title: 'x', author: { login: 'a' }, statusCheckRollupState: 'FAILURE', checks: [{ name: 'flaky', state: 'fail' }] }) });
   gh.searchPRs = async () => ({ items: [searchItem(1)], total: 1 });

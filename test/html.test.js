@@ -1360,6 +1360,16 @@ test('renderFragment: Threads is hideable via the column selector (headers/cells
   assert.equal(ths, tds);
 });
 
+test('renderFragment: authorUrl turns the « others » Author into a new-tab link (escaped)', () => {
+  const out = renderFragment({ mine: [], others: [otherRow({ author: 'al<ice' })] }, { now: NOW, authorUrl: (login) => `/search?q=author:${login}&x=1` });
+  assert.match(out, /<a href="\/search\?q=author:al&lt;ice&amp;x=1" title="PRs of @al&lt;ice" target="_blank" rel="noopener">@al&lt;ice<\/a>/);
+});
+
+test('renderFragment: without authorUrl the Author stays plain text (compat)', () => {
+  const out = renderFragment({ mine: [], others: [otherRow()] }, { now: NOW });
+  assert.match(out, /<span title="@alice">@alice<\/span>/);
+});
+
 test('renderFragment: no changedFiles (older snapshot) → empty Files cell', () => {
   const out = renderFragment({ mine: [myRow()], others: [] }, { now: NOW });
   // …+17 −4</td><td></td><td>🟢 status cell
@@ -1419,6 +1429,7 @@ test('renderSearchFragment: summary, others-like table without ⚡/✕, th links
   assert.ok(!out.includes('<b>'), 'query escaped');
   assert.ok(!out.includes('data-act="hide"'), 'no hide button');
   assert.ok(!out.includes('Triggers'), 'no ⚡ column');
+  assert.ok(!out.includes('>Behind<'), 'no Behind column (not fetched there)');
   assert.ok(!out.includes('data-sort-key'), 'no dashboard sort keys (POST /sort must never fire here)');
   assert.match(out, /data-sort-href="\/search\?q=author%3Aalice\+%3Cb%3E&amp;sort=updated&amp;dir=asc"/, 'Updated (active, desc) → asc');
   assert.match(out, /data-sort-href="\/search\?q=author%3Aalice\+%3Cb%3E&amp;sort=ci&amp;dir=asc"/, 'other column → its default direction');
@@ -1440,6 +1451,17 @@ test('renderSearchFragment: capped note, range, pager window (first, last, ±2, 
   assert.equal((out.match(/class="gap">…</g) || []).length, 2);
   assert.match(out, /href="\/search\?q=a&amp;page=5">‹<\/a>/);
   assert.match(out, /href="\/search\?q=a&amp;page=7">›<\/a>/);
+});
+
+test('renderSearchFragment: paged (GitHub-sorted) → GitHub total in the summary, 1000-result note', () => {
+  const out = renderSearchFragment(
+    { q: 'a', rows: [otherRow()], page: 2, pages: 40, pageSize: 25, total: 1704, fetched: 1000, paged: true, sort: { key: 'date', dir: 'desc' }, fetchedAt: NOW },
+    { now: NOW },
+  );
+  assert.match(out, /1704 PRs \(GitHub serves the first 1000 of 1704 — refine the query\) · 26–50/);
+  const small = renderSearchFragment({ q: 'a', rows: [otherRow()], page: 1, pages: 3, pageSize: 25, total: 60, fetched: 60, paged: true }, { now: NOW });
+  assert.match(small, /60 PRs · 1–25/);
+  assert.doesNotMatch(small, /refine/);
 });
 
 test('renderSearchFragment: error → escaped banner; no row → empty message', () => {

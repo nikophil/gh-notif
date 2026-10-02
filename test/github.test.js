@@ -428,6 +428,23 @@ test('getPullDetailsBatch: unresolvedThreads = unresolved review threads NOT ope
   assert.deepEqual(runner.calls[1].filter((a) => a.startsWith('ids[]=')), ['ids[]=T1', 'ids[]=T2', 'ids[]=T4']);
 });
 
+test('getPullDetailsBatch { light }: no per-file list, no behind compare (search page); dashboard keeps both', async () => {
+  const pr = JSON.stringify({ data: { p0: { pullRequest: {
+    number: 42, title: 'A', author: { login: 'alice' }, createdAt: 'd1', additions: 1, deletions: 0, changedFiles: 3,
+    isDraft: false, state: 'OPEN', latestOpinionatedReviews: { nodes: [] },
+  } } } });
+  const light = fakeRunner([['api graphql', pr]]);
+  const out = await makeGh(light).getPullDetailsBatch([{ repo: 'o/r', number: 42 }], { light: true });
+  const q = light.calls[0].join(' ');
+  assert.ok(!q.includes('files(first'), 'no per-file list');
+  assert.ok(!q.includes('behind:'), 'no behind compare');
+  assert.ok(q.includes('changedFiles') && q.includes('statusCheckRollup'), 'the rest of the fragment stays');
+  assert.equal(out[0].changedFiles, 3);
+  const full = fakeRunner([['api graphql', pr]]);
+  await makeGh(full).getPullDetailsBatch([{ repo: 'o/r', number: 42 }]);
+  assert.ok(full.calls[0].join(' ').includes('files(first') && full.calls[0].join(' ').includes('behind:'));
+});
+
 test('getPullDetailsBatch: unresolvedThreads null when unknown, no openers request without unresolved thread', async () => {
   const pr = (extra) => JSON.stringify({ data: { p0: { pullRequest: {
     number: 42, title: 'A', author: { login: 'alice' }, createdAt: 'd1', additions: 1, deletions: 0,
@@ -440,6 +457,10 @@ test('getPullDetailsBatch: unresolvedThreads null when unknown, no openers reque
   const resolved = fakeRunner([['api graphql', pr({ reviewThreads: { nodes: [{ id: 'T1', isResolved: true }] } })]]);
   assert.equal((await makeGh(resolved).getPullDetailsBatch([{ repo: 'o/r', number: 42 }]))[0].unresolvedThreads, 0);
   assert.equal(resolved.calls.length, 1);
+  // merged / closed PR: nobody has to address its threads → no lookup, unknown
+  const merged = fakeRunner([['api graphql', pr({ state: 'MERGED', reviewThreads: { nodes: [{ id: 'T1', isResolved: false }] } })]]);
+  assert.equal((await makeGh(merged).getPullDetailsBatch([{ repo: 'o/r', number: 42 }]))[0].unresolvedThreads, null);
+  assert.equal(merged.calls.length, 1);
   // failed openers request → unknown (journaled, never thrown)
   const errors = [];
   const failing = fakeRunner([['api graphql', pr({ reviewThreads: { nodes: [{ id: 'T1', isResolved: false }] } })]]);
@@ -459,6 +480,15 @@ test('searchPRs: sort=updated desc, stops at `max` (2 full pages of 100), return
   assert.ok(calls[0].includes('sort=updated') && calls[0].includes('order=desc') && calls[0].includes('per_page=100'));
   assert.equal(out.items.length, 200);
   assert.equal(out.total, 1234);
+});
+
+test('searchPRsPage: ONE page, GitHub-sorted (sort/order/per_page/page passed through), returns total_count', async () => {
+  const calls = [];
+  const runner = async (args) => { calls.push(args.join(' ')); return JSON.stringify({ total_count: 1234, items: [{ number: 7 }] }); };
+  const out = await makeGh(runner).searchPRsPage('is:pr author:alice', { sort: 'created', order: 'asc', page: 3, perPage: 25 });
+  assert.equal(calls.length, 1);
+  for (const f of ['q=is:pr author:alice', 'sort=created', 'order=asc', 'page=3', 'per_page=25']) assert.ok(calls[0].includes(f), f);
+  assert.deepEqual(out, { items: [{ number: 7 }], total: 1234 });
 });
 
 test('searchPRs: a non-full page ends the loop; a full last page is sliced to max', async () => {

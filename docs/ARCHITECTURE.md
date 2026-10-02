@@ -551,7 +551,11 @@ sequenceDiagram
     (compat), behavior unchanged. Web (`--serve`) only.
     Same contract for the **« my reviews ↗ » link** on « activity on others' PRs »
     (`reviewedPRsUrl` → `github.com/pulls?q=is:pr reviewed-by:@me -author:@me + qualifiers`,
-    opt `reviewedUrl` of `renderFragment`).
+    opt `reviewedUrl` of `renderFragment`). And for the **Author cells** of the « others »
+    table: `authorPRsUrl(login, scopes)` → `/search?q=is:pr author:<login> + qualifiers`
+    with `sort=date&dir=desc` (every state, newest opened first — a GitHub-paged sort, §29),
+    opt `authorUrl` (a `login → url` function) of `renderFragment`;
+    absent (search page) → plain text.
 
     **Favorites UI.** (a) **One counter per web panel** on each chip (`favoriteCounts` returns a
     `{ mine, others, issues }` triplet per favorite + `total` for « ⭐ all »), each with the
@@ -954,7 +958,8 @@ sequenceDiagram
     inventory). Popover mechanics shared with the CI checks (§17: `showPop`, position:fixed,
     one open at a time); without `diffTypes` (older snapshot) the cell stays a plain span —
     same compat contract as the CI popover. Extensions are escaped like every GitHub datum
-    (a file path is attacker-controlled).
+    (a file path is attacker-controlled). Not on the search page (§29: light details, no
+    per-file list fetched).
 
 28. **Never-seen stack → stacks mode turns on by itself (per table).** The « ⤷ stacks »
     view is opt-in (§20), but a stack nobody knows about is easy to miss in a flat table. So at
@@ -978,7 +983,7 @@ sequenceDiagram
 29. **Search page (`/search`): any GitHub PR query, our columns — on demand, NEVER in the poll.**
     A separate page (like `/debug`): one query field, ONE table with the « others » columns
     (minus ⚡ triggers and the ✕ hide button — an inventory, not an inbox; drafts and closed
-    PRs are kept), pagination (25/page) and sort. Typical use: « where is my colleague at? »
+    PRs are kept — and minus Behind, see the light details below), pagination (25/page) and sort. Typical use: « where is my colleague at? »
     (`author:alice org:acme`), my closed PRs, the PRs I reviewed — the « closed » / « reviewed »
     links of the dashboard now point here (`closedPRsUrl`/`reviewedPRsUrl`) instead of github.com.
     - **Why on demand.** The first version of this idea (« pinned lists » refetched in the
@@ -992,7 +997,26 @@ sequenceDiagram
       or page change costs **zero** GitHub call: it re-sorts/slices the cached rows.
       `POST /search/refresh` (🔄 **and every page load**, like the dashboard's ctrl+R) refetches
       unless the entry is younger than `REFRESH_MIN_AGE_MS` (10 s, same `shouldRefresh` debounce
-      as `POST /refresh`). ⚠️ Trap: the first version served the 5 min cache on page load too —
+      as `POST /refresh`).
+    - **Updated / Opened: GitHub pages, only 25 PRs detailed.** Measured on an author with
+      1700 PRs: 11.3 s per load — 2 search pages in series (3.7 s), then 7 GraphQL batches in
+      parallel whose slowest took 6.5 s (GitHub slows down a burst; slimming the fragment saves
+      at most ~30 %), all for 25 rows shown. GitHub's search sorts by `updated` and `created`
+      itself (`SEARCH_GH_SORTS`, both directions): for those two keys (`updated` is the default,
+      `date` the Author link's) `searchFragment` asks for ONE page of 25 (`searchPRsPage`,
+      `collectSearch({ paged })`) and details only it → ~6 s, rows in GitHub's order. The pager
+      follows `total_count`, capped at GitHub's 1000 reachable results (`SEARCH_GH_LIMIT`, « GitHub
+      serves the first 1000 of 1704 »). Cache: one entry per (query, sort, page), so a page
+      change costs one fetch (cached afterwards). Any OTHER sort (CI, diff, approvals…) needs
+      every PR's details: the capped 200 above, sorted locally — first load slow, then free.
+    - **Light details: no Behind, no per-type diff.** `collectSearch` asks
+      `getPullDetailsBatch(…, { light: true })`: `LIGHT_PR_FRAGMENT` (no `files(first: 100)`)
+      and no per-alias `behind` compare — a batch of 25 measured ~4.2 s → ~2.7 s, a cold page
+      ~6 s → ~5 s. The table drops the Behind column (hidden like ⚡/✕); Diff and Files keep
+      their figures (scalar fields) without the §27 popover (empty `diffTypes`). The CI
+      contexts stay: dropping them saved ~0.1 s and would kill the CI popover and the §16
+      blocklist.
+      ⚠️ Trap: the first version served the 5 min cache on page load too —
       « my closed PRs » clicked after merging a PR showed it still open, and the user had to
       click 🔄. Sort/page/back (`/search-fragment`) keep the 5 min TTL. ⚠️ **Errors are never
       cached** (a rate-limit must be retryable on the next click) and concurrent identical
@@ -1209,7 +1233,8 @@ sequenceDiagram
     repo, forks included, so the batch needs nothing but the number (the head branch name,
     unknown before the batch, would not resolve for a fork anyway). Only a live PR (open/
     draft) has to catch up: merged/closed render empty and sort as missing, like 0 and
-    unknown (base branch deleted → `baseRef` null → `behindBy` null).
+    unknown (base branch deleted → `baseRef` null → `behindBy` null). Not on the search page
+    (§29: light details, the compare is not fetched there).
 
 38. **Review ratio (« ratio: 1.76 » pill next to « my reviews ↗ »).** How much I review
     compared with how much I ship: `reviewed / merged`, with `reviewed` = `is:pr
@@ -1369,6 +1394,9 @@ sequenceDiagram
     **unresolved** threads only, in ONE `nodes(ids:)` request per 100 threads
     (`threadOpeners`, 1 point) — no request at all when nothing is unresolved. A failed
     lookup (journaled `GH-THREADS`) gives `null` for the PRs it concerned, never a guess.
+    Only **open** PRs (drafts included) are looked up: on a merged/closed PR nobody has to
+    address its threads (`null`, empty cell like Behind) — and a search page (§29) lists many
+    of those, whose leftover threads made up most of the lookup.
     The count lives on the detail, so `buildRow` carries it to the dashboard and the search
     page (§29) alike. `reviewThreads(first: 100)`: beyond, the count is truncated (rare).
 

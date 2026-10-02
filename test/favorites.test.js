@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   MAX_QUALIFIER_LENGTH, parseScope, normalizeFavorites, addFavorite, removeFavorite,
   favoriteScopes, activeFavoriteOf, cycleFavorite, filterDataByScope, favoriteLabel, favoriteCounts,
-  closedPRsUrl, reviewedPRsUrl, reviewCoverageQueries, repoInAllMode,
+  closedPRsUrl, reviewedPRsUrl, authorPRsUrl, reviewCoverageQueries, repoInAllMode,
 } from '../src/favorites.js';
 import { scopesQualifier } from '../src/collect.js';
 
@@ -244,6 +244,14 @@ test('reviewedPRsUrl: internal search page, reviewed-by:@me -author:@me, context
     '/search?q=is%3Apr%20reviewed-by%3A%40me%20-author%3A%40me',
   );
   assert.ok(reviewedPRsUrl({ type: 'org', value: 'stark' }).endsWith('%20org%3Astark'));
+});
+
+test('authorPRsUrl: internal search page, every PR of the author, newest opened first, contextualized', () => {
+  assert.equal(authorPRsUrl('alice', null), '/search?q=is%3Apr%20author%3Aalice&sort=date&dir=desc');
+  assert.equal(
+    authorPRsUrl('alice', { type: 'org', value: 'stark' }),
+    '/search?q=is%3Apr%20author%3Aalice%20org%3Astark&sort=date&dir=desc',
+  );
 });
 
 test('reviewCoverageQueries: others\' PRs I reviewed vs my PRs merged, over 30 sliding days and a sliding year', () => {

@@ -628,14 +628,17 @@ function actionButton(r, hidden) {
     : `<button class="act" data-key="${key}" data-act="hide" title="Hide">✕</button>`;
 }
 
-function otherRow(r, now, hidden, ignoredChecks = {}, hiddenCols = [], owner = null) {
+// `authorUrl(login)` (optional): the Author becomes a link to that user's PRs.
+function otherRow(r, now, hidden, ignoredChecks = {}, hiddenCols = [], owner = null, authorUrl = null) {
   const cells = [
     repoCell(r, owner),
     titleCell(r),
     labelsCell(r.labels),
     branchCell(r),
     behindCell(r),
-    r.author ? titled(`@${r.author}`, `@${escapeHtml(r.author)}`) : '?',
+    !r.author ? '?'
+      : authorUrl ? link(authorUrl(r.author), `@${r.author}`, `PRs of @${r.author}`)
+        : titled(`@${r.author}`, `@${escapeHtml(r.author)}`),
     dateCell('Opened', r.createdAt, now),
     reviewCell(r, now),
     dateCell('Updated', r.updatedAt, now),
@@ -657,7 +660,7 @@ function otherRow(r, now, hidden, ignoredChecks = {}, hiddenCols = [], owner = n
 }
 
 // `hrefOf(key)` (optional, search page §29): the th link to the toggled sort.
-function othersTable(others, hiddenRows, now, showHidden, sort = null, ignoredChecks = {}, hiddenCols = [], hrefOf = null, owner = null) {
+function othersTable(others, hiddenRows, now, showHidden, sort = null, ignoredChecks = {}, hiddenCols = [], hrefOf = null, owner = null, authorUrl = null) {
   hiddenCols = dropLabelsIfEmpty([...others, ...(showHidden ? hiddenRows : [])], hiddenCols);
   const th = (html, key) => sortableTh(html, key, sort, null, hrefOf ? hrefOf(key) : null);
   const headers = dropHidden([
@@ -680,8 +683,8 @@ function othersTable(others, hiddenRows, now, showHidden, sort = null, ignoredCh
     '',
   ], OTHERS_COL_KEYS, hiddenCols);
   const trs = [
-    ...others.map((r) => otherRow(r, now, false, ignoredChecks, hiddenCols, owner)),
-    ...(showHidden ? hiddenRows.map((r) => otherRow(r, now, true, ignoredChecks, hiddenCols, owner)) : []),
+    ...others.map((r) => otherRow(r, now, false, ignoredChecks, hiddenCols, owner, authorUrl)),
+    ...(showHidden ? hiddenRows.map((r) => otherRow(r, now, true, ignoredChecks, hiddenCols, owner, authorUrl)) : []),
   ];
   return table(headers, trs, fitClasses(OTHERS_COL_KEYS, hiddenCols));
 }
@@ -713,6 +716,8 @@ function issuesTable(rows, now, owner = null) {
 // is provided, the « Your PRs » section is rendered even empty (access to history).
 // `reviewedUrl` (optional): same contract for the « others » section — external
 // « my reviews ↗ » link to the PRs I reviewed (cf. reviewedPRsUrl).
+// `authorUrl` (optional) = login → URL: the « others » Author cells link to
+// that user's PRs (cf. authorPRsUrl); absent → plain text (compat).
 // `reviewCoverage` (optional) = `{ reviewed, merged }` counts (§38): « 1.76 reviews/merge (804/457) »
 // next to that link; absent or merged = 0 → nothing (compat).
 // `sort` (optional) = sort state `{key,dir}` of the « others » table — clickable
@@ -769,6 +774,7 @@ export function renderFragment(data, opts = {}) {
   // `repoOwner` (optional) = the org of the active org favorite: the
   // Repository column then shows bare repo names (cf. repoCell).
   const repoOwner = opts.repoOwner ?? null;
+  const authorUrl = opts.authorUrl ?? null;
   const mine = data?.mine ?? [];
   const hiddenMine = data?.hiddenMine ?? [];
   const hiddenMineCount = data?.hiddenMineCount ?? hiddenMine.length;
@@ -800,7 +806,7 @@ export function renderFragment(data, opts = {}) {
         ? `(${others.length}, ${hiddenCount} hidden)`
         : `(${others.length})`;
     const rows = others.length > 0 || (showHidden && hiddenCount > 0)
-      ? othersTable(others, hiddenRows, now, showHidden, sort, ignoredChecks, cols?.others ?? [], null, repoOwner)
+      ? othersTable(others, hiddenRows, now, showHidden, sort, ignoredChecks, cols?.others ?? [], null, repoOwner, authorUrl)
       : '';
     const gear = cols && rows ? colsMenu('others', OTHERS_COL_KEYS, cols.others ?? []) : '';
     blocks.push(
@@ -2353,16 +2359,22 @@ function pagination(q, sort, page, pages) {
 // table without the ⚡/✕ columns (an inventory, not an inbox), th carrying
 // `data-sort-href` (the server computes the toggled URL: zero client logic),
 // then the pager. Sorting/slicing is done upstream (serve.js): `rows` IS the
-// page. `fetched` = rows collected (≤ cap), `total` = GitHub's count.
-export function renderSearchFragment({ q = '', rows = [], page = 1, pages = 1, pageSize = 25, total = 0, fetched = 0, sort = null, fetchedAt = null, error = null, ghUrl = null } = {}, { now = Date.now(), ignoredChecks = {} } = {}) {
+// page. `fetched` = rows the pager can reach (≤ cap), `total` = GitHub's
+// count. `paged` = GitHub sorted and paginated itself (one page fetched): the
+// summary counts GitHub's total, which only its 1000 first results can reach.
+export function renderSearchFragment({ q = '', rows = [], page = 1, pages = 1, pageSize = 25, total = 0, fetched = 0, paged = false, sort = null, fetchedAt = null, error = null, ghUrl = null } = {}, { now = Date.now(), ignoredChecks = {} } = {}) {
   if (error) return `<p class="empty offline">⚠️ ${escapeHtml(error)}</p>`;
-  const capped = total > fetched ? ` (the ${fetched} most recently updated of ${total} — refine the query)` : '';
+  const count = paged ? total : fetched;
+  const capped = total <= fetched ? ''
+    : paged ? ` (GitHub serves the first ${fetched} of ${total} — refine the query)`
+      : ` (the ${fetched} most recently updated of ${total} — refine the query)`;
   const range = fetched > pageSize ? ` · ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, fetched)}` : '';
   const upd = fetchedAt ? ` · upd ${new Date(fetchedAt).toLocaleTimeString('en-US')}` : '';
   const gh = ghUrl ? ` <a class="hist" href="${escapeHtml(ghUrl)}" target="_blank" rel="noopener">on GitHub ↗</a>` : '';
-  const title = `<h2>🔎 <span class="summary">${fetched} PR${fetched === 1 ? '' : 's'}${capped}${range}${upd}</span>${gh}</h2>`;
+  const title = `<h2>🔎 <span class="summary">${count} PR${count === 1 ? '' : 's'}${capped}${range}${upd}</span>${gh}</h2>`;
+  // Behind is not fetched here (light details, collectSearch) → no column.
   const body = rows.length > 0
-    ? othersTable(rows, [], now, false, sort, ignoredChecks, ['triggers', 'act'], (key) => searchUrl(q, toggleSort(sort, key), 1))
+    ? othersTable(rows, [], now, false, sort, ignoredChecks, ['triggers', 'act', 'behind'], (key) => searchUrl(q, toggleSort(sort, key), 1))
     : '<p class="empty">No PR matches ✨</p>';
   return `<section>${title}${body}${pagination(q, sort, page, pages)}</section>`;
 }

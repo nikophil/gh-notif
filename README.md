@@ -140,9 +140,12 @@ gh notif fav rm zorg          # remove a favorite
 ### Search page — any PR list, with these columns
 
 The 🔎 link in the header opens **`/search`**: type any GitHub search (the same syntax as
-[github.com/pulls](https://github.com/pulls), `is:pr` is added for you) and get **one table with the
-same columns as the dashboard** — CI verdict and checks, diff by file type, approvals, labels,
-branch, time in review… Handy to see at a glance where a colleague is at:
+[github.com/pulls](https://github.com/pulls), `is:pr` is added for you) and get **one table with
+the dashboard's columns** — CI verdict and checks, diff, approvals, labels, branch, time in
+review… (lighter than the dashboard to load faster: no Behind column, no per-file-type diff
+popover). Handy to see at a glance where a colleague is at — on « Activity on
+others' PRs », **click an author's name** to open all their PRs in the displayed scope, newest
+first:
 
 ```text
 author:alice org:acme            # alice's open PRs in the org
@@ -154,9 +157,12 @@ Results are **sorted** by clicking a header and **paginated** (25 per page); the
 query, the sort and the page, so it can be bookmarked or shared. The « closed » and « reviewed »
 links of the dashboard open this page.
 
-> Cost: the search runs **only when you ask** (never in the background poll), is capped to the
-> **200 most recently updated** PRs (the page says so, refine the query) and is cached **5 minutes**
-> — sorting and paging never call GitHub again. 🔄 forces a fresh fetch.
+> Cost: the search runs **only when you ask** (never in the background poll) and is cached
+> **5 minutes**; 🔄 forces a fresh fetch. Sorted by **Updated** (the default) or **Opened**, GitHub
+> sorts and pages itself: only the 25 PRs of the page are fetched (a few seconds per page, up to
+> GitHub's first 1000 results). Any other sort needs every PR's details: the list is capped to the
+> **200 most recently updated** PRs (the page says so, refine the query), slower to load once,
+> then sorting and paging never call GitHub again.
 
 ## The web page
 

@@ -407,10 +407,11 @@ export function searchQuery(raw) {
 // the GraphQL details of those PRs → full rows, like the dashboard's. On
 // demand only — never in the poll (a wide query would cost dozens of GraphQL
 // batches per minute: real rate-limit). `total` = GitHub's count, `capped`
-// tells the page the set was truncated.
-export async function collectSearch(gh, raw, { max = 200, ignoredChecks = {} } = {}) {
+// tells the page the set was truncated. `paged` ({ sort, order, page,
+// perPage }) = a sort GitHub does itself: ONE page of the search instead.
+export async function collectSearch(gh, raw, { max = 200, ignoredChecks = {}, paged = null } = {}) {
   const query = searchQuery(raw);
-  const { items, total } = await gh.searchPRs(query, { max });
+  const { items, total } = paged ? await gh.searchPRsPage(query, paged) : await gh.searchPRs(query, { max });
   const entries = items.map((it) => ({
     repo: it.repository_url.replace('https://api.github.com/repos/', ''),
     number: it.number,
@@ -418,7 +419,8 @@ export async function collectSearch(gh, raw, { max = 200, ignoredChecks = {} } =
     url: it.html_url,
     triggers: new Set(),
   }));
-  const details = await gh.getPullDetailsBatch(entries.map((e) => ({ repo: e.repo, number: e.number })));
+  // light: no Behind column nor per-type diff popover here — a faster batch.
+  const details = await gh.getPullDetailsBatch(entries.map((e) => ({ repo: e.repo, number: e.number })), { light: true });
   const rows = entries.map((e, i) => buildRow(e, details[i], ignoredFor(ignoredChecks, e.repo)));
   return { query, url: `https://github.com/pulls?q=${encodeURIComponent(query)}`, rows, total, capped: total > rows.length };
 }

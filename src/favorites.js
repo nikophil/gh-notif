@@ -157,6 +157,13 @@ export function reviewedPRsUrl(scopes) {
   return `/search?q=${encodeURIComponent(`is:pr reviewed-by:@me -author:@me${scopesQualifier(scopes)}`)}`;
 }
 
+// Link to EVERY PR of `login` (open, merged, closed) on the internal search
+// page, newest opened first — the Author cell of the « others » table.
+// Same contract as closedPRsUrl: contextualized on the displayed scope(s).
+export function authorPRsUrl(login, scopes) {
+  return `/search?q=${encodeURIComponent(`is:pr author:${login}${scopesQualifier(scopes)}`)}&sort=date&dir=desc`;
+}
+
 // Review ratio (§38): the two searches whose GitHub `total_count` give « PRs I
 // reviewed / PRs of mine merged », both over a sliding year (merged date on
 // both sides). `merged:>=` implies is:merged (dropped to stay under the

@@ -732,6 +732,16 @@ test('GET /fragment : « closed » link contextualized (ad-hoc > active favorite
   assert.ok(res.body.includes('is%3Aclosed%20repo%3Ax%2Fy"'));
 });
 
+test('GET /fragment : the others\' Author links to all their PRs, contextualized like « closed »', () => {
+  const snap = { ...okSnapshot(), data: { mine: [], others: [{ repo: 'stark/api', number: 5, url: 'u', title: 't', triggers: ['review'], ci: 'pass', state: 'open', approvals: 0, author: 'alice' }] } };
+  let res = handleRequest('/fragment', snap, OPTS);
+  assert.ok(res.body.includes('href="/search?q=is%3Apr%20author%3Aalice&amp;sort=date&amp;dir=desc"'));
+  res = handleRequest('/fragment', snap, { ...OPTS, favorites: ['stark', 'a/b'], activeFav: 'stark' });
+  assert.ok(res.body.includes('author%3Aalice%20org%3Astark&amp;sort=date'));
+  res = JSON.parse(handleRequest('/view', snap, { ...OPTS, scope: { type: 'repo', value: 'x/y' }, adhoc: true }).body);
+  assert.ok(res.fragment.includes('author%3Aalice%20repo%3Ax%2Fy&amp;sort=date'));
+});
+
 // ── sort of the « others » table ────────────────────────────────────────────
 const sortedSnapshot = () => ({
   data: {
@@ -1328,9 +1338,12 @@ test('POST /cols : hides/shows a column per table, persists, 400 on invalid key'
 });
 
 // ── integration: search page (§29) ──────────────────────────────────────────
-test('search page: one fetch per query, sort/page from the cache, refresh refetches, errors not cached', async () => {
-  let searches = 0;
+test('search page: Updated/Opened sorts page on GitHub (25 detailed), other sorts fetch the capped list; cached, refresh debounced, errors not cached', async () => {
+  let searches = 0; // capped list (local sort)
+  const pagedCalls = []; // one GitHub-sorted page each
+  const detailed = [];
   let fail = false;
+  const item = (n) => ({ repository_url: 'https://api.github.com/repos/stark/web', number: n, title: `t${n}`, html_url: `https://github.com/stark/web/pull/${n}` });
   const gh = {
     getCurrentUser: async () => 'me',
     listNotifications: async () => [],
@@ -1338,14 +1351,23 @@ test('search page: one fetch per query, sort/page from the cache, refresh refetc
     searchAuthored: async () => [],
     searchPRs: async () => {
       searches++;
-      if (fail) throw new Error('gh: API rate limit exceeded (HTTP 403)');
-      return { items: Array.from({ length: 30 }, (_, i) => ({ repository_url: 'https://api.github.com/repos/stark/web', number: i + 1, title: `t${i + 1}`, html_url: `https://github.com/stark/web/pull/${i + 1}` })), total: 30 };
+      return { items: Array.from({ length: 30 }, (_, i) => item(i + 1)), total: 30 };
     },
-    getPullDetailsBatch: async (prs) => prs.map((p) => ({
-      number: p.number, title: `t${p.number}`, author: { login: 'alice' }, createdAt: '2026-06-01T00:00:00Z',
-      updatedAt: `2026-06-${String(p.number).padStart(2, '0')}T00:00:00Z`, additions: p.number, deletions: 0,
-      isDraft: false, state: 'OPEN', reviews: [], statusCheckRollupState: 'SUCCESS',
-    })),
+    searchPRsPage: async (q, opts) => {
+      pagedCalls.push(opts);
+      if (fail) throw new Error('gh: API rate limit exceeded (HTTP 403)');
+      const desc = Array.from({ length: 30 }, (_, i) => 30 - i);
+      const list = opts.order === 'asc' ? [...desc].reverse() : desc;
+      return { items: list.slice((opts.page - 1) * opts.perPage, opts.page * opts.perPage).map(item), total: 30 };
+    },
+    getPullDetailsBatch: async (prs) => {
+      detailed.push(prs.length);
+      return prs.map((p) => ({
+        number: p.number, title: `t${p.number}`, author: { login: 'alice' }, createdAt: '2026-06-01T00:00:00Z',
+        updatedAt: `2026-06-${String(p.number).padStart(2, '0')}T00:00:00Z`, additions: p.number, deletions: 0,
+        isDraft: false, state: 'OPEN', reviews: [], statusCheckRollupState: 'SUCCESS',
+      }));
+    },
     getComment: async () => null,
     getReviewComments: async () => [],
   };
@@ -1359,36 +1381,56 @@ test('search page: one fetch per query, sort/page from the cache, refresh refetc
   const q = encodeURIComponent('author:alice');
   try {
     await new Promise((r) => setTimeout(r, 250)); // 1st poll
-    assert.equal(searches, 0, 'the poll never searches');
+    detailed.length = 0;
+    assert.equal(searches + pagedCalls.length, 0, 'the poll never searches');
 
     const shell = await fetch(`${base}/search?q=${q}`);
     assert.equal(shell.status, 200);
     assert.match(await shell.text(), /value="author:alice"/);
 
+    // Default sort (Updated desc): ONE GitHub page of 25, only those detailed.
     const f1 = await (await fetch(`${base}/search-fragment?q=${q}`)).text();
-    assert.equal(searches, 1);
-    assert.match(f1, /30 PRs/);
+    assert.deepEqual(pagedCalls, [{ sort: 'updated', order: 'desc', page: 1, perPage: 25 }]);
+    assert.equal(searches, 0, 'no capped search');
+    assert.deepEqual(detailed, [25]);
+    assert.match(f1, /30 PRs · 1–25/);
     assert.match(f1, /<span class="on">1<\/span>/);
-    assert.match(f1, /page=2">2<\/a>/);
-    assert.match(f1, />#30 - t30</, 'updated-desc by default: #30 first');
-    assert.ok(!f1.includes('>#1 - t1<'), 'page 1 holds 25 rows: #1 (oldest) is on page 2');
+    assert.match(f1, /page=2">2<\/a>/, 'pager from GitHub\'s total_count');
+    assert.match(f1, />#30 - t30</);
+    assert.ok(!f1.includes('>#5 - t5<'), '#5 is on page 2');
 
-    const f2 = await (await fetch(`${base}/search-fragment?q=${q}&sort=diff&dir=asc&page=2`)).text();
-    assert.equal(searches, 1, 'sort/page served from the cache');
+    // Page 2 = the next GitHub page; the same page again comes from the cache.
+    const f2 = await (await fetch(`${base}/search-fragment?q=${q}&page=2`)).text();
+    assert.deepEqual(pagedCalls.at(-1), { sort: 'updated', order: 'desc', page: 2, perPage: 25 });
     assert.match(f2, /<span class="on">2<\/span>/);
-    assert.match(f2, />#26 - t26</, 'diff asc (additions = number): page 2 = #26–#30');
+    assert.match(f2, />#5 - t5</);
+    await fetch(`${base}/search-fragment?q=${q}&page=2`);
+    assert.equal(pagedCalls.length, 2, 'page 2 served from the cache');
 
-    const f3 = await (await fetch(`${base}/search/refresh?q=${q}`, { method: 'POST' })).text();
-    assert.equal(searches, 1, 'refresh is debounced like POST /refresh: fetched < 10 s ago → served from the cache');
-    assert.match(f3, /30 PRs/);
+    // Opened (date) → GitHub's `created`, direction passed through.
+    const f3 = await (await fetch(`${base}/search-fragment?q=${q}&sort=date&dir=asc`)).text();
+    assert.deepEqual(pagedCalls.at(-1), { sort: 'created', order: 'asc', page: 1, perPage: 25 });
+    assert.match(f3, />#1 - t1</);
+
+    // A sort GitHub cannot do (diff) → the capped list, sorted/paginated locally.
+    const f4 = await (await fetch(`${base}/search-fragment?q=${q}&sort=diff&dir=asc&page=2`)).text();
+    assert.equal(searches, 1);
+    assert.match(f4, /<span class="on">2<\/span>/);
+    assert.match(f4, />#26 - t26</, 'diff asc (additions = number): page 2 = #26–#30');
+    await fetch(`${base}/search-fragment?q=${q}&sort=ci&dir=asc`);
+    assert.equal(searches, 1, 'other local sorts reuse the capped list');
+
+    const f5 = await (await fetch(`${base}/search/refresh?q=${q}`, { method: 'POST' })).text();
+    assert.equal(pagedCalls.length, 3, 'refresh is debounced like POST /refresh: fetched < 10 s ago → served from the cache');
+    assert.match(f5, /30 PRs/);
 
     fail = true;
-    const f4 = await (await fetch(`${base}/search-fragment?q=${encodeURIComponent('author:bob')}`)).text();
-    assert.equal(searches, 2);
-    assert.match(f4, /⚠️ .*rate limit/);
+    const f6 = await (await fetch(`${base}/search-fragment?q=${encodeURIComponent('author:bob')}`)).text();
+    assert.equal(pagedCalls.length, 4);
+    assert.match(f6, /⚠️ .*rate limit/);
     fail = false;
     await fetch(`${base}/search-fragment?q=${encodeURIComponent('author:bob')}`);
-    assert.equal(searches, 3, 'an error is not cached');
+    assert.equal(pagedCalls.length, 5, 'an error is not cached');
   } finally {
     server.close();
     rmSync(tmp, { recursive: true, force: true });

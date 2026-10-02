@@ -33,6 +33,9 @@ const PR_FRAGMENT = `fragment pr on PullRequest {
     } }
   } } } }
 }`;
+// Search page (§29): the same minus the per-file list (per-type diff popover)
+// — with `behind` dropped too, a batch of 25 went from ~4.2 s to ~2.7 s.
+const LIGHT_PR_FRAGMENT = PR_FRAGMENT.replace(/^ {2}files\(first: 100\).*\n/m, '');
 
 // Who opened each unresolved review thread (its first comment) — a second
 // request, after the batch: `comments(first: 1)` nested under
@@ -257,8 +260,8 @@ export function makeGh(runner = defaultRunner, { onError = () => {} } = {}) {
   // throws. Hence per_page=100 + page=N, stopping on the first non-full page.
   // The search API caps at 1000 results anyway → 10 pages max.
   const PER_PAGE = 100;
-  async function searchPage(q, page, extra = []) {
-    return parseJson(await run('SEARCH', ['api', '-X', 'GET', 'search/issues', '-f', `q=${q}`, '-f', `per_page=${PER_PAGE}`, '-f', `page=${page}`, ...extra]));
+  async function searchPage(q, page, extra = [], perPage = PER_PAGE) {
+    return parseJson(await run('SEARCH', ['api', '-X', 'GET', 'search/issues', '-f', `q=${q}`, '-f', `per_page=${perPage}`, '-f', `page=${page}`, ...extra]));
   }
   // ⚠️ A wide query (union of favorites) can time out INSIDE GitHub: the
   // response is then a PARTIAL item list with `incomplete_results: true` and
@@ -330,13 +333,17 @@ export function makeGh(runner = defaultRunner, { onError = () => {} } = {}) {
     // parallel). Returns an array aligned with `prs` ([{repo, number}]); null
     // for a PR not found, and null for an entire failed chunk (degradation).
     // `unresolvedThreads` = unresolved review threads NOT opened by the PR
-    // author (§41); null when a thread's opener is unknown (failed request).
-    async getPullDetailsBatch(prs) {
-      const details = await batched(prs, { perPr: behindField });
-      const openers = await threadOpeners(details.flatMap((d) => d?.unresolvedThreadIds ?? []));
+    // author (§41); null when a thread's opener is unknown (failed request),
+    // and on a merged/closed PR — nobody has to address its threads, so its
+    // openers are never looked up (a search page lists many of those).
+    // `light` (search page): no per-file list, no behind compare.
+    async getPullDetailsBatch(prs, { light = false } = {}) {
+      const details = await batched(prs, light ? { fragment: LIGHT_PR_FRAGMENT } : { perPr: behindField });
+      const live = (d) => d?.state === 'OPEN'; // drafts included (isDraft)
+      const openers = await threadOpeners(details.flatMap((d) => (live(d) && d.unresolvedThreadIds) || []));
       for (const d of details) {
         if (!d) continue;
-        const ids = d.unresolvedThreadIds;
+        const ids = live(d) ? d.unresolvedThreadIds : null;
         d.unresolvedThreads = ids?.every((id) => openers.has(id))
           ? ids.filter((id) => openers.get(id) !== d.author?.login).length
           : null;
@@ -428,6 +435,12 @@ export function makeGh(runner = defaultRunner, { onError = () => {} } = {}) {
         if (got.length < PER_PAGE) break;
       }
       return { items: items.slice(0, max), total };
+    },
+    // Search page (§29), the sorts GitHub can do itself (updated / created):
+    // ONE page, already in the displayed order — only its PRs get detailed.
+    async searchPRsPage(q, { sort, order, page, perPage }) {
+      const out = await searchPage(q, page, ['-f', `sort=${sort}`, '-f', `order=${order}`], perPage);
+      return { items: out?.items ?? [], total: out?.total_count ?? 0 };
     },
     async currentRepo() {
       try {
