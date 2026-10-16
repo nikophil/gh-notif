@@ -16,7 +16,7 @@ import { scopeMatches, scopesQualifier } from './collect.js';
 // not the count (10 favorites with short names pass, 6 with very long names
 // don't). We refuse at add time, with a clear message, rather than silently
 // truncating at collection. Budget = 256 minus the longest of the base queries
-// (`is:open is:pr review-requested:@me`, 34 characters) + margin.
+// (`is:open is:pr archived:false review-requested:@me`, 49 characters) + margin.
 export const MAX_QUALIFIER_LENGTH = 200;
 
 // Scope value (favorite or input field) → scope object, same semantics as

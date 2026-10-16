@@ -660,3 +660,12 @@ test('countPRs: a timed-out search (incomplete_results) throws — an undercount
   const gh = makeGh(fakeRunner([['search/issues', JSON.stringify({ total_count: 3, incomplete_results: true, items: [] })]]));
   await assert.rejects(gh.countPRs('is:pr'), /incomplete/);
 });
+
+test('dashboard searches exclude archived repositories', async () => {
+  const runner = fakeRunner([['search/issues', JSON.stringify({ total_count: 0, incomplete_results: false, items: [] })]]);
+  const gh = makeGh(runner);
+  await gh.searchReviewRequested(' org:acme');
+  await gh.searchAuthored(' org:acme');
+  assert.equal(runner.calls.length, 2);
+  for (const call of runner.calls) assert.match(decodeURIComponent(call.join(' ')), /archived:false/);
+});

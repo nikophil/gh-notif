@@ -75,8 +75,8 @@ flowchart LR
   subgraph GH["GitHub calls (gh api)"]
     direction TB
     E1["GET /notifications<br/>×1"]
-    E2["GET /search/issues<br/>is:open is:pr review-requested:@me · 1 per page of 100"]
-    E3["GET /search/issues<br/>is:open is:pr author:@me · 1 per page of 100"]
+    E2["GET /search/issues<br/>is:open is:pr archived:false review-requested:@me · 1 per page of 100"]
+    E3["GET /search/issues<br/>is:open is:pr archived:false author:@me · 1 per page of 100"]
     E4["POST graphql<br/>PR details · 1 per batch of 30<br/>+ thread openers · 1 per 100 unresolved threads (§41)"]
     E5["GET latest_comment_url<br/>1 per modified thread"]
     E6["GET /repos/.../pulls/N/comments<br/>per_page=100 (+since) · 1 per modified thread"]

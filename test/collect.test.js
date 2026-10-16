@@ -205,7 +205,7 @@ test('scopesQualifier: the real use case stays well under 256 characters', () =>
     { type: 'org', value: 'zorg' },
   ];
   assert.equal(scopesQualifier(scopes), ' org:stark repo:nakatomi/collection org:zorg');
-  const q = `is:open is:pr review-requested:@me${scopesQualifier(scopes)}`;
+  const q = `is:open is:pr archived:false review-requested:@me${scopesQualifier(scopes)}`;
   assert.ok(q.length < 256, `query of ${q.length} characters`);
 });
 

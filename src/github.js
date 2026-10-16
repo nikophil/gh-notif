@@ -356,10 +356,10 @@ export function makeGh(runner = defaultRunner, { onError = () => {} } = {}) {
       return batched(prs, { fragment: STALE_FRAGMENT, spread: 'stale', normalize: normalizeStale });
     },
     async searchReviewRequested(qualifier = '') {
-      return searchIssues(`is:open is:pr review-requested:@me${qualifier}`);
+      return searchIssues(`is:open is:pr archived:false review-requested:@me${qualifier}`);
     },
     async searchAuthored(qualifier = '') {
-      return searchIssues(`is:open is:pr author:@me${qualifier}`);
+      return searchIssues(`is:open is:pr archived:false author:@me${qualifier}`);
     },
     // Stats page (§40): one page of MERGED PRs for a search query, with just
     // what the stats need. ⚠️ Keep it light and the page small: the nested

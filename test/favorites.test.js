@@ -44,10 +44,10 @@ function fillUntilFull(name) {
 
 test('addFavorite: whatever is accepted always fits in a GitHub query', () => {
   // The invariant that matters: whatever we pin, the search stays valid
-  // (< 256 characters, prefix `is:open is:pr review-requested:@me` included).
+  // (< 256 characters, prefix `is:open is:pr archived:false review-requested:@me` included).
   for (const name of [(i) => `org${i}`, (i) => `organisation-tres-longue-${i}/depot-interminable-${i}`]) {
     const list = fillUntilFull(name);
-    const q = `is:open is:pr review-requested:@me${scopesQualifier(favoriteScopes(list))}`;
+    const q = `is:open is:pr archived:false review-requested:@me${scopesQualifier(favoriteScopes(list))}`;
     assert.ok(q.length < 256, `query of ${q.length} characters`);
   }
 });
@@ -66,7 +66,7 @@ test('addFavorite: a duplicate passes even once the cap is reached', () => {
 });
 
 test('MAX_QUALIFIER_LENGTH leaves margin below the GitHub limit of 256', () => {
-  assert.ok(MAX_QUALIFIER_LENGTH < 256 - 34); // 34 = `is:open is:pr review-requested:@me`
+  assert.ok(MAX_QUALIFIER_LENGTH < 256 - 49); // 49 = `is:open is:pr archived:false review-requested:@me`
 });
 
 test('removeFavorite: removes, no-op on absent value', () => {
