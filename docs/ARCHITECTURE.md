@@ -1435,4 +1435,5 @@ sequenceDiagram
 - Entrypoint (`gh-notif`): no unit tests (I/O) → verified by a manual smoke test (launch with
   `--no-open`, curl `/`, `/fragment`, `/debug`, `/api/state`, then stop the process).
 - Before concluding: `npm test` green **and** `for f in gh-notif src/*.js test/*.js; do node --check "$f"; done`.
+  The CI (`.github/workflows/test.yml`) runs both on every push to `main` and on every PR.
 - Every smoke test of the server **MUST pass `--no-open`** (otherwise each launch opens a browser tab).
